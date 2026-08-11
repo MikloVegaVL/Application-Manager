@@ -1,0 +1,15 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Umgebungsvariablen
+.env
+
+# Datenbank
+*.db
+*.sqlite3
+
+# Alembic
+alembic/versions/__pycache__/

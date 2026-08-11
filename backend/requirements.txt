@@ -1,0 +1,28 @@
+# --- Web Framework ---
+fastapi
+uvicorn[standard]
+
+# --- Datenbank / ORM ---
+sqlalchemy
+psycopg2-binary
+alembic
+
+# --- Validation / Settings ---
+pydantic
+pydantic-settings
+python-dotenv
+
+# --- HTTP / Scraping ---
+requests
+playwright
+beautifulsoup4
+
+# --- KI / LLM ---
+openai
+
+# --- Dokumente ---
+pypdf
+weasyprint
+
+# --- Multipart / Form-Uploads ---
+python-multipart
