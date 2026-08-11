@@ -1,9 +1,22 @@
 """Einstiegspunkt der FastAPI-Anwendung."""
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
 from app.core.config import settings
+from app.db.init_db import init_db
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    """Legt beim App-Start alle Datenbank-Tabellen an (sofern nicht
+    bereits vorhanden) und übergibt anschließend an die laufende App."""
+    init_db()
+    yield
+
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -12,6 +25,7 @@ app = FastAPI(
         "Bewerbungsmanagement-Anwendung."
     ),
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # --- CORS-Konfiguration: erlaubt Zugriffe vom Angular-Dev-Server ---

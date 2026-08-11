@@ -10,6 +10,7 @@ alembic
 # --- Validation / Settings ---
 pydantic
 pydantic-settings
+email-validator
 python-dotenv
 
 # --- HTTP / Scraping ---
