@@ -33,6 +33,12 @@ export const routes: Routes = [
     title: 'Editor',
   },
   {
+    path: 'editor/:jobOfferId',
+    loadComponent: () =>
+      import('./pages/editor/editor.component').then((m) => m.EditorComponent),
+    title: 'Editor',
+  },
+  {
     path: '**',
     redirectTo: 'job-search',
   },

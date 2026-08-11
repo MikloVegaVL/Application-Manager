@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 
 @Component({
   selector: 'app-editor',
@@ -8,4 +8,7 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
   styleUrl: './editor.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class EditorComponent {}
+export class EditorComponent {
+  /** Wird über den Routenparameter `:jobOfferId` per Component-Input-Binding befüllt. */
+  readonly jobOfferId = input<string>();
+}
