@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
+from app.api.profile import router as profile_router
 from app.core.config import settings
 from app.db.init_db import init_db
 
@@ -41,6 +42,7 @@ app.add_middleware(
 # --- Router-Registrierung ---
 app.include_router(health_router, prefix=settings.API_V1_PREFIX)
 app.include_router(jobs_router, prefix=settings.API_V1_PREFIX)
+app.include_router(profile_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/", tags=["Root"])

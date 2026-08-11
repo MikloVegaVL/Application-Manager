@@ -8,10 +8,13 @@ from app.schemas.application import (
 from app.schemas.health import HealthResponse
 from app.schemas.job_offer import JobOfferBase, JobOfferCreate, JobOfferRead, JobOfferUpdate
 from app.schemas.master_profile import (
+    EducationEntry,
+    ExperienceEntry,
     MasterProfileBase,
     MasterProfileCreate,
     MasterProfileRead,
     MasterProfileUpdate,
+    ParsedCvProfile,
 )
 
 __all__ = [
@@ -19,6 +22,8 @@ __all__ = [
     "ApplicationCreate",
     "ApplicationRead",
     "ApplicationUpdate",
+    "EducationEntry",
+    "ExperienceEntry",
     "HealthResponse",
     "JobOfferBase",
     "JobOfferCreate",
@@ -28,4 +33,5 @@ __all__ = [
     "MasterProfileCreate",
     "MasterProfileRead",
     "MasterProfileUpdate",
+    "ParsedCvProfile",
 ]
