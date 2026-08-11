@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.application import ApplicationStatus
 
@@ -14,6 +14,8 @@ __all__ = [
     "ApplicationCreate",
     "ApplicationUpdate",
     "ApplicationRead",
+    "ApplicationGenerateRequest",
+    "ApplicationSendRequest",
 ]
 
 
@@ -53,3 +55,22 @@ class ApplicationRead(ApplicationBase):
     id: int
     sent_at: datetime | None = None
     created_at: datetime
+
+
+class ApplicationGenerateRequest(BaseModel):
+    """Payload für `POST /api/applications/generate`."""
+
+    job_offer_id: int
+
+
+class ApplicationSendRequest(BaseModel):
+    """Payload für `POST /api/applications/{id}/send`.
+
+    `to_email` wird explizit übergeben statt aus dem `JobOffer` abgeleitet,
+    da gescrapte Stellenangebote keine strukturierte Kontakt-E-Mail liefern -
+    der Nutzer prüft/ergänzt die Empfängeradresse vor dem Versand.
+    """
+
+    to_email: EmailStr
+    subject: str | None = Field(default=None, max_length=255)
+    message: str | None = None

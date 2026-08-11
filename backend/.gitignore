@@ -13,3 +13,6 @@ __pycache__/
 
 # Alembic
 alembic/versions/__pycache__/
+
+# Generierte Bewerbungs-PDFs
+generated/

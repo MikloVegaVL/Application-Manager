@@ -24,6 +24,7 @@ openai
 # --- Dokumente ---
 pypdf
 weasyprint
+jinja2
 
 # --- Multipart / Form-Uploads ---
 python-multipart

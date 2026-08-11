@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     ARBEITSAGENTUR_CLIENT_ID: str | None = None
     ARBEITSAGENTUR_CLIENT_SECRET: str | None = None
 
+    # --- Generierte Dateien (Bewerbungs-PDFs) ---
+    GENERATED_FILES_DIR: str = "generated/applications"
+
 
 @lru_cache
 def get_settings() -> Settings:

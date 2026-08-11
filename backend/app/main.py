@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.applications import router as applications_router
 from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
 from app.api.profile import router as profile_router
@@ -43,6 +44,7 @@ app.add_middleware(
 app.include_router(health_router, prefix=settings.API_V1_PREFIX)
 app.include_router(jobs_router, prefix=settings.API_V1_PREFIX)
 app.include_router(profile_router, prefix=settings.API_V1_PREFIX)
+app.include_router(applications_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/", tags=["Root"])
