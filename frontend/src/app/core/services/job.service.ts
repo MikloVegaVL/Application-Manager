@@ -34,4 +34,9 @@ export class JobService {
   saveJob(job: JobOffer): Observable<JobOfferRead> {
     return this.http.post<JobOfferRead>(`${this.baseUrl}/save`, job);
   }
+
+  /** Lädt ein einzelnes gespeichertes Stellenangebot (z. B. für den Editor). */
+  getJob(jobOfferId: number): Observable<JobOfferRead> {
+    return this.http.get<JobOfferRead>(`${this.baseUrl}/${jobOfferId}`);
+  }
 }

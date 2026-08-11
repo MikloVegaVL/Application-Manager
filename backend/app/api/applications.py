@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -13,7 +14,13 @@ from app.db.database import get_db
 from app.models.application import Application, ApplicationStatus
 from app.models.job_offer import JobOffer
 from app.models.master_profile import MasterProfile
-from app.schemas.application import ApplicationGenerateRequest, ApplicationRead, ApplicationSendRequest
+from app.schemas.application import (
+    ApplicationGenerateRequest,
+    ApplicationRead,
+    ApplicationSendRequest,
+    ApplicationUpdate,
+)
+from app.schemas.generation import TailoredCv
 from app.services.ai_generator import ApplicationGenerationError, generate_application_content
 from app.services.mail_service import MailSendError, send_application_email
 from app.services.pdf_service import PdfRenderError, render_application_pdf
@@ -73,6 +80,87 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
     job_offer.is_processed = True
     db.commit()
     db.refresh(application)
+
+    return application
+
+
+@router.get("/by-job-offer/{job_offer_id}", response_model=ApplicationRead)
+def get_application_by_job_offer(job_offer_id: int, db: Session = Depends(get_db)) -> Application:
+    """Liefert die zu einem Stellenangebot gehörende Bewerbung (sofern
+    bereits generiert), ohne eine neue KI-Generierung anzustoßen.
+
+    Wird vom Editor genutzt, um bei erneutem Aufruf einer bereits
+    bearbeiteten Bewerbung keine manuellen Änderungen durch eine erneute
+    KI-Generierung zu überschreiben.
+    """
+    application = db.query(Application).filter(Application.job_offer_id == job_offer_id).first()
+    if application is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Für dieses Stellenangebot wurde noch keine Bewerbung generiert.",
+        )
+    return application
+
+
+@router.get("/{application_id}", response_model=ApplicationRead)
+def get_application(application_id: int, db: Session = Depends(get_db)) -> Application:
+    """Liefert eine einzelne Bewerbung (z. B. zum Laden im Editor)."""
+    application = db.get(Application, application_id)
+    if application is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung wurde nicht gefunden.")
+    return application
+
+
+@router.put("/{application_id}", response_model=ApplicationRead)
+def update_application(
+    application_id: int, payload: ApplicationUpdate, db: Session = Depends(get_db)
+) -> Application:
+    """Aktualisiert Anschreiben- und/oder Lebenslauf-Inhalte einer Bewerbung
+    (z. B. manuelle Bearbeitung im Editor) und rendert das PDF aus dem
+    bearbeiteten Inhalt neu - OHNE die KI erneut aufzurufen, damit manuelle
+    Änderungen des Nutzers erhalten bleiben."""
+    application = db.get(Application, application_id)
+    if application is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung wurde nicht gefunden.")
+
+    data = payload.model_dump(exclude_unset=True)
+    for field, value in data.items():
+        setattr(application, field, value)
+    db.commit()
+    db.refresh(application)
+
+    if "cover_letter_text" in data or "tailored_cv_json" in data:
+        job_offer = db.get(JobOffer, application.job_offer_id)
+        if job_offer is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Zugehöriges Stellenangebot wurde nicht gefunden.",
+            )
+        if not application.tailored_cv_json:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Es liegen keine Lebenslauf-Daten vor - bitte zunächst über /generate erzeugen.",
+            )
+
+        try:
+            tailored_cv = TailoredCv.model_validate(application.tailored_cv_json)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Lebenslauf-Daten sind ungültig: {exc}",
+            ) from exc
+
+        try:
+            pdf_bytes = render_application_pdf(application.cover_letter_text or "", tailored_cv, job_offer)
+        except PdfRenderError as exc:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+
+        pdf_path = _pdf_path_for(application.id)
+        pdf_path.parent.mkdir(parents=True, exist_ok=True)
+        pdf_path.write_bytes(pdf_bytes)
+        application.pdf_path = str(pdf_path)
+        db.commit()
+        db.refresh(application)
 
     return application
 

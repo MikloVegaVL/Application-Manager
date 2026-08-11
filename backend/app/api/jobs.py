@@ -45,3 +45,13 @@ def save_job(payload: JobOfferCreate, db: Session = Depends(get_db)) -> JobOffer
     db.commit()
     db.refresh(job_offer)
     return job_offer
+
+
+@router.get("/{job_offer_id}", response_model=JobOfferRead)
+def get_job(job_offer_id: int, db: Session = Depends(get_db)) -> JobOffer:
+    """Liefert ein einzelnes gespeichertes Stellenangebot (z. B. für die
+    Kopfzeile des Bewerbungs-Editors)."""
+    job_offer = db.get(JobOffer, job_offer_id)
+    if job_offer is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stellenangebot wurde nicht gefunden.")
+    return job_offer

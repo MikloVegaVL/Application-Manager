@@ -1,0 +1,20 @@
+.dialog-hint {
+  margin: 0 0 16px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  &__field {
+    width: 100%;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .dialog-hint {
+    color: rgba(255, 255, 255, 0.6);
+  }
+}

@@ -29,13 +29,17 @@ export const routes: Routes = [
   {
     path: 'editor',
     loadComponent: () =>
-      import('./pages/editor/editor.component').then((m) => m.EditorComponent),
+      import('./pages/application-editor/application-editor.component').then(
+        (m) => m.ApplicationEditorComponent,
+      ),
     title: 'Editor',
   },
   {
     path: 'editor/:jobOfferId',
     loadComponent: () =>
-      import('./pages/editor/editor.component').then((m) => m.EditorComponent),
+      import('./pages/application-editor/application-editor.component').then(
+        (m) => m.ApplicationEditorComponent,
+      ),
     title: 'Editor',
   },
   {
