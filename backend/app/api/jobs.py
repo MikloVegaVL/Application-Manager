@@ -4,13 +4,13 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.models.job_offer import JobOffer
-from app.schemas.job_offer import JobOfferCreate, JobOfferRead
+from app.schemas.job_offer import JobOfferCreate, JobOfferRead, JobSearchResponse
 from app.services.job_search_service import JobSearchService, get_job_search_service
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
 
-@router.get("/search", response_model=list[JobOfferCreate])
+@router.get("/search", response_model=JobSearchResponse)
 def search_jobs(
     keywords: str = Query(..., min_length=2, description="Jobtitel / Suchbegriff"),
     location: str | None = Query(default=None, description="Ort oder PLZ"),
@@ -23,10 +23,11 @@ def search_jobs(
         ),
     ),
     service: JobSearchService = Depends(get_job_search_service),
-) -> list[JobOfferCreate]:
-    """Sucht Stellenangebote über die Arbeitsagentur-API und - bei Bedarf -
-    über einen generischen Fallback-Scraper. Liefert die Ergebnisse
-    harmonisiert im `JobOfferCreate`-Format, ohne sie zu speichern."""
+) -> JobSearchResponse:
+    """Sucht Stellenangebote gleichzeitig über Arbeitsagentur, LinkedIn und
+    Xing (und bei Bedarf über den generischen Fallback-Scraper). Liefert
+    die zusammengeführten Ergebnisse plus einen Status pro Quelle, ohne sie
+    zu speichern (KTD2)."""
     return service.search(keywords=keywords, location=location, fallback_url=fallback_url)
 
 
