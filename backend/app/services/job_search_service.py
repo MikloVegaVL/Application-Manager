@@ -1,31 +1,48 @@
 """Service zur Jobsuche.
 
-Aggregiert Stellenangebote aus zwei Quellen und liefert sie in einem
-einheitlichen Format zurück, das direkt dem `JobOfferCreate`-Schema
-entspricht (siehe `app.schemas.job_offer`):
+Aggregiert Stellenangebote aus mehreren Quellen und liefert sie als
+`JobSearchResponse` zurück (siehe `app.schemas.job_offer`):
 
 1. `ArbeitsagenturJobsClient`  - offizielle, öffentliche REST-Schnittstelle
    der Bundesagentur für Arbeit ("Jobsuche API").
-2. `GenericJobScraper`         - generischer Fallback, der eine beliebige
+2. `LinkedInJobsClient` (app.services.job_sources.linkedin) - LinkedIns
+   öffentlicher, anonymer Guest-Suchendpunkt.
+3. `XingJobScraper` (app.services.job_sources.xing)         - Playwright-
+   basiertes Scraping von Xings gerenderter Suchergebnisseite.
+4. `GenericJobScraper`         - generischer Fallback, der eine beliebige
    Jobbörsen-Ergebnisseite lädt (BeautifulSoup, bei JS-lastigen Seiten via
    Playwright) und strukturierte Stellenanzeigen extrahiert.
 
-`JobSearchService` orchestriert beide Quellen: Liefert die Arbeitsagentur-
-API keine Treffer (Ausfall, keine Ergebnisse, Rate-Limit), wird - sofern
-eine `fallback_url` übergeben wurde - der generische Scraper genutzt.
+`JobSearchService` orchestriert die ersten drei Quellen **gleichzeitig**
+über einen `ThreadPoolExecutor` mit einer festen Zeit-Deadline (siehe KTD1
+im Plan: docs/plans/2026-08-12-001-feat-job-search-external-platforms-plan.md).
+Jede Quelle, die innerhalb der Deadline Treffer liefert, trägt zu den
+zusammengeführten Ergebnissen bei; jede Quelle, die einen Fehler wirft, die
+Deadline überschreitet oder leer bleibt, wird im Antwortobjekt als
+"unavailable" markiert statt die gesamte Suche zu blockieren oder die Quelle
+stillschweigend wegzulassen (R5).
+
+Liefert die Arbeitsagentur-API keine Treffer und wurde eine `fallback_url`
+übergeben, wird zusätzlich (wie bisher) der generische `GenericJobScraper`
+befragt - dieser Pfad ist von der neuen Mehrquellen-Suche unberührt.
 """
 from __future__ import annotations
 
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from time import monotonic
 from typing import Any
 from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
 
-from app.schemas.job_offer import JobOfferCreate
+from app.core.config import settings
+from app.schemas.job_offer import JobOfferCreate, JobSearchResponse, SourceStatus
+from app.services.job_sources.linkedin import LinkedInJobsClient
+from app.services.job_sources.xing import XingJobScraper
 
 logger = logging.getLogger(__name__)
 
@@ -47,13 +64,19 @@ class ArbeitsagenturJobsClient:
     oder produktive Nutzung empfiehlt sich ein eigener, registrierter Key
     (siehe https://jobsuche.api.bund.dev/).
 
+    Wichtig: Die Bundesagentur hebt die API-Version regelmäßig an (zuletzt
+    v4 -> v6) und ändert dabei auch das Antwortschema; alte Versionen werden
+    irgendwann mit HTTP 403 abgewiesen. Sollte die Suche wieder leer
+    bleiben, zuerst per curl prüfen, ob eine neuere Version unter
+    https://github.com/bundesAPI/jobsuche-api aktuell ist.
+
     Da es sich um eine inoffizielle Schnittstelle handelt, wird das
     Antwortformat defensiv geparst (`.get()` mit Fallbacks) - ein einzelner
     unerwarteter Datensatz darf niemals die gesamte Suche zum Absturz
     bringen.
     """
 
-    BASE_URL = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4"
+    BASE_URL = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6"
     API_KEY = "jobboerse-jobsuche"
     SOURCE_PLATFORM = "arbeitsagentur"
 
@@ -94,7 +117,7 @@ class ArbeitsagenturJobsClient:
             logger.warning("Arbeitsagentur-API lieferte kein valides JSON zurück.")
             return []
 
-        raw_offers = payload.get("stellenangebote") or []
+        raw_offers = payload.get("ergebnisliste") or []
         offers: list[JobOfferCreate] = []
         for raw_offer in raw_offers:
             try:
@@ -104,24 +127,28 @@ class ArbeitsagenturJobsClient:
         return offers
 
     def _map_offer(self, raw: dict[str, Any]) -> JobOfferCreate:
-        """Wandelt einen rohen API-Datensatz in ein harmonisiertes JobOffer um."""
-        arbeitsort = raw.get("arbeitsort") or {}
-        location_parts = [arbeitsort.get("plz"), arbeitsort.get("ort")]
+        """Wandelt einen rohen API-Datensatz (Schema v6) in ein harmonisiertes JobOffer um."""
+        lokationen = raw.get("stellenlokationen") or []
+        adresse = (lokationen[0].get("adresse") or {}) if lokationen else {}
+        location_parts = [adresse.get("plz"), adresse.get("ort")]
         location = " ".join(part for part in location_parts if part) or None
 
-        refnr = raw.get("refnr", "")
-        detail_url = (
-            f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{refnr}"
-            if refnr
+        # Manche Angebote verlinken direkt auf die Karriereseite des
+        # Unternehmens (externeURL) - sonst Fallback auf die öffentliche
+        # Detailseite der Arbeitsagentur anhand der Referenznummer.
+        referenznummer = raw.get("referenznummer", "")
+        detail_url = raw.get("externeURL") or (
+            f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{referenznummer}"
+            if referenznummer
             else f"{self.BASE_URL}/jobs"
         )
 
         return JobOfferCreate(
-            title=raw.get("titel") or raw.get("beruf") or "Unbekannte Position",
-            company=raw.get("arbeitgeber") or "Unbekanntes Unternehmen",
+            title=raw.get("stellenangebotsTitel") or raw.get("hauptberuf") or "Unbekannte Position",
+            company=raw.get("firma") or "Unbekanntes Unternehmen",
             location=location,
             source_url=detail_url,
-            description_text=None,  # Volltext erfordert einen separaten Detail-Call
+            description_text=None,  # Volltext erfordert einen separaten Detail-Call (v4/jobdetails)
             source_platform=self.SOURCE_PLATFORM,
         )
 
@@ -317,47 +344,97 @@ class GenericJobScraper:
 class JobSearchService:
     """Orchestriert die Jobsuche über alle verfügbaren Quellen.
 
-    Primärquelle ist die Arbeitsagentur-API. Liefert sie keine Treffer
-    (z. B. wegen eines Ausfalls oder schlicht keiner Ergebnisse) und wurde
-    eine `fallback_url` übergeben, wird zusätzlich der generische
-    Web-Scraper befragt.
+    Arbeitsagentur, LinkedIn und Xing werden gleichzeitig abgefragt (KTD1)
+    und liefern eine `JobSearchResponse` mit zusammengeführten Ergebnissen
+    plus einem Status pro Quelle. Liefert Arbeitsagentur keine Treffer und
+    wurde eine `fallback_url` übergeben, wird zusätzlich (wie bisher) der
+    generische Web-Scraper befragt.
     """
 
     def __init__(
         self,
         arbeitsagentur_client: ArbeitsagenturJobsClient | None = None,
         fallback_scraper: GenericJobScraper | None = None,
+        linkedin_client: LinkedInJobsClient | None = None,
+        xing_client: XingJobScraper | None = None,
+        deadline_seconds: float | None = None,
     ) -> None:
         self._arbeitsagentur_client = arbeitsagentur_client or ArbeitsagenturJobsClient()
         self._fallback_scraper = fallback_scraper or GenericJobScraper()
+        self._linkedin_client = linkedin_client or LinkedInJobsClient(
+            result_cap=settings.JOB_SEARCH_LINKEDIN_RESULT_CAP,
+            cooldown_seconds=settings.JOB_SEARCH_LINKEDIN_COOLDOWN_SECONDS,
+        )
+        self._xing_client = xing_client or XingJobScraper()
+        self._deadline_seconds = (
+            deadline_seconds if deadline_seconds is not None else settings.JOB_SEARCH_DEADLINE_SECONDS
+        )
 
     def search(
         self,
         keywords: str,
         location: str | None = None,
         fallback_url: str | None = None,
-    ) -> list[JobOfferCreate]:
-        """Sucht Stellenangebote und liefert sie im einheitlichen
-        `JobOfferCreate`-Format zurück."""
-        results = self._arbeitsagentur_client.search(keywords=keywords, location=location)
-        if results:
-            logger.info(
-                "Arbeitsagentur-API lieferte %d Treffer für '%s' (%s).",
-                len(results),
-                keywords,
-                location or "beliebiger Ort",
-            )
-            return results
+    ) -> JobSearchResponse:
+        """Fragt Arbeitsagentur, LinkedIn und Xing gleichzeitig ab und
+        liefert eine zusammengeführte `JobSearchResponse` (KTD1/KTD2)."""
+        primary_clients: dict[str, Any] = {
+            ArbeitsagenturJobsClient.SOURCE_PLATFORM: self._arbeitsagentur_client,
+        }
+        if settings.JOB_SEARCH_LINKEDIN_ENABLED:
+            primary_clients[LinkedInJobsClient.SOURCE_PLATFORM] = self._linkedin_client
+        if settings.JOB_SEARCH_XING_ENABLED:
+            primary_clients[XingJobScraper.SOURCE_PLATFORM] = self._xing_client
 
-        if not fallback_url:
-            logger.info(
-                "Keine Treffer über die Arbeitsagentur-API und keine "
-                "fallback_url angegeben - Suche liefert keine Ergebnisse."
-            )
-            return []
+        results: list[JobOfferCreate] = []
+        sources: list[SourceStatus] = []
+        arbeitsagentur_results: list[JobOfferCreate] = []
 
-        logger.info("Keine Treffer über die Arbeitsagentur-API - nutze Fallback-Scraper (%s).", fallback_url)
-        return self._fallback_scraper.search(url=fallback_url, keywords=keywords, location=location)
+        # NICHT `with ThreadPoolExecutor(...) as executor:` - dessen eigenes
+        # __exit__ ruft shutdown(wait=True) auf, was genau auf das
+        # ausgelaufene Future warten würde, das diese Deadline verhindern
+        # soll (KTD1).
+        executor = ThreadPoolExecutor(max_workers=len(primary_clients))
+        try:
+            deadline = monotonic() + self._deadline_seconds
+            futures = {
+                source_name: executor.submit(client.search, keywords, location)
+                for source_name, client in primary_clients.items()
+            }
+            for source_name, future in futures.items():
+                try:
+                    offers = future.result(timeout=max(0.0, deadline - monotonic()))
+                except FuturesTimeoutError:
+                    logger.warning("Quelle '%s' hat die Such-Deadline überschritten.", source_name)
+                    sources.append(SourceStatus(platform=source_name, status="unavailable", reason="timeout"))
+                    continue
+                except Exception:  # noqa: BLE001 - eine fehlschlagende Quelle darf die anderen nicht stoppen
+                    logger.exception("Quelle '%s' ist mit einem Fehler fehlgeschlagen.", source_name)
+                    sources.append(SourceStatus(platform=source_name, status="unavailable", reason="error"))
+                    continue
+
+                if source_name == ArbeitsagenturJobsClient.SOURCE_PLATFORM:
+                    arbeitsagentur_results = offers
+
+                if offers:
+                    results.extend(offers)
+                    sources.append(SourceStatus(platform=source_name, status="ok"))
+                else:
+                    reason = "empty"
+                    if source_name == LinkedInJobsClient.SOURCE_PLATFORM and LinkedInJobsClient.is_cooldown_active():
+                        reason = "rate-limited"
+                    sources.append(SourceStatus(platform=source_name, status="unavailable", reason=reason))
+        finally:
+            # wait=False: ein bereits als "timeout" markiertes Future darf im
+            # Hintergrund zu Ende laufen, ohne die Antwort zu blockieren (KTD1).
+            executor.shutdown(wait=False)
+
+        if not arbeitsagentur_results and fallback_url:
+            logger.info("Keine Treffer über die Arbeitsagentur-API - nutze Fallback-Scraper (%s).", fallback_url)
+            fallback_results = self._fallback_scraper.search(url=fallback_url, keywords=keywords, location=location)
+            results.extend(fallback_results)
+
+        return JobSearchResponse(results=results, sources=sources)
 
 
 def get_job_search_service() -> JobSearchService:

@@ -123,6 +123,14 @@ class LinkedInJobsClient:
     # --- Cooldown-Verwaltung (Klassen-Level, siehe Moduldocstring) --------
 
     @classmethod
+    def is_cooldown_active(cls) -> bool:
+        """Öffentliche Abfrage, ob der Client sich aktuell im Rate-Limit-
+        Cooldown befindet - genutzt vom Orchestrator (`JobSearchService`),
+        um eine leere Ergebnisliste als "rate-limited" statt generisch
+        "empty" zu kennzeichnen (KTD5)."""
+        return cls._in_cooldown()
+
+    @classmethod
     def _in_cooldown(cls) -> bool:
         return time.monotonic() < cls._cooldown_until
 
