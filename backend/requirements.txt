@@ -28,3 +28,9 @@ jinja2
 
 # --- Multipart / Form-Uploads ---
 python-multipart
+
+# --- Testing ---
+pytest
+pytest-mock
+requests-mock
+httpx
