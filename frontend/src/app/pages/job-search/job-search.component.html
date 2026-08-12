@@ -39,8 +39,30 @@
     <p class="job-search__error">{{ errorMessage() }}</p>
   }
 
+  @if (!loading() && hasSearched() && !errorMessage() && sourceStatuses().length > 0) {
+    <div class="job-search__source-status">
+      <mat-chip-set>
+        @for (source of sourceStatuses(); track source.platform) {
+          <mat-chip [class.job-search__source-chip--unavailable]="source.status === 'unavailable'">
+            <mat-icon matChipAvatar>{{ source.status === 'ok' ? 'check_circle' : 'error_outline' }}</mat-icon>
+            {{ sourceLabel(source.platform) }}
+            @if (source.status === 'unavailable') {
+              · nicht verfügbar
+            }
+          </mat-chip>
+        }
+      </mat-chip-set>
+    </div>
+  }
+
   @if (!loading() && hasSearched() && !errorMessage() && results().length === 0) {
-    <p class="job-search__empty">Keine Stellenangebote gefunden. Versuche einen anderen Suchbegriff oder Ort.</p>
+    @if (allSourcesUnavailable()) {
+      <p class="job-search__empty">
+        Alle Quellen waren gerade nicht erreichbar. Bitte versuche es in ein paar Minuten erneut.
+      </p>
+    } @else {
+      <p class="job-search__empty">Keine Stellenangebote gefunden. Versuche einen anderen Suchbegriff oder Ort.</p>
+    }
   }
 
   @if (!loading() && results().length > 0) {

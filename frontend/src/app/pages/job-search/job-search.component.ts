@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -12,7 +12,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar } from '@angular/material/snack-bar';
 
-import { JobOffer } from '../../core/models/job-offer.model';
+import { JobOffer, SourceStatus } from '../../core/models/job-offer.model';
 import { JobService } from '../../core/services/job.service';
 
 @Component({
@@ -44,9 +44,28 @@ export class JobSearchComponent {
   });
 
   protected readonly results = signal<JobOffer[]>([]);
+  /** Status pro Quelle (Arbeitsagentur/LinkedIn/Xing) der letzten Suche - siehe R5. */
+  protected readonly sourceStatuses = signal<SourceStatus[]>([]);
   protected readonly loading = signal(false);
   protected readonly hasSearched = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
+
+  protected readonly unavailableSources = computed(() =>
+    this.sourceStatuses().filter((source) => source.status === 'unavailable'),
+  );
+
+  /** True, wenn jede abgefragte Quelle in der letzten Suche unavailable war -
+   * dann ist eine leere Ergebnisliste kein "falscher Suchbegriff", sondern
+   * ein Erreichbarkeitsproblem (siehe Design-Review zu U7). */
+  protected readonly allSourcesUnavailable = computed(
+    () => this.sourceStatuses().length > 0 && this.unavailableSources().length === this.sourceStatuses().length,
+  );
+
+  private static readonly SOURCE_LABELS: Record<string, string> = {
+    arbeitsagentur: 'Arbeitsagentur',
+    linkedin: 'LinkedIn',
+    xing: 'Xing',
+  };
 
   /** Merkt sich bereits gespeicherte Jobs (source_url -> DB-ID), um Doppel-Saves zu vermeiden. */
   private readonly savedJobIds = signal<Map<string, number>>(new Map());
@@ -62,20 +81,31 @@ export class JobSearchComponent {
     const { keywords, location } = this.searchForm.getRawValue();
     this.loading.set(true);
     this.errorMessage.set(null);
+    // Status der vorherigen Suche zurücksetzen - sonst könnte z. B. noch
+    // "LinkedIn nicht verfügbar" von der letzten Suche angezeigt werden,
+    // während die neue Suche noch läuft.
+    this.sourceStatuses.set([]);
     this.hasSearched.set(true);
 
     this.jobService.searchJobs(keywords.trim(), location.trim() || undefined).subscribe({
-      next: (offers) => {
-        this.results.set(offers);
+      next: (response) => {
+        this.results.set(response.results);
+        this.sourceStatuses.set(response.sources);
         this.loading.set(false);
       },
       error: (error: HttpErrorResponse) => {
         console.error('Jobsuche fehlgeschlagen', error);
         this.results.set([]);
+        this.sourceStatuses.set([]);
         this.loading.set(false);
         this.errorMessage.set('Die Jobsuche ist fehlgeschlagen. Bitte versuche es später erneut.');
       },
     });
+  }
+
+  /** Menschenlesbares Label für einen Quellen-Platform-Key (z. B. "linkedin" -> "LinkedIn"). */
+  sourceLabel(platform: string): string {
+    return JobSearchComponent.SOURCE_LABELS[platform] ?? platform;
   }
 
   isSaved(job: JobOffer): boolean {
