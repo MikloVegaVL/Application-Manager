@@ -1,0 +1,181 @@
+"""Tests für `XingJobScraper` (siehe backend/app/services/job_sources/xing.py).
+
+Deckt die Testszenarien aus U3 des Plans ab:
+docs/plans/2026-08-12-001-feat-job-search-external-platforms-plan.md
+"""
+from __future__ import annotations
+
+import threading
+import time
+from contextlib import contextmanager
+from unittest.mock import MagicMock
+
+import pytest
+
+from app.services.job_sources import xing as xing_module
+from app.services.job_sources.xing import XingJobScraper
+
+TWO_CARDS_HTML = """
+<html><body>
+  <div class="job-teaser-card">
+    <h2><a href="/stellenangebote/12345-angular-developer">Angular Developer</a></h2>
+    <span class="company-name">Acme GmbH</span>
+    <span class="job-location">Berlin</span>
+  </div>
+  <div class="job-teaser-card">
+    <h2><a href="https://www.xing.com/stellenangebote/67890-backend-engineer">Backend Engineer</a></h2>
+    <span class="company-name">Beta AG</span>
+    <span class="job-location">Munich</span>
+  </div>
+</body></html>
+"""
+
+ZERO_CARDS_HTML = "<html><body><p>Keine Ergebnisse</p></body></html>"
+
+
+def _fake_playwright(html: str) -> MagicMock:
+    """Baut ein Fake-`playwright`-Objekt, das `html` als Seiteninhalt liefert."""
+    page = MagicMock()
+    page.goto = MagicMock()
+    page.content = MagicMock(return_value=html)
+
+    browser = MagicMock()
+    browser.new_page = MagicMock(return_value=page)
+    browser.close = MagicMock()
+
+    playwright = MagicMock()
+    playwright.chromium.launch = MagicMock(return_value=browser)
+    return playwright
+
+
+def _fake_sync_playwright_factory(html: str):
+    """Baut das Callable, das den lokalen Namen `sync_playwright` ersetzt -
+    `sync_playwright()` liefert einen Context Manager, dessen `__enter__`
+    das Fake-`playwright`-Objekt zurückgibt (analog zur echten API)."""
+    playwright = _fake_playwright(html)
+
+    @contextmanager
+    def _cm():
+        yield playwright
+
+    return _cm
+
+
+@pytest.fixture(autouse=True)
+def _restore_semaphore():
+    """Jeder Test bekommt ein frisches Semaphore, damit Tests sich nicht
+    gegenseitig über gehaltene Permits beeinflussen."""
+    original = xing_module._playwright_launch_semaphore
+    xing_module._playwright_launch_semaphore = threading.Semaphore(2)
+    yield
+    xing_module._playwright_launch_semaphore = original
+
+
+def test_happy_path_returns_mapped_offers(mocker):
+    mocker.patch.object(xing_module, "sync_playwright", _fake_sync_playwright_factory(TWO_CARDS_HTML))
+
+    offers = XingJobScraper().search("Angular", "Berlin")
+
+    assert len(offers) == 2
+    assert all(offer.source_platform == "xing" for offer in offers)
+    assert offers[0].title == "Angular Developer"
+    assert offers[0].company == "Acme GmbH"
+    assert offers[0].location == "Berlin"
+
+
+def test_zero_cards_returns_empty_list(mocker):
+    mocker.patch.object(xing_module, "sync_playwright", _fake_sync_playwright_factory(ZERO_CARDS_HTML))
+
+    offers = XingJobScraper().search("Nonexistent Role")
+
+    assert offers == []
+
+
+def test_source_url_is_xing_detail_link_not_search_page(mocker):
+    """Covers AE2: der Link zeigt auf die echte Xing-Detailseite der
+    Stellenanzeige, nicht auf die Suchergebnisseite."""
+    mocker.patch.object(xing_module, "sync_playwright", _fake_sync_playwright_factory(TWO_CARDS_HTML))
+
+    offers = XingJobScraper().search("Angular")
+
+    assert offers[0].source_url == "https://www.xing.com/stellenangebote/12345-angular-developer"
+    assert offers[1].source_url == "https://www.xing.com/stellenangebote/67890-backend-engineer"
+    assert "search" not in offers[0].source_url
+
+
+def test_playwright_launch_failure_returns_empty_list_without_raising(mocker):
+    @contextmanager
+    def _raising_cm():
+        raise RuntimeError("simulated launch/navigation failure (e.g. geo-block)")
+        yield  # pragma: no cover - unreachable, satisfies generator shape
+
+    mocker.patch.object(xing_module, "sync_playwright", _raising_cm)
+
+    offers = XingJobScraper().search("Angular")
+
+    assert offers == []
+
+
+def test_inner_timeout_treated_same_as_launch_failure(mocker):
+    """Ein Playwright-Timeout beim `page.goto` wird von derselben
+    generischen except-Klausel wie ein Start-/Navigationsfehler behandelt -
+    leere Liste, keine unbehandelte Exception, kein Hang."""
+    page = MagicMock()
+    page.goto = MagicMock(side_effect=TimeoutError("Timeout exceeded while navigating"))
+    browser = MagicMock()
+    browser.new_page = MagicMock(return_value=page)
+    browser.close = MagicMock()
+    playwright = MagicMock()
+    playwright.chromium.launch = MagicMock(return_value=browser)
+
+    @contextmanager
+    def _cm():
+        yield playwright
+
+    mocker.patch.object(xing_module, "sync_playwright", _cm)
+
+    offers = XingJobScraper(inner_timeout=0.01).search("Angular")
+
+    assert offers == []
+    browser.close.assert_called_once()  # Browser wird trotz Timeout sauber geschlossen
+
+
+def test_concurrent_searches_serialize_on_the_semaphore(mocker):
+    """Zwei gleichzeitige `.search()`-Aufrufe dürfen nie gleichzeitig einen
+    Browser starten - das Semaphore serialisiert den Start (KTD6), nicht
+    die ganze Methode."""
+    xing_module._playwright_launch_semaphore = threading.Semaphore(1)
+
+    concurrent_launches = 0
+    max_concurrent_launches = 0
+    lock = threading.Lock()
+    fake_playwright = _fake_playwright(ZERO_CARDS_HTML)
+
+    @contextmanager
+    def _slow_cm():
+        nonlocal concurrent_launches, max_concurrent_launches
+        with lock:
+            concurrent_launches += 1
+            max_concurrent_launches = max(max_concurrent_launches, concurrent_launches)
+        try:
+            time.sleep(0.05)  # hält das Semaphore kurz, damit ein zweiter Thread anstehen muss
+            yield fake_playwright
+        finally:
+            with lock:
+                concurrent_launches -= 1
+
+    # Jeder Aufruf von `sync_playwright()` liefert einen frischen Context
+    # Manager (wie die echte API) - `_slow_cm` selbst ist das Callable,
+    # nicht bereits ein aufgerufener Generator.
+    mocker.patch.object(xing_module, "sync_playwright", _slow_cm)
+
+    threads = [
+        threading.Thread(target=lambda: XingJobScraper().search("Angular"))
+        for _ in range(2)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert max_concurrent_launches == 1
