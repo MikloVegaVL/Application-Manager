@@ -1,0 +1,15 @@
+# Umgebungsvariablen
+.env
+env
+__pycache__/
+node_modules/
+dist/
+*.pyc
+
+# Generierte Bewerbungs-PDFs (Docker-Volume-Mount)
+backend/generated/
+
+# Betriebssystem / Editoren
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,54 @@
+services:
+  # --- PostgreSQL-Datenbank -------------------------------------------------
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_password}
+      POSTGRES_DB: ${POSTGRES_DB:-application_manager}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app_user} -d ${POSTGRES_DB:-application_manager}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # --- FastAPI-Backend -------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    # Übernimmt OPENAI_API_KEY, SMTP-Zugangsdaten etc. aus backend/.env
+    # (siehe backend/.env.example -> vor dem ersten Start nach backend/.env kopieren).
+    # DATABASE_URL wird hier bewusst überschrieben, damit gegen den
+    # PostgreSQL-Container statt der lokalen SQLite-Datei verbunden wird.
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-app_user}:${POSTGRES_PASSWORD:-app_password}@db:5432/${POSTGRES_DB:-application_manager}
+    volumes:
+      # Persistiert generierte Bewerbungs-PDFs über Container-Neustarts hinweg.
+      - ./backend/generated:/app/generated
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  # --- Angular-Frontend (Nginx) ----------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
