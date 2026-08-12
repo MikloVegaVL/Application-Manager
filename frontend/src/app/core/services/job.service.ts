@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
-import { JobOffer, JobOfferRead } from '../models/job-offer.model';
+import { JobOffer, JobOfferRead, JobSearchResponse } from '../models/job-offer.model';
 
 /**
  * Kommuniziert mit den Job-Endpunkten des Backends
@@ -15,10 +15,11 @@ export class JobService {
   private readonly baseUrl = `${environment.apiBaseUrl}/jobs`;
 
   /**
-   * Sucht Stellenangebote über die Arbeitsagentur-API und - falls diese
-   * keine Treffer liefert - optional über den generischen Fallback-Scraper.
+   * Sucht Stellenangebote gleichzeitig über Arbeitsagentur, LinkedIn und
+   * Xing (und bei Bedarf über den generischen Fallback-Scraper). Liefert
+   * die zusammengeführten Ergebnisse plus einen Status pro Quelle.
    */
-  searchJobs(keywords: string, location?: string, fallbackUrl?: string): Observable<JobOffer[]> {
+  searchJobs(keywords: string, location?: string, fallbackUrl?: string): Observable<JobSearchResponse> {
     let params = new HttpParams().set('keywords', keywords);
     if (location) {
       params = params.set('location', location);
@@ -27,7 +28,7 @@ export class JobService {
       params = params.set('fallback_url', fallbackUrl);
     }
 
-    return this.http.get<JobOffer[]>(`${this.baseUrl}/search`, { params });
+    return this.http.get<JobSearchResponse>(`${this.baseUrl}/search`, { params });
   }
 
   /** Speichert ein ausgewähltes Suchergebnis dauerhaft als `JobOffer`. */
