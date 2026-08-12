@@ -48,14 +48,13 @@ class SourceStatus(BaseModel):
     KTD1/KTD2 im Plan: `docs/plans/2026-08-12-001-feat-job-search-external-platforms-plan.md`).
 
     `status="unavailable"` deckt laut R5 sowohl echte Fehler/Timeouts als
-    auch eine leere Trefferliste ab - `reason` unterscheidet den Fall näher
-    (z. B. "timeout", "rate-limited", "error", "empty"), ist aber optional
-    und für `status="ok"` nicht gesetzt.
+    auch eine leere Trefferliste ab - `reason` unterscheidet den Fall näher,
+    ist aber optional und für `status="ok"` nicht gesetzt.
     """
 
     platform: str = Field(..., max_length=100)
     status: Literal["ok", "unavailable"]
-    reason: str | None = None
+    reason: Literal["timeout", "rate-limited", "error", "empty"] | None = None
 
 
 class JobSearchResponse(BaseModel):

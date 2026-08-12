@@ -30,7 +30,7 @@ export interface JobOfferRead extends JobOffer {
 export interface SourceStatus {
   platform: string;
   status: 'ok' | 'unavailable';
-  reason: string | null;
+  reason: 'timeout' | 'rate-limited' | 'error' | 'empty' | null;
 }
 
 /**
