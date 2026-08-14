@@ -32,6 +32,23 @@ TWO_CARDS_HTML = """
 
 ZERO_CARDS_HTML = "<html><body><p>Keine Ergebnisse</p></body></html>"
 
+# Eine Karte mit einem Titel jenseits von JobOfferCreate.title's max_length=255
+# (Pydantic-ValidationError), gefolgt von einer normalen, gültigen Karte -
+# beweist, dass eine defekte Karte nicht die ganze Extraktion verwirft.
+ONE_BROKEN_ONE_VALID_HTML = f"""
+<html><body>
+  <div class="job-teaser-card">
+    <h2><a href="/stellenangebote/99999-broken">{"x" * 300}</a></h2>
+    <span class="company-name">Broken GmbH</span>
+  </div>
+  <div class="job-teaser-card">
+    <h2><a href="/stellenangebote/12345-angular-developer">Angular Developer</a></h2>
+    <span class="company-name">Acme GmbH</span>
+    <span class="job-location">Berlin</span>
+  </div>
+</body></html>
+"""
+
 
 def _fake_playwright(html: str) -> MagicMock:
     """Baut ein Fake-`playwright`-Objekt, das `html` als Seiteninhalt liefert."""
@@ -89,6 +106,21 @@ def test_zero_cards_returns_empty_list(mocker):
     offers = XingJobScraper().search("Nonexistent Role")
 
     assert offers == []
+
+
+def test_one_malformed_card_does_not_discard_the_others(mocker):
+    """A card whose fields fail JobOfferCreate's validation (e.g. an
+    oversized title) must not abort extraction for the whole page - the
+    other, valid cards still come back, mirroring the per-record isolation
+    ArbeitsagenturJobsClient/LinkedInJobsClient already use."""
+    mocker.patch.object(
+        xing_module, "sync_playwright", _fake_sync_playwright_factory(ONE_BROKEN_ONE_VALID_HTML)
+    )
+
+    offers = XingJobScraper().search("Angular")
+
+    assert len(offers) == 1
+    assert offers[0].title == "Angular Developer"
 
 
 def test_source_url_is_xing_detail_link_not_search_page(mocker):

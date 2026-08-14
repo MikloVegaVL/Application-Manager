@@ -137,39 +137,46 @@ class XingJobScraper:
 
         candidates = soup.find_all(class_=_JOB_CLASS_PATTERN) + soup.find_all("article")
         for node in candidates:
-            title_el = node.find(["h1", "h2", "h3", "a"])
-            if title_el is None:
+            try:
+                offer = self._map_node(node, source_url, seen_titles)
+            except Exception:  # noqa: BLE001 - eine defekte Karte darf die übrigen nicht verwerfen
+                logger.exception("Konnte Xing-Job-Karte nicht verarbeiten.")
                 continue
-            title = title_el.get_text(strip=True)
-            if len(title) < 3 or title in seen_titles:
-                continue
-
-            link_el = node.find("a", href=True)
-            href = link_el["href"] if link_el else None
-            if not href:
-                # Ohne echten Link auf die Detailseite lässt sich R3 nicht
-                # erfüllen - Karte überspringen statt auf die Suchseite zu verlinken.
-                continue
-            full_url = href if href.startswith("http") else urljoin(source_url, href)
-
-            company_el = node.find(class_=_COMPANY_CLASS_PATTERN)
-            company = company_el.get_text(strip=True) if company_el else "Unbekanntes Unternehmen"
-
-            location_el = node.find(class_=_LOCATION_CLASS_PATTERN)
-            location = location_el.get_text(strip=True) if location_el else None
-
-            seen_titles.add(title)
-            offers.append(
-                JobOfferCreate(
-                    title=title,
-                    company=company,
-                    location=location,
-                    source_url=full_url,
-                    description_text=None,
-                    source_platform=self.SOURCE_PLATFORM,
-                )
-            )
+            if offer is not None:
+                offers.append(offer)
             if len(offers) >= self._MAX_RESULTS:
                 break
 
         return offers
+
+    def _map_node(self, node: Any, source_url: str, seen_titles: set[str]) -> JobOfferCreate | None:
+        title_el = node.find(["h1", "h2", "h3", "a"])
+        if title_el is None:
+            return None
+        title = title_el.get_text(strip=True)
+        if len(title) < 3 or title in seen_titles:
+            return None
+
+        link_el = node.find("a", href=True)
+        href = link_el["href"] if link_el else None
+        if not href:
+            # Ohne echten Link auf die Detailseite lässt sich R3 nicht
+            # erfüllen - Karte überspringen statt auf die Suchseite zu verlinken.
+            return None
+        full_url = href if href.startswith("http") else urljoin(source_url, href)
+
+        company_el = node.find(class_=_COMPANY_CLASS_PATTERN)
+        company = company_el.get_text(strip=True) if company_el else "Unbekanntes Unternehmen"
+
+        location_el = node.find(class_=_LOCATION_CLASS_PATTERN)
+        location = location_el.get_text(strip=True) if location_el else None
+
+        seen_titles.add(title)
+        return JobOfferCreate(
+            title=title,
+            company=company,
+            location=location,
+            source_url=full_url,
+            description_text=None,
+            source_platform=self.SOURCE_PLATFORM,
+        )

@@ -174,6 +174,21 @@ def test_fallback_only_triggers_when_arbeitsagentur_empty_and_fallback_url_given
 
     assert len(fallback.calls) == 1
     assert any(offer.source_platform == "web-scraper" for offer in response.results)
+    # Der Fallback-Pfad braucht einen eigenen Status-Eintrag - sonst verletzt
+    # die Antwort ihre eigene Zusicherung, dass `sources` jede zu `results`
+    # beitragende Quelle abdeckt.
+    fallback_status = next(s for s in response.sources if s.platform == "web-scraper")
+    assert fallback_status.status == "ok"
+
+
+def test_fallback_with_no_results_still_gets_a_source_status():
+    service, *_client, fallback = _service(aa_offers=[], fallback_offers=[])
+
+    response = service.search("Angular", fallback_url="https://example.com/jobs")
+
+    fallback_status = next(s for s in response.sources if s.platform == "web-scraper")
+    assert fallback_status.status == "unavailable"
+    assert fallback_status.reason == "empty"
 
 
 def test_fallback_does_not_trigger_without_fallback_url():
@@ -192,3 +207,13 @@ def test_fallback_does_not_trigger_when_arbeitsagentur_has_results():
     service.search("Angular", fallback_url="https://example.com/jobs")
 
     assert fallback.calls == []
+
+
+def test_default_xing_client_inner_timeout_never_exceeds_the_search_deadline():
+    """Per KTD6, Xing's inner Playwright timeout must be derived from (and
+    never exceed) the outer search deadline - otherwise a Xing render can
+    still be running well after the response already returned."""
+    service = JobSearchService(deadline_seconds=12.0)
+
+    assert service._xing_client._inner_timeout < 12.0  # noqa: SLF001 - white-box wiring check
+    assert service._xing_client._inner_timeout >= 1.0  # noqa: SLF001

@@ -365,9 +365,16 @@ class JobSearchService:
             result_cap=settings.JOB_SEARCH_LINKEDIN_RESULT_CAP,
             cooldown_seconds=settings.JOB_SEARCH_LINKEDIN_COOLDOWN_SECONDS,
         )
-        self._xing_client = xing_client or XingJobScraper()
         self._deadline_seconds = (
             deadline_seconds if deadline_seconds is not None else settings.JOB_SEARCH_DEADLINE_SECONDS
+        )
+        # Xings innerer Timeout darf laut KTD6 die äußere Such-Deadline nie
+        # überschreiten - sonst hält ein Xing-Render, das erst nach der
+        # Deadline abbricht, den Playwright-Semaphore länger als nötig,
+        # während der Rest der Antwort schon zurückgegeben wurde. Ein Sicherheits-
+        # abstand von 1s lässt Playwright selbst noch sauber abbrechen können.
+        self._xing_client = xing_client or XingJobScraper(
+            inner_timeout=max(1.0, self._deadline_seconds - 1.0)
         )
 
     def search(
@@ -433,6 +440,19 @@ class JobSearchService:
             logger.info("Keine Treffer über die Arbeitsagentur-API - nutze Fallback-Scraper (%s).", fallback_url)
             fallback_results = self._fallback_scraper.search(url=fallback_url, keywords=keywords, location=location)
             results.extend(fallback_results)
+            # Auch der Fallback-Pfad bekommt einen Status-Eintrag - sonst
+            # verletzt die Antwort ihre eigene Zusicherung, dass `sources`
+            # jede Quelle abdeckt, die zu `results` beiträgt (z. B. würde die
+            # Frontend-Statusleiste sonst alle drei Primärquellen als
+            # "unavailable" zeigen, obwohl der Fallback Treffer geliefert hat).
+            fallback_status = "ok" if fallback_results else "unavailable"
+            sources.append(
+                SourceStatus(
+                    platform=GenericJobScraper.SOURCE_PLATFORM,
+                    status=fallback_status,
+                    reason=None if fallback_results else "empty",
+                )
+            )
 
         return JobSearchResponse(results=results, sources=sources)
 
