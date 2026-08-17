@@ -8,11 +8,42 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-application_manager}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    ports:
+      # Nur für lokalen Zugriff per DB-Client (z. B. psql/TablePlus) von
+      # außerhalb des Docker-Netzwerks - für den Backend-Container selbst
+      # nicht nötig, der spricht intern mit dem Hostnamen "db".
+      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app_user} -d ${POSTGRES_DB:-application_manager}"]
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+
+  # --- Ollama (lokales LLM-Runtime) ------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b-instruct}
+    volumes:
+      - ollama_data:/root/.ollama
+      # Startup-Wrapper: zieht das konfigurierte Modell beim Start, bevor der
+      # Healthcheck "healthy" meldet. Wird eingebunden statt in ein eigenes
+      # Image gebacken, da für diesen Service kein Dockerfile existiert.
+      - ./docker/ollama-entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    # Kein Host-Port: die Ollama-HTTP-API hat keine Authentifizierung und
+    # bleibt deshalb nur intern im Docker-Netzwerk für "backend" erreichbar.
+    healthcheck:
+      # Kein curl im Base-Image vorhanden - stattdessen die ollama-CLI nutzen
+      # und prüfen, ob das konfigurierte Modell bereits gepullt wurde.
+      test: ["CMD-SHELL", "ollama list | grep -q \"$$OLLAMA_MODEL\" || exit 1"]
+      # Großzügig bemessen für den (evtl. mehrere GB großen) Erstpull des
+      # Modells - db's Postgres-Timing (~50s) reicht dafür nicht aus.
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 600s
     restart: unless-stopped
 
   # --- FastAPI-Backend -------------------------------------------------------
@@ -22,6 +53,8 @@ services:
       dockerfile: Dockerfile
     depends_on:
       db:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     # Übernimmt OPENAI_API_KEY, SMTP-Zugangsdaten etc. aus backend/.env
     # (siehe backend/.env.example -> vor dem ersten Start nach backend/.env kopieren).
@@ -52,3 +85,4 @@ services:
 
 volumes:
   pgdata:
+  ollama_data:
