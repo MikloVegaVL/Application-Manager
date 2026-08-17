@@ -56,7 +56,7 @@ services:
         condition: service_healthy
       ollama:
         condition: service_healthy
-    # Übernimmt OPENAI_API_KEY, SMTP-Zugangsdaten etc. aus backend/.env
+    # Übernimmt OLLAMA_*, SMTP-Zugangsdaten etc. aus backend/.env
     # (siehe backend/.env.example -> vor dem ersten Start nach backend/.env kopieren).
     # DATABASE_URL wird hier bewusst überschrieben, damit gegen den
     # PostgreSQL-Container statt der lokalen SQLite-Datei verbunden wird.

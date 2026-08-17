@@ -13,7 +13,7 @@ E-Mail-Versand.
 - **Frontend:** Angular 17+ (Standalone Components, Signals), Angular Material, Nginx
 - **Backend:** Python 3.11+, FastAPI, SQLAlchemy v2, Pydantic v2
 - **Datenbank:** PostgreSQL (Docker/Produktion), SQLite (lokaler Dev-Fallback ohne Docker)
-- **KI & Dokumente:** OpenAI API (GPT-4o), Playwright, WeasyPrint, pypdf
+- **KI & Dokumente:** Ollama (lokal betriebenes LLM), Playwright, WeasyPrint, pypdf
 - **Containerisierung:** Docker & Docker Compose
 
 - `/backend` - FastAPI-Anwendung
@@ -28,11 +28,14 @@ Startet Frontend, Backend und PostgreSQL mit einem Befehl.
 **Voraussetzung:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) (inkl. Docker Compose).
 
 ```bash
-# 1. Backend-Umgebungsvariablen anlegen (für OpenAI/SMTP-Funktionen nötig,
-#    ohne diesen Schritt startet die App trotzdem - nur KI/Mail-Features
-#    liefern dann einen klaren Konfigurationsfehler statt zu funktionieren)
+# 1. Backend-Umgebungsvariablen anlegen (für SMTP-Funktionen nötig; die
+#    Ollama-Variablen (OLLAMA_BASE_URL/OLLAMA_MODEL) sind bereits sinnvoll
+#    für Docker Compose vorbelegt - ohne diesen Schritt startet die App
+#    trotzdem, nur Mail-Features liefern dann einen klaren
+#    Konfigurationsfehler statt zu funktionieren)
 cp backend/.env.example backend/.env
-# ... und darin OPENAI_API_KEY / SMTP_* mit echten Werten befüllen
+# ... und darin SMTP_* mit echten Werten befüllen (kein API-Key für die KI
+# nötig - Ollama läuft als eigener Docker-Compose-Service)
 
 # 2. (optional) Postgres-Zugangsdaten überschreiben
 cp .env.example .env

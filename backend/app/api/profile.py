@@ -48,8 +48,8 @@ def upload_cv(
     file: UploadFile = File(..., description="Lebenslauf als PDF-Datei"),
     db: Session = Depends(get_db),
 ) -> MasterProfile:
-    """Nimmt eine Lebenslauf-PDF entgegen, extrahiert den Text und lässt GPT-4o
-    daraus ein strukturiertes Profil ableiten.
+    """Nimmt eine Lebenslauf-PDF entgegen, extrahiert den Text und lässt die KI
+    (via Ollama) daraus ein strukturiertes Profil ableiten.
 
     Existiert noch kein Profil, wird eines angelegt (dafür müssen mindestens
     Name und E-Mail aus dem CV extrahierbar sein). Existiert bereits ein

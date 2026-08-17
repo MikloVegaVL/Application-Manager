@@ -1,8 +1,9 @@
 """Service zur KI-gestützten Generierung von Bewerbungsunterlagen.
 
 Nimmt das `MasterProfile` und ein ausgewähltes `JobOffer` entgegen und lässt
-GPT-4o daraus ein maßgeschneidertes Anschreiben sowie eine auf die Stelle
-zugeschnittene Auswahl/Formulierung der Lebenslauf-Stationen erzeugen.
+das LLM (via Ollama) daraus ein maßgeschneidertes Anschreiben sowie eine auf
+die Stelle zugeschnittene Auswahl/Formulierung der Lebenslauf-Stationen
+erzeugen.
 
 Kontaktdaten (Name, E-Mail, Telefon, Adresse) werden NICHT von der KI
 generiert, sondern deterministisch aus dem Profil übernommen - so können bei
