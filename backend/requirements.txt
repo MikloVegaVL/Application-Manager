@@ -19,7 +19,7 @@ playwright
 beautifulsoup4
 
 # --- KI / LLM ---
-openai
+ollama==0.6.2
 
 # --- Dokumente ---
 pypdf
