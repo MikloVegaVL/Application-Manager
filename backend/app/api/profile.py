@@ -44,7 +44,7 @@ def upsert_profile(payload: MasterProfileCreate, db: Session = Depends(get_db)) 
 
 
 @router.post("/upload-cv", response_model=MasterProfileRead)
-async def upload_cv(
+def upload_cv(
     file: UploadFile = File(..., description="Lebenslauf als PDF-Datei"),
     db: Session = Depends(get_db),
 ) -> MasterProfile:
@@ -63,7 +63,7 @@ async def upload_cv(
             detail="Nur PDF-Dateien werden unterstützt.",
         )
 
-    file_bytes = await file.read()
+    file_bytes = file.file.read()
     if not file_bytes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
