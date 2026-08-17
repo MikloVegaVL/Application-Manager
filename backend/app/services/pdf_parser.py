@@ -4,24 +4,23 @@ Zwei-stufiger Ablauf:
 
 1. `extract_text_from_pdf()` - reine Textextraktion aus dem PDF via `pypdf`
    (keine externen Abhängigkeiten, deterministisch, gut testbar).
-2. `analyze_cv_text()` - übergibt den Rohtext an GPT-4o (OpenAI Chat
-   Completions API mit erzwungenem JSON-Output) und validiert die Antwort
-   gegen das `ParsedCvProfile`-Schema.
+2. `analyze_cv_text()` - übergibt den Rohtext an den gemeinsamen Ollama-
+   Aufruf-Helfer (`app.services.llm_client`) und erhält eine bereits gegen
+   das `ParsedCvProfile`-Schema validierte Antwort zurück.
 
 `parse_cv_pdf()` verkettet beide Schritte für den Upload-Endpunkt.
 """
 from __future__ import annotations
 
-import json
 import logging
 from io import BytesIO
+from typing import cast
 
-from openai import OpenAI, OpenAIError
-from pydantic import ValidationError
 from pypdf import PdfReader
 
-from app.core.config import settings
 from app.schemas.master_profile import ParsedCvProfile
+from app.services import llm_client
+from app.services.llm_client import LlmUnavailableError, LlmValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -118,49 +117,28 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
 
 
 def analyze_cv_text(raw_text: str) -> ParsedCvProfile:
-    """Lässt GPT-4o den Rohtext eines Lebenslaufs in ein strukturiertes
+    """Lässt Ollama den Rohtext eines Lebenslaufs in ein strukturiertes
     `ParsedCvProfile` überführen."""
-    if not settings.OPENAI_API_KEY:
-        raise CvAnalysisError(
-            "OPENAI_API_KEY ist nicht konfiguriert - die KI-gestützte CV-Analyse "
-            "ist nicht verfügbar. Bitte in der .env hinterlegen."
-        )
-
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": raw_text[:_MAX_INPUT_CHARS]},
+    ]
 
     try:
-        response = client.chat.completions.create(
-            model=settings.OPENAI_MODEL,
-            temperature=0,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": raw_text[:_MAX_INPUT_CHARS]},
-            ],
-        )
-    except OpenAIError as exc:
-        logger.exception("OpenAI-Aufruf zur CV-Analyse fehlgeschlagen.")
-        raise CvAnalysisError(f"KI-Analyse des Lebenslaufs fehlgeschlagen: {exc}") from exc
-
-    content = response.choices[0].message.content if response.choices else None
-    if not content:
-        raise CvAnalysisError("Die KI-Antwort enthielt keine Daten.")
-
-    try:
-        raw_json = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise CvAnalysisError("Die KI-Antwort war kein valides JSON.") from exc
-
-    try:
-        return ParsedCvProfile.model_validate(raw_json)
-    except ValidationError as exc:
+        result = llm_client.generate_structured(ParsedCvProfile, messages)
+    except LlmValidationError as exc:
         logger.warning("KI-Antwort entsprach nicht dem erwarteten Profil-Schema: %s", exc)
         raise CvAnalysisError(
             "Die KI-Antwort entsprach nicht dem erwarteten Profil-Schema."
         ) from exc
+    except LlmUnavailableError as exc:
+        logger.exception("Ollama-Aufruf zur CV-Analyse fehlgeschlagen.")
+        raise CvAnalysisError(f"KI-Analyse des Lebenslaufs fehlgeschlagen: {exc}") from exc
+
+    return cast(ParsedCvProfile, result)
 
 
 def parse_cv_pdf(file_bytes: bytes) -> ParsedCvProfile:
-    """End-to-End: PDF-Bytes -> Rohtext (pypdf) -> strukturiertes Profil (GPT-4o)."""
+    """End-to-End: PDF-Bytes -> Rohtext (pypdf) -> strukturiertes Profil (Ollama)."""
     raw_text = extract_text_from_pdf(file_bytes)
     return analyze_cv_text(raw_text)
