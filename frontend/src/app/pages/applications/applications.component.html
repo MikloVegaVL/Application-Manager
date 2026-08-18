@@ -44,6 +44,21 @@
           </mat-card-content>
 
           <mat-card-actions align="end">
+            <button
+              mat-button
+              color="warn"
+              type="button"
+              [disabled]="isDeleting(application)"
+              (click)="onDelete(application)"
+            >
+              @if (isDeleting(application)) {
+                <mat-progress-spinner mode="indeterminate" diameter="18" />
+              } @else {
+                <mat-icon>delete</mat-icon>
+              }
+              Löschen
+            </button>
+
             <a mat-button [routerLink]="['/editor', application.job_offer.id]">
               <mat-icon>open_in_new</mat-icon>
               Bewerbung öffnen

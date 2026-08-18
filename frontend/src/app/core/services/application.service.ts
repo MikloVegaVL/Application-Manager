@@ -52,4 +52,9 @@ export class ApplicationService {
   downloadPdfBlob(applicationId: number): Observable<Blob> {
     return this.http.get(`${this.baseUrl}/${applicationId}/pdf`, { responseType: 'blob' });
   }
+
+  /** Löscht eine einzelne Bewerbung unwiderruflich inkl. der generierten PDF-Datei. */
+  deleteById(applicationId: number): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${applicationId}`);
+  }
 }

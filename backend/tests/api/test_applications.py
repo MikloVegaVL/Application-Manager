@@ -133,3 +133,31 @@ def test_list_applications_orders_most_recently_created_first(client: TestClient
     assert response.status_code == 200
     body = response.json()
     assert [item["id"] for item in body] == [second_id, first_id]
+
+
+def test_delete_application_removes_it_and_its_pdf_file(client: TestClient, db_session_local, tmp_path) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/1"
+        )
+        application = _create_application(session, job_offer_id=job_offer.id)
+        pdf_path = tmp_path / f"application_{application.id}.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4")
+        application.pdf_path = str(pdf_path)
+        session.commit()
+        application_id = application.id
+    finally:
+        session.close()
+
+    response = client.delete(f"/api/applications/{application_id}")
+
+    assert response.status_code == 204
+    assert not pdf_path.exists()
+    assert client.get(f"/api/applications/{application_id}").status_code == 404
+
+
+def test_delete_application_returns_404_for_unknown_id(client: TestClient) -> None:
+    response = client.delete("/api/applications/999")
+
+    assert response.status_code == 404

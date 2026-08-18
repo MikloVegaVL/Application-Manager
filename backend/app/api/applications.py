@@ -180,6 +180,22 @@ def update_application(
     return application
 
 
+@router.delete("/{application_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_application(application_id: int, db: Session = Depends(get_db)) -> None:
+    """Löscht eine einzelne Bewerbung unwiderruflich inkl. der generierten PDF-Datei."""
+    application = db.get(Application, application_id)
+    if application is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung wurde nicht gefunden.")
+
+    if application.pdf_path:
+        pdf_path = Path(application.pdf_path)
+        if pdf_path.exists():
+            pdf_path.unlink()
+
+    db.delete(application)
+    db.commit()
+
+
 @router.get("/{application_id}/pdf")
 def get_application_pdf(application_id: int, db: Session = Depends(get_db)) -> StreamingResponse:
     """Liefert die generierte PDF-Datei der Bewerbung als Stream zurück."""
