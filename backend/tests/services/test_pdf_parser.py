@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.core.config import settings
 from app.schemas.master_profile import ParsedCvProfile
 from app.services import pdf_parser
 from app.services.llm_client import LlmUnavailableError, LlmValidationError
@@ -39,6 +40,26 @@ class TestAnalyzeCvTextHappyPath:
             "role": "user",
             "content": "Lebenslauf-Text von Max Mustermann.",
         }
+
+    def test_uses_the_dedicated_cv_parsing_model_not_the_general_default(self, mocker):
+        """CV parsing must pin its own, independently-tuned model rather than
+        falling through to `settings.OLLAMA_MODEL` (the general default also
+        used by `ai_generator.py` for application-content generation) -
+        the two use cases have different speed/quality tradeoffs and must be
+        able to move independently (see ce-debug-Untersuchung, 2026-08-18:
+        qwen2.5:7b-instruct routinely timed out on CPU-only inference for
+        real CVs; qwen2.5:3b-instruct was verified live to extract just as
+        accurately, in a fraction of the time, using this exact prompt -
+        but that verification covered CV parsing only, not application-
+        content generation, so the swap must not silently affect the
+        latter."""
+        mock_generate = mocker.patch.object(
+            pdf_parser.llm_client, "generate_structured", return_value=VALID_PROFILE
+        )
+
+        pdf_parser.analyze_cv_text("Lebenslauf-Text von Max Mustermann.")
+
+        assert mock_generate.call_args.kwargs["model"] == settings.OLLAMA_MODEL_CV_PARSING
 
 
 class TestAnalyzeCvTextValidationFailure:

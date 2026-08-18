@@ -31,8 +31,32 @@ class Settings(BaseSettings):
 
     # --- Ollama / LLM ---
     OLLAMA_BASE_URL: str = "http://ollama:11434"
+    # Allgemeiner Default (aktuell nur von der Bewerbungstext-Generierung in
+    # ai_generator.py genutzt).
     OLLAMA_MODEL: str = "qwen2.5:7b-instruct"
-    OLLAMA_TIMEOUT_SECONDS: float = 120.0
+    # Eigenes, kleineres Modell nur für die CV-Analyse (siehe
+    # ce-debug-Untersuchung, 2026-08-18): qwen2.5:7b-instruct lief unter
+    # schema-eingeschränkter Generierung auf CPU-only Ollama regelmäßig in
+    # einen Timeout (~2.2 Token/s, ein normaler mehrseitiger Lebenslauf
+    # brauchte >300s). qwen2.5:3b-instruct wurde live gegen echte, mehrseitige
+    # Test-Lebensläufe UND den echten `_SYSTEM_PROMPT` aus pdf_parser.py
+    # geprüft: vollständige, korrekte Extraktion (alle Erfahrungs-/
+    # Ausbildungs-/Skill-Einträge) in 108-246s statt eines Timeouts. Bewusst
+    # NICHT als neuer `OLLAMA_MODEL`-Default gesetzt, da diese Prüfung nur die
+    # CV-Analyse abdeckt, nicht die Bewerbungstext-Generierung - ein globaler
+    # Wechsel hätte deren Qualität ungetestet mitverändert.
+    OLLAMA_MODEL_CV_PARSING: str = "qwen2.5:3b-instruct"
+    # War zuvor 120.0 - auf CPU-only Ollama (kein GPU-Passthrough im Docker-
+    # Setup, siehe ce-debug-Untersuchung, 2026-08-18) misst schema-
+    # eingeschränkte Generierung (jeder generate_structured-Aufruf, auch die
+    # CV-Analyse) nur ~2.2 Token/s - ein echter mehrseitiger Lebenslauf
+    # brauchte damit regelmäßig länger als 120s und lief in einen Timeout
+    # (bestätigt per Live-Reproduktion und echten Backend-Logs). 300s gibt
+    # einem einzelnen Ollama-Aufruf realistisch Zeit zum Fertigwerden -
+    # `frontend/nginx.conf`s `proxy_read_timeout` MUSS deutlich darüber
+    # liegen, da `generate_structured` bis zu drei sequentielle Aufrufe
+    # machen kann (Erstversuch + Retry + Abflach-Fallback).
+    OLLAMA_TIMEOUT_SECONDS: float = 300.0
 
     # --- SMTP / Mailversand ---
     SMTP_HOST: str | None = None

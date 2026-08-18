@@ -25,9 +25,15 @@ services:
     image: ollama/ollama:latest
     environment:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b-instruct}
+      # Eigenes, kleineres Modell nur für die CV-Analyse (siehe
+      # backend/app/core/config.py: OLLAMA_MODEL_CV_PARSING und die
+      # ce-debug-Untersuchung, 2026-08-18) - muss hier separat gepullt werden,
+      # sonst schlägt jede CV-Analyse auf einem frischen Deployment mit
+      # "model not found" fehl, weil nur OLLAMA_MODEL automatisch gezogen wird.
+      OLLAMA_MODEL_CV_PARSING: ${OLLAMA_MODEL_CV_PARSING:-qwen2.5:3b-instruct}
     volumes:
       - ollama_data:/root/.ollama
-      # Startup-Wrapper: zieht das konfigurierte Modell beim Start, bevor der
+      # Startup-Wrapper: zieht die konfigurierten Modelle beim Start, bevor der
       # Healthcheck "healthy" meldet. Wird eingebunden statt in ein eigenes
       # Image gebacken, da für diesen Service kein Dockerfile existiert.
       - ./docker/ollama-entrypoint.sh:/entrypoint.sh:ro
@@ -36,14 +42,14 @@ services:
     # bleibt deshalb nur intern im Docker-Netzwerk für "backend" erreichbar.
     healthcheck:
       # Kein curl im Base-Image vorhanden - stattdessen die ollama-CLI nutzen
-      # und prüfen, ob das konfigurierte Modell bereits gepullt wurde.
-      test: ["CMD-SHELL", "ollama list | grep -q \"$$OLLAMA_MODEL\" || exit 1"]
-      # Großzügig bemessen für den (evtl. mehrere GB großen) Erstpull des
-      # Modells - db's Postgres-Timing (~50s) reicht dafür nicht aus.
+      # und prüfen, ob BEIDE konfigurierten Modelle bereits gepullt wurden.
+      test: ["CMD-SHELL", "ollama list | grep -q \"$$OLLAMA_MODEL\" && ollama list | grep -q \"$$OLLAMA_MODEL_CV_PARSING\" || exit 1"]
+      # Großzügig bemessen für den (evtl. mehrere GB großen) Erstpull beider
+      # Modelle - db's Postgres-Timing (~50s) reicht dafür nicht aus.
       interval: 10s
       timeout: 10s
-      retries: 60
-      start_period: 600s
+      retries: 90
+      start_period: 900s
     restart: unless-stopped
 
   # --- FastAPI-Backend -------------------------------------------------------

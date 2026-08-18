@@ -17,6 +17,7 @@ from io import BytesIO
 
 from pypdf import PdfReader
 
+from app.core.config import settings
 from app.schemas.master_profile import ParsedCvProfile
 from app.services import llm_client
 from app.services.llm_client import LlmUnavailableError, LlmValidationError
@@ -124,7 +125,12 @@ def analyze_cv_text(raw_text: str) -> ParsedCvProfile:
     ]
 
     try:
-        result = llm_client.generate_structured(ParsedCvProfile, messages)
+        # Eigenes, kleineres Modell nur für die CV-Analyse, unabhängig vom
+        # allgemeinen OLLAMA_MODEL-Default (siehe settings.OLLAMA_MODEL_CV_PARSING
+        # und ce-debug-Untersuchung, 2026-08-18).
+        result = llm_client.generate_structured(
+            ParsedCvProfile, messages, model=settings.OLLAMA_MODEL_CV_PARSING
+        )
     except LlmValidationError as exc:
         logger.warning("KI-Antwort entsprach nicht dem erwarteten Profil-Schema: %s", exc)
         raise CvAnalysisError(

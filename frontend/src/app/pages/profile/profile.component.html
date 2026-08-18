@@ -228,6 +228,13 @@
               }
               CV analysieren & Profil befüllen
             </button>
+
+            @if (uploading()) {
+              <p class="cv-import__hint">
+                Die KI-Analyse läuft ohne GPU-Beschleunigung - das kann je nach Lebenslauflänge
+                mehrere Minuten dauern. Bitte die Seite währenddessen nicht schließen.
+              </p>
+            }
           </div>
         </mat-tab>
       </mat-tab-group>

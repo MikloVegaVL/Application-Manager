@@ -305,6 +305,28 @@ class TestUnavailable:
         assert not isinstance(ConnectionError("x"), httpx.TimeoutException)
 
 
+class TestTimeoutBudget:
+    """Regression guard for the configured Ollama call timeout (see
+    ce-debug-Untersuchung, 2026-08-18: CV-Upload-Spinner lief endlos).
+
+    JSON-schema-constrained generation (used by every `generate_structured`
+    call, including CV analysis) measured at ~2.2 tokens/second on
+    CPU-only Ollama (no GPU passthrough in Docker) - a real multi-page CV
+    routinely needs well over 120s of pure generation time. The previous
+    120.0s default was too short and caused every non-trivial CV upload to
+    fail with a timeout in production (confirmed via live backend logs).
+    This locks in a floor generous enough for that measured throughput so
+    a future change can't silently reintroduce the too-short default."""
+
+    def test_ollama_timeout_default_is_generous_enough_for_cpu_inference(self):
+        from app.core.config import Settings
+
+        # Floor derived from live measurement: ~2.2 tok/s CPU throughput
+        # under schema-constrained decoding means even a modest few-hundred-
+        # token CV response needs several minutes, not 120s.
+        assert Settings().OLLAMA_TIMEOUT_SECONDS >= 240.0
+
+
 class TestResponseError:
     def test_ollama_response_error_raises_unavailable(self, mock_client):
         import ollama
