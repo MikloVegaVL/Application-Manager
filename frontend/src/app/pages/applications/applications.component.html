@@ -1,4 +1,56 @@
-<div class="page">
-  <h1>Bewerbungen</h1>
-  <p>Hier entsteht die Übersicht aller Bewerbungen inkl. Status-Tracking.</p>
+<div class="applications">
+  <header class="applications__intro">
+    <h1>Bewerbungen</h1>
+    <p>Übersicht aller generierten Bewerbungen inkl. Status-Tracking.</p>
+  </header>
+
+  @if (loading()) {
+    <div class="applications__loading">
+      <mat-progress-spinner mode="indeterminate" diameter="48" />
+      <p>Bewerbungen werden geladen ...</p>
+    </div>
+  }
+
+  @if (!loading() && errorMessage()) {
+    <p class="applications__error">{{ errorMessage() }}</p>
+  }
+
+  @if (!loading() && !errorMessage() && applications().length === 0) {
+    <p class="applications__empty">
+      Noch keine Bewerbungen vorhanden. Generiere eine Bewerbung über die Jobsuche.
+    </p>
+  }
+
+  @if (!loading() && applications().length > 0) {
+    <div class="applications__results">
+      @for (application of applications(); track application.id) {
+        <mat-card class="application-card" appearance="outlined">
+          <mat-card-header>
+            <mat-card-title>{{ application.job_offer.title }}</mat-card-title>
+            <mat-card-subtitle>
+              {{ application.job_offer.company }}
+              @if (application.job_offer.location) {
+                · {{ application.job_offer.location }}
+              }
+            </mat-card-subtitle>
+          </mat-card-header>
+
+          <mat-card-content>
+            <mat-chip-set>
+              <mat-chip [class.application-card__status--sent]="application.status === 'sent'">
+                {{ statusLabel(application.status) }}
+              </mat-chip>
+            </mat-chip-set>
+          </mat-card-content>
+
+          <mat-card-actions align="end">
+            <a mat-button [routerLink]="['/editor', application.job_offer.id]">
+              <mat-icon>open_in_new</mat-icon>
+              Bewerbung öffnen
+            </a>
+          </mat-card-actions>
+        </mat-card>
+      }
+    </div>
+  }
 </div>

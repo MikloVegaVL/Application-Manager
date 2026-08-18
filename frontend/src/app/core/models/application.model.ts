@@ -1,4 +1,5 @@
 import { EducationEntry, ExperienceEntry } from './master-profile.model';
+import { JobOfferRead } from './job-offer.model';
 
 /** Spiegelt `backend/app/models/application.py::ApplicationStatus` wider. */
 export type ApplicationStatus = 'draft' | 'sent' | 'rejected' | 'interview';
@@ -29,6 +30,8 @@ export interface Application {
   status: ApplicationStatus;
   sent_at: string | null;
   created_at: string;
+  /** Stellenangebot, zu dem die Bewerbung gehört - für die Übersichtsliste. */
+  job_offer: JobOfferRead;
 }
 
 /** Payload für `PUT /api/applications/{id}` (Editor-Änderungen). */

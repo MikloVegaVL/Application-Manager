@@ -1,3 +1,68 @@
-.page {
+.applications {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
   padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+
+  &__intro {
+    h1 {
+      margin: 0 0 4px;
+    }
+
+    p {
+      margin: 0;
+      color: rgba(0, 0, 0, 0.6);
+    }
+  }
+
+  &__loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 48px 0;
+    color: rgba(0, 0, 0, 0.6);
+  }
+
+  &__error {
+    color: #b3261e;
+  }
+
+  &__empty {
+    color: rgba(0, 0, 0, 0.6);
+  }
+
+  &__results {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+  }
+}
+
+.application-card {
+  display: flex;
+  flex-direction: column;
+
+  &__status--sent {
+    background-color: #2e7d32;
+    color: #fff;
+  }
+
+  mat-card-content {
+    flex: 1;
+  }
+
+  mat-card-actions {
+    margin-top: auto;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .applications__intro p,
+  .applications__loading,
+  .applications__empty {
+    color: rgba(255, 255, 255, 0.6);
+  }
 }

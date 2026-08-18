@@ -18,6 +18,11 @@ export class ApplicationService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = `${environment.apiBaseUrl}/applications`;
 
+  /** Lädt alle gespeicherten Bewerbungen (neueste zuerst) für die Übersichtsseite. */
+  list(): Observable<Application[]> {
+    return this.http.get<Application[]>(this.baseUrl);
+  }
+
   /** Stößt die KI-gestützte Erstgenerierung von Anschreiben + Lebenslauf-PDF an. */
   generate(jobOfferId: number): Observable<Application> {
     return this.http.post<Application>(`${this.baseUrl}/generate`, { job_offer_id: jobOfferId });

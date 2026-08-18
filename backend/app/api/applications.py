@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import settings
 from app.db.database import get_db
@@ -30,6 +30,21 @@ router = APIRouter(prefix="/applications", tags=["Applications"])
 
 def _pdf_path_for(application_id: int) -> Path:
     return Path(settings.GENERATED_FILES_DIR) / f"application_{application_id}.pdf"
+
+
+@router.get("", response_model=list[ApplicationRead])
+def list_applications(db: Session = Depends(get_db)) -> list[Application]:
+    """Liefert alle gespeicherten Bewerbungen inkl. zugehörigem Stellenangebot,
+    neueste zuerst - Datengrundlage für die Bewerbungsübersicht im Frontend."""
+    # `id.desc()` als Tiebreaker: `created_at` hat auf SQLite nur
+    # Sekundenauflösung, zwei Bewerbungen innerhalb derselben Sekunde wären
+    # sonst nicht stabil sortiert.
+    return (
+        db.query(Application)
+        .options(joinedload(Application.job_offer))
+        .order_by(Application.created_at.desc(), Application.id.desc())
+        .all()
+    )
 
 
 @router.post("/generate", response_model=ApplicationRead)

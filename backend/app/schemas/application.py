@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.application import ApplicationStatus
+from app.schemas.job_offer import JobOfferRead
 
 # Enum aus dem ORM-Modell wiederverwendet, damit API und DB immer denselben
 # Satz gültiger Status-Werte kennen ('draft', 'sent', 'rejected', 'interview').
@@ -48,13 +49,19 @@ class ApplicationUpdate(BaseModel):
 
 
 class ApplicationRead(ApplicationBase):
-    """Antwortmodell inkl. serverseitig verwalteter Felder."""
+    """Antwortmodell inkl. serverseitig verwalteter Felder.
+
+    Enthält das zugehörige `job_offer` (Titel/Firma etc.), damit die
+    Bewerbungsübersicht (`GET /applications`) ohne N+1-Nachladen pro Zeile
+    im Frontend Titel und Firma anzeigen kann.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     sent_at: datetime | None = None
     created_at: datetime
+    job_offer: JobOfferRead
 
 
 class ApplicationGenerateRequest(BaseModel):
