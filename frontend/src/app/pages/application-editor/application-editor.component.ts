@@ -80,6 +80,11 @@ export class ApplicationEditorComponent implements OnInit {
   protected readonly sending = signal(false);
   protected readonly pdfLoading = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
+  /** True während der erstmaligen KI-Generierung (siehe `generateForFirstTime`) -
+   * steuert den Hinweis, dass das ohne GPU-Beschleunigung mehrere Minuten
+   * dauern kann (ce-debug-Untersuchung, 2026-08-18: "Generate Application"
+   * wirkte dadurch wie hängengeblieben statt nur langsam). */
+  protected readonly isFirstGeneration = signal(false);
 
   protected readonly application = signal<Application | null>(null);
   protected readonly jobOffer = signal<JobOfferRead | null>(null);
@@ -154,12 +159,17 @@ export class ApplicationEditorComponent implements OnInit {
   }
 
   private generateForFirstTime(jobOfferId: number): void {
+    this.isFirstGeneration.set(true);
     this.applicationService.generate(jobOfferId).subscribe({
       next: (application) => {
+        this.isFirstGeneration.set(false);
         this.applyApplication(application);
         this.snackBar.open('Bewerbung wurde erstmalig generiert.', 'OK', { duration: 3000 });
       },
-      error: (error: HttpErrorResponse) => this.handleLoadError(error),
+      error: (error: HttpErrorResponse) => {
+        this.isFirstGeneration.set(false);
+        this.handleLoadError(error);
+      },
     });
   }
 

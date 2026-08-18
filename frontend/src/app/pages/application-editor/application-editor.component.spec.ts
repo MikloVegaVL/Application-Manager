@@ -74,4 +74,96 @@ describe('ApplicationEditorComponent', () => {
     expect(component['application']()?.id).toBe(1);
     expect(component['skills']()).toEqual(['Angular']);
   });
+
+  it('Regression: shows the "can take minutes" hint only while a first-time generation is in flight', () => {
+    // (ce-debug-Untersuchung, 2026-08-18: "Generate Application" auf einem
+    // neuen Job-Angebot lief messbar 4+ Minuten - ohne Hinweis wirkte das wie
+    // hängengeblieben statt nur langsam.)
+    const jobReq = httpMock.expectOne((req) => req.url.endsWith('/jobs/1'));
+    jobReq.flush({
+      id: 1,
+      title: 'Backend Engineer',
+      company: 'Acme GmbH',
+      location: 'Berlin',
+      source_url: 'https://example.com/jobs/1',
+      description_text: null,
+      source_platform: 'arbeitsagentur',
+      created_at: '2026-08-11T00:00:00',
+      is_processed: false,
+    });
+
+    const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
+    appReq.flush({ detail: 'not found' }, { status: 404, statusText: 'Not Found' });
+    fixture.detectChanges();
+
+    // Generierung läuft noch (generateReq absichtlich nicht geflusht) - der
+    // Hinweis muss jetzt sichtbar sein.
+    expect(component['isFirstGeneration']()).toBeTrue();
+    expect(fixture.nativeElement.textContent as string).toContain('mehrere Minuten dauern');
+
+    const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
+    generateReq.flush({
+      id: 1,
+      job_offer_id: 1,
+      cover_letter_text: 'Sehr geehrte Damen und Herren,',
+      tailored_cv_json: {
+        full_name: 'Erika Musterfrau',
+        email: 'erika@example.com',
+        phone: null,
+        address: null,
+        summary: 'Zusammenfassung',
+        experiences: [],
+        education: [],
+        skills: ['Angular'],
+      },
+      pdf_path: '/generated/applications/application_1.pdf',
+      status: 'draft',
+      sent_at: null,
+      created_at: '2026-08-11T00:00:00',
+    });
+
+    httpMock.expectOne((req) => req.url.endsWith('/applications/1/pdf')).flush(new Blob(['%PDF-1.4']));
+
+    expect(component['isFirstGeneration']()).toBeFalse();
+  });
+
+  it('does not show the generation hint when an already-generated application loads instantly', () => {
+    const jobReq = httpMock.expectOne((req) => req.url.endsWith('/jobs/1'));
+    jobReq.flush({
+      id: 1,
+      title: 'Backend Engineer',
+      company: 'Acme GmbH',
+      location: 'Berlin',
+      source_url: 'https://example.com/jobs/1',
+      description_text: null,
+      source_platform: 'arbeitsagentur',
+      created_at: '2026-08-11T00:00:00',
+      is_processed: true,
+    });
+
+    const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
+    appReq.flush({
+      id: 1,
+      job_offer_id: 1,
+      cover_letter_text: 'Sehr geehrte Damen und Herren,',
+      tailored_cv_json: {
+        full_name: 'Erika Musterfrau',
+        email: 'erika@example.com',
+        phone: null,
+        address: null,
+        summary: 'Zusammenfassung',
+        experiences: [],
+        education: [],
+        skills: ['Angular'],
+      },
+      pdf_path: '/generated/applications/application_1.pdf',
+      status: 'draft',
+      sent_at: null,
+      created_at: '2026-08-11T00:00:00',
+    });
+
+    httpMock.expectOne((req) => req.url.endsWith('/applications/1/pdf')).flush(new Blob(['%PDF-1.4']));
+
+    expect(component['isFirstGeneration']()).toBeFalse();
+  });
 });

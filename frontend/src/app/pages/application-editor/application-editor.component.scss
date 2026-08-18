@@ -61,6 +61,12 @@
   color: #b3261e;
 }
 
+.editor-page__loading-hint {
+  max-width: 420px;
+  text-align: center;
+  font-size: 0.875rem;
+}
+
 .editor-split {
   display: grid;
   grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr);

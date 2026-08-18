@@ -58,6 +58,12 @@
     <div class="editor-page__loading">
       <mat-progress-spinner mode="indeterminate" diameter="48" />
       <p>Bewerbung wird geladen / generiert ...</p>
+      @if (isFirstGeneration()) {
+        <p class="editor-page__loading-hint">
+          Die KI-Generierung läuft ohne GPU-Beschleunigung - das kann mehrere Minuten dauern.
+          Bitte die Seite währenddessen nicht schließen.
+        </p>
+      }
     </div>
   } @else if (errorMessage()) {
     <div class="editor-page__error">
