@@ -15,18 +15,30 @@ import pytest
 from app.services.job_sources import xing as xing_module
 from app.services.job_sources.xing import XingJobScraper
 
+# Xings echte Karten-Struktur (siehe ce-debug-Untersuchung, 2026-08-18):
+# jede Karte ist ein <article>, dessen erstes Kind ein textloses
+# Overlay-<a> ist (der ganzkartige Klick-Link, sein Linktext steckt nur im
+# aria-label) - die eigentliche, sichtbare Überschrift (<h2>) kommt erst
+# danach. Ein `find()` über ["h1","h2","h3","a"] greift in Dokumentreihenfolge
+# daher immer zuerst dieses leere <a> statt der echten Überschrift.
 TWO_CARDS_HTML = """
 <html><body>
-  <div class="job-teaser-card">
-    <h2><a href="/stellenangebote/12345-angular-developer">Angular Developer</a></h2>
-    <span class="company-name">Acme GmbH</span>
-    <span class="job-location">Berlin</span>
-  </div>
-  <div class="job-teaser-card">
-    <h2><a href="https://www.xing.com/stellenangebote/67890-backend-engineer">Backend Engineer</a></h2>
-    <span class="company-name">Beta AG</span>
-    <span class="job-location">Munich</span>
-  </div>
+  <article class="job-teaser-card">
+    <a class="job-teaser-card__overlay-link" href="/stellenangebote/12345-angular-developer"></a>
+    <div class="job-teaser-card__body">
+      <h2>Angular Developer</h2>
+      <span class="company-name">Acme GmbH</span>
+      <span class="job-location">Berlin</span>
+    </div>
+  </article>
+  <article class="job-teaser-card">
+    <a class="job-teaser-card__overlay-link" href="https://www.xing.com/stellenangebote/67890-backend-engineer"></a>
+    <div class="job-teaser-card__body">
+      <h2>Backend Engineer</h2>
+      <span class="company-name">Beta AG</span>
+      <span class="job-location">Munich</span>
+    </div>
+  </article>
 </body></html>
 """
 
@@ -37,15 +49,21 @@ ZERO_CARDS_HTML = "<html><body><p>Keine Ergebnisse</p></body></html>"
 # beweist, dass eine defekte Karte nicht die ganze Extraktion verwirft.
 ONE_BROKEN_ONE_VALID_HTML = f"""
 <html><body>
-  <div class="job-teaser-card">
-    <h2><a href="/stellenangebote/99999-broken">{"x" * 300}</a></h2>
-    <span class="company-name">Broken GmbH</span>
-  </div>
-  <div class="job-teaser-card">
-    <h2><a href="/stellenangebote/12345-angular-developer">Angular Developer</a></h2>
-    <span class="company-name">Acme GmbH</span>
-    <span class="job-location">Berlin</span>
-  </div>
+  <article class="job-teaser-card">
+    <a class="job-teaser-card__overlay-link" href="/stellenangebote/99999-broken"></a>
+    <div class="job-teaser-card__body">
+      <h2>{"x" * 300}</h2>
+      <span class="company-name">Broken GmbH</span>
+    </div>
+  </article>
+  <article class="job-teaser-card">
+    <a class="job-teaser-card__overlay-link" href="/stellenangebote/12345-angular-developer"></a>
+    <div class="job-teaser-card__body">
+      <h2>Angular Developer</h2>
+      <span class="company-name">Acme GmbH</span>
+      <span class="job-location">Berlin</span>
+    </div>
+  </article>
 </body></html>
 """
 

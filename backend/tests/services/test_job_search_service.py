@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import time
 
+from bs4 import BeautifulSoup
+
 from app.schemas.job_offer import JobOfferCreate
-from app.services.job_search_service import JobSearchService
+from app.services.job_search_service import GenericJobScraper, JobSearchService
 
 
 class _FakeClient:
@@ -217,3 +219,37 @@ def test_default_xing_client_inner_timeout_never_exceeds_the_search_deadline():
 
     assert service._xing_client._inner_timeout < 12.0  # noqa: SLF001 - white-box wiring check
     assert service._xing_client._inner_timeout >= 1.0  # noqa: SLF001
+
+
+# --- GenericJobScraper: heuristische Extraktion (kein JSON-LD) --------------
+#
+# Bislang ungetestet (siehe residual-review-findings/5498abb.md). Dieselbe
+# Karten-Struktur wie bei Xing: ein ganzkartiges, textloses Overlay-<a>
+# (Klick-Link) steht im DOM VOR der sichtbaren <h2>-Überschrift - ein
+# verbreitetes barrierefreies Karten-Muster, nicht Xing-spezifisch.
+_OVERLAY_LINK_BEFORE_HEADING_HTML = """
+<html><body>
+  <article class="job-card">
+    <a class="job-card__overlay-link" href="/jobs/angular-developer-123"></a>
+    <div class="job-card__body">
+      <h2>Angular Developer</h2>
+      <span class="company">Acme GmbH</span>
+      <span class="location">Berlin</span>
+    </div>
+  </article>
+</body></html>
+"""
+
+
+def test_heuristic_extraction_prefers_heading_over_a_leading_empty_overlay_link():
+    """A card whose first descendant is a text-less full-card overlay <a>
+    (common accessible-card markup) must still yield the real <h2> title,
+    not the empty anchor text - `find()` over a tag list matches document
+    order, not list priority, so the heading has to be searched first."""
+    soup = BeautifulSoup(_OVERLAY_LINK_BEFORE_HEADING_HTML, "html.parser")
+
+    offers = GenericJobScraper()._extract_heuristic_offers(soup, source_url="https://example.com/jobs")
+
+    assert len(offers) == 1
+    assert offers[0].title == "Angular Developer"
+    assert offers[0].source_url == "https://example.com/jobs/angular-developer-123"

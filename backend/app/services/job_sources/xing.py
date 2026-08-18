@@ -150,7 +150,14 @@ class XingJobScraper:
         return offers
 
     def _map_node(self, node: Any, source_url: str, seen_titles: set[str]) -> JobOfferCreate | None:
-        title_el = node.find(["h1", "h2", "h3", "a"])
+        # Erst nach einer echten Überschrift suchen, erst danach auf ein
+        # <a> zurückfallen: Xings Karten wickeln jede Karte in ein
+        # ganzkartiges, textloses Overlay-<a> (der Linktext steckt nur im
+        # aria-label), das im DOM VOR der sichtbaren <h2>-Überschrift steht.
+        # `find()` mit einer Tag-Liste matcht in Dokumentreihenfolge, nicht
+        # nach Priorität der Liste - ohne diese Trennung würde daher immer
+        # das leere Overlay-<a> statt der echten Überschrift gefunden.
+        title_el = node.find(["h1", "h2", "h3"]) or node.find("a")
         if title_el is None:
             return None
         title = title_el.get_text(strip=True)

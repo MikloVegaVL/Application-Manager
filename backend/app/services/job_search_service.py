@@ -307,7 +307,15 @@ class GenericJobScraper:
 
         candidates = soup.find_all(class_=job_class_pattern) + soup.find_all("article")
         for node in candidates:
-            title_el = node.find(["h1", "h2", "h3", "a"])
+            # Erst nach einer echten Überschrift suchen, erst danach auf ein
+            # <a> zurückfallen: viele Kartenlayouts wickeln die ganze Karte
+            # in ein textloses Overlay-<a> (Linktext nur im aria-label), das
+            # im DOM vor der sichtbaren Überschrift steht - `find()` mit
+            # einer Tag-Liste matcht in Dokumentreihenfolge, nicht nach
+            # Priorität der Liste, und würde sonst immer das leere <a>
+            # statt der echten Überschrift treffen (siehe Xing-Scraper für
+            # ein konkretes Beispiel dieses Karten-Musters).
+            title_el = node.find(["h1", "h2", "h3"]) or node.find("a")
             if title_el is None:
                 continue
             title = title_el.get_text(strip=True)
