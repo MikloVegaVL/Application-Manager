@@ -49,8 +49,17 @@ VALID_PROFILE = {
 
 @pytest.fixture
 def mock_client(mocker):
-    """Patcht `ollama.Client` im Helfer-Modul und liefert das Client-Mock."""
+    """Patcht `ollama.Client` im Helfer-Modul und liefert das Client-Mock.
+
+    `generate_structured` benutzt den Client als Context-Manager
+    (`with _build_client() as client:`), daher muss `__enter__` explizit
+    das Mock selbst zurückgeben (sonst liefert die Standard-MagicMock-
+    Auto-Spezifizierung ein unkonfiguriertes Kind-Mock) und `__exit__` einen
+    falsy Wert (sonst würde eine im Block ausgelöste Exception verschluckt).
+    """
     client_instance = mocker.MagicMock()
+    client_instance.__enter__.return_value = client_instance
+    client_instance.__exit__.return_value = False
     mocker.patch.object(llm_client.ollama, "Client", return_value=client_instance)
     return client_instance
 

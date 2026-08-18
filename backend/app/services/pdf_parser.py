@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import logging
 from io import BytesIO
-from typing import cast
 
 from pypdf import PdfReader
 
@@ -135,7 +134,7 @@ def analyze_cv_text(raw_text: str) -> ParsedCvProfile:
         logger.exception("Ollama-Aufruf zur CV-Analyse fehlgeschlagen.")
         raise CvAnalysisError(f"KI-Analyse des Lebenslaufs fehlgeschlagen: {exc}") from exc
 
-    return cast(ParsedCvProfile, result)
+    return result
 
 
 def parse_cv_pdf(file_bytes: bytes) -> ParsedCvProfile:

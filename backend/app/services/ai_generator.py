@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import cast
 
 from app.models.job_offer import JobOffer
 from app.models.master_profile import MasterProfile
@@ -113,7 +112,7 @@ def generate_application_content(
     ]
 
     try:
-        raw_result = llm_client.generate_structured(AiGenerationResult, messages)
+        result = llm_client.generate_structured(AiGenerationResult, messages)
     except LlmValidationError as exc:
         logger.warning("KI-Antwort entsprach nicht dem erwarteten Schema: %s", exc)
         raise ApplicationGenerationError(
@@ -122,8 +121,6 @@ def generate_application_content(
     except LlmUnavailableError as exc:
         logger.exception("Ollama-Aufruf zur Bewerbungsgenerierung fehlgeschlagen.")
         raise ApplicationGenerationError(f"KI-Generierung fehlgeschlagen: {exc}") from exc
-
-    result = cast(AiGenerationResult, raw_result)
 
     tailored_cv = TailoredCv(
         full_name=profile.full_name,
