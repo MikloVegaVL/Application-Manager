@@ -44,6 +44,33 @@ TWO_CARDS_HTML = """
 
 ZERO_CARDS_HTML = "<html><body><p>Keine Ergebnisse</p></body></html>"
 
+# Xing hat keinen zuverlässigen Länder-Parameter (siehe ce-debug-Untersuchung,
+# 2026-08-18: weder ein LinkedIn-artiges `geoId` noch ein wirksamer
+# `location`-Freitext-Filter für Länder wie "Deutschland"/"Germany"/"DE" -
+# alle drei liefern kommentarlos dieselben ungefilterten Treffer wie gar
+# keine Location). Diese Karte mit einer bekannten österreichischen Stadt
+# beweist, dass DACH-Nachbarländer sonst mit auftauchen.
+ONE_GERMAN_ONE_AUSTRIAN_HTML = """
+<html><body>
+  <article class="job-teaser-card">
+    <a class="job-teaser-card__overlay-link" href="/stellenangebote/11111-german-job"></a>
+    <div class="job-teaser-card__body">
+      <h2>Backend Engineer Berlin</h2>
+      <span class="company-name">Acme GmbH</span>
+      <span class="job-location">Berlin</span>
+    </div>
+  </article>
+  <article class="job-teaser-card">
+    <a class="job-teaser-card__overlay-link" href="/stellenangebote/22222-austrian-job"></a>
+    <div class="job-teaser-card__body">
+      <h2>Backend Engineer Wien</h2>
+      <span class="company-name">Beta GmbH</span>
+      <span class="job-location">Wien</span>
+    </div>
+  </article>
+</body></html>
+"""
+
 # Eine Karte mit einem Titel jenseits von JobOfferCreate.title's max_length=255
 # (Pydantic-ValidationError), gefolgt von einer normalen, gültigen Karte -
 # beweist, dass eine defekte Karte nicht die ganze Extraktion verwirft.
@@ -151,6 +178,122 @@ def test_source_url_is_xing_detail_link_not_search_page(mocker):
     assert offers[0].source_url == "https://www.xing.com/stellenangebote/12345-angular-developer"
     assert offers[1].source_url == "https://www.xing.com/stellenangebote/67890-backend-engineer"
     assert "search" not in offers[0].source_url
+
+
+def test_filters_out_known_non_german_locations(mocker):
+    """Best-effort guard: Xing has no reliable country parameter (see
+    ce-debug-Untersuchung, 2026-08-18), so a card whose location matches a
+    known non-German DACH city (e.g. "Wien") must be dropped even though its
+    title/company/link are otherwise perfectly valid. Not a complete fix
+    (unlisted cities still slip through - tracked as a follow-up), but it
+    closes the gap for the common cases."""
+    mocker.patch.object(
+        xing_module, "sync_playwright", _fake_sync_playwright_factory(ONE_GERMAN_ONE_AUSTRIAN_HTML)
+    )
+
+    offers = XingJobScraper().search("Backend")
+
+    assert len(offers) == 1
+    assert offers[0].location == "Berlin"
+
+
+def test_non_german_cards_do_not_consume_the_max_results_cap(mocker):
+    """The country filter must run BEFORE `_MAX_RESULTS` truncates the
+    candidate list, not after - otherwise non-German cards near the top of
+    the page could exhaust the cap and silently push out real German
+    offers further down, with no signal to the caller that anything was
+    dropped as foreign rather than simply absent (found by ce-code-review,
+    2026-08-18)."""
+    mocker.patch.object(XingJobScraper, "_MAX_RESULTS", 2)
+    cards = "".join(
+        f"""
+        <article class="job-teaser-card">
+          <a class="job-teaser-card__overlay-link" href="/stellenangebote/{i}"></a>
+          <div class="job-teaser-card__body">
+            <h2>Job {i}</h2>
+            <span class="company-name">Acme GmbH</span>
+            <span class="job-location">{location}</span>
+          </div>
+        </article>
+        """
+        for i, location in enumerate(["Wien", "Zürich", "Berlin", "Hamburg"])
+    )
+    html = f"<html><body>{cards}</body></html>"
+    mocker.patch.object(xing_module, "sync_playwright", _fake_sync_playwright_factory(html))
+
+    offers = XingJobScraper().search("Backend")
+
+    assert [offer.location for offer in offers] == ["Berlin", "Hamburg"]
+
+
+# --- _is_known_non_german_location(): direct unit coverage --------------
+#
+# The full search()+Playwright-mocked tests above and below prove the filter
+# is *wired in*; these test the matching MECHANISM itself in isolation
+# (word-boundary regex, casefold, the "Linz am Rhein" carve-out, and the
+# None/empty-string early return) without the overhead of building HTML
+# fixtures and mocking a browser for every case.
+
+@pytest.mark.parametrize(
+    ("location", "expected"),
+    [
+        (None, False),
+        ("", False),
+        ("Wien", True),
+        ("WIEN", True),  # casefold normalization
+        ("Zürich", True),
+        ("Berlin", False),
+        ("Bernau bei Berlin", False),  # "bern" substring, real German town
+        ("Bernburg (Saale)", False),  # "bern" substring, real German town
+        ("Bielefeld", False),  # "biel" substring, top-20 German city
+        ("Baar-Ebenhausen", False),  # "baar" substring, real Bavarian town
+        ("Baar", True),  # the actual Swiss canton/town, unprefixed
+        ("Linz am Rhein", False),  # carve-out: real German town
+        ("Linz", True),  # Linz, Austria, unprefixed
+    ],
+)
+def test_is_known_non_german_location_direct(location, expected):
+    assert XingJobScraper._is_known_non_german_location(location) is expected  # noqa: SLF001
+
+
+@pytest.mark.parametrize(
+    ("name", "location"),
+    [
+        ("Bernau bei Berlin", "Bernau bei Berlin"),
+        ("Bernburg", "Bernburg (Saale)"),
+        ("Bielefeld", "Bielefeld"),
+        ("Linz am Rhein", "Linz am Rhein"),
+        ("Baar-Ebenhausen", "Baar-Ebenhausen"),
+    ],
+)
+def test_non_german_filter_does_not_false_positive_on_similar_german_names(mocker, name, location):
+    """Substring matching (`"bern" in location`) would wrongly drop German
+    towns whose name merely contains a DACH-neighbor city as a substring -
+    "Bernau bei Berlin"/"Bernburg" contain "bern" (Switzerland), "Bielefeld"
+    (a top-20 German city) contains "biel" (Switzerland), "Baar-Ebenhausen"
+    (a real Bavarian town) contains "baar" (a Swiss canton/town) with only a
+    hyphen as separator, and "Linz am Rhein" is a real German town sharing
+    its primary name with Linz, Austria. Caught during self-review and
+    ce-code-review of the word-boundary filter, 2026-08-18. Parametrized so
+    one failing case doesn't hide the others."""
+    html = f"""
+    <html><body>
+      <article class="job-teaser-card">
+        <a class="job-teaser-card__overlay-link" href="/stellenangebote/1-{name}"></a>
+        <div class="job-teaser-card__body">
+          <h2>Backend Engineer {name}</h2>
+          <span class="company-name">Acme GmbH</span>
+          <span class="job-location">{location}</span>
+        </div>
+      </article>
+    </body></html>
+    """
+    mocker.patch.object(xing_module, "sync_playwright", _fake_sync_playwright_factory(html))
+
+    offers = XingJobScraper().search("Backend")
+
+    assert len(offers) == 1, f"{location!r} was wrongly filtered as non-German"
+    assert offers[0].location == location
 
 
 def test_playwright_launch_failure_returns_empty_list_without_raising(mocker):

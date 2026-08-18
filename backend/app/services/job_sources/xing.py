@@ -77,6 +77,26 @@ class XingJobScraper:
     SEARCH_URL = "https://www.xing.com/jobs/search"
     _MAX_RESULTS = 25
 
+    # Best-effort Länderfilter (siehe ce-debug-Untersuchung, 2026-08-18):
+    # Xing bietet - anders als LinkedIn ("geoId") - keinen server-seitigen
+    # Länder-Parameter; weder ein leerer `location`-Wert noch "Deutschland"/
+    # "Germany"/"DE" grenzen die Ergebnisse zuverlässig ein, während eine
+    # konkrete DACH-Nachbarstadt (z. B. "Wien") anstandslos deren Treffer
+    # liefert. Diese App ist auf den deutschen Arbeitsmarkt ausgerichtet, also
+    # werden Karten mit einer bekannten österreichischen/schweizer Großstadt
+    # als Ort nachträglich verworfen. Unvollständig by design (nicht gelistete
+    # Städte rutschen weiterhin durch) - siehe verlinktes Follow-up-Issue.
+    _NON_GERMAN_LOCATION_MARKERS = (
+        "österreich", "austria", "schweiz", "switzerland", "suisse", "svizzera",
+        "wien", "vienna", "graz", "linz", "salzburg", "innsbruck", "klagenfurt",
+        "villach", "wels", "sankt pölten", "st. pölten", "dornbirn",
+        "wiener neustadt", "steyr", "feldkirch", "bregenz",
+        "zürich", "zurich", "genf", "genève", "geneva", "basel", "bern",
+        "lausanne", "winterthur", "luzern", "lucerne", "st. gallen",
+        "sankt gallen", "lugano", "biel", "thun", "köniz", "rotkreuz", "zug",
+        "baar",
+    )
+
     def __init__(self, inner_timeout: float = 15.0) -> None:
         self._inner_timeout = inner_timeout
 
@@ -102,6 +122,36 @@ class XingJobScraper:
             return []
 
         return self._extract_offers(html, source_url=url)
+
+    @classmethod
+    def _is_known_non_german_location(cls, location: str | None) -> bool:
+        if not location:
+            return False
+        normalized = location.casefold()
+
+        # "Linz" is genuinely ambiguous: Linz, Austria vs. the much smaller
+        # Linz am Rhein, Germany. Word-boundary matching alone can't tell
+        # them apart ("linz" is a whole word in both), so this carve-out
+        # keeps the German one out of the denylist explicitly.
+        if "linz am rhein" in normalized:
+            return False
+
+        # Word-boundary, not substring: a naive `marker in normalized` check
+        # would also match "bern" inside German "Bernau"/"Bernburg" and
+        # "biel" inside German "Bielefeld" (a top-20 German city) - both
+        # real false positives caught during self-review, 2026-08-18.
+        #
+        # Plain `\b` treats a hyphen as a boundary too, which still false-
+        # positives on hyphenated German compound names sharing a prefix
+        # with a marker - "baar" would otherwise match inside the real
+        # Bavarian town "Baar-Ebenhausen" (caught by ce-code-review,
+        # 2026-08-18). `(?<![\w-])...(?![\w-])` treats a hyphen like a word
+        # character for boundary purposes, so a marker immediately followed
+        # or preceded by a hyphen-joined word no longer counts as a match.
+        return any(
+            re.search(rf"(?<![\w-]){re.escape(marker)}(?![\w-])", normalized)
+            for marker in cls._NON_GERMAN_LOCATION_MARKERS
+        )
 
     # --- Rendering ------------------------------------------------------
 
@@ -142,8 +192,16 @@ class XingJobScraper:
             except Exception:  # noqa: BLE001 - eine defekte Karte darf die übrigen nicht verwerfen
                 logger.exception("Konnte Xing-Job-Karte nicht verarbeiten.")
                 continue
-            if offer is not None:
-                offers.append(offer)
+            if offer is None:
+                continue
+            # Der Länderfilter läuft VOR dem _MAX_RESULTS-Cap, nicht danach:
+            # sonst könnten nicht-deutsche Karten unter den ersten
+            # _MAX_RESULTS Kandidaten den Cap für tatsächlich deutsche
+            # Angebote weiter unten auf der Seite aufbrauchen, ohne dass der
+            # Aufrufer davon erfährt (gefunden von ce-code-review, 2026-08-18).
+            if self._is_known_non_german_location(offer.location):
+                continue
+            offers.append(offer)
             if len(offers) >= self._MAX_RESULTS:
                 break
 

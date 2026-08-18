@@ -54,6 +54,17 @@ class LinkedInJobsClient:
     _DEFAULT_RESULT_CAP = 10
     _DEFAULT_COOLDOWN_SECONDS = 300.0
 
+    # LinkedIns interne Geo-ID für Deutschland. Diese App ist auf den
+    # deutschen Arbeitsmarkt ausgerichtet (siehe Arbeitsagentur als
+    # primäre Quelle), aber der freitextige `location`-Parameter wird nur
+    # gegen LinkedIns eigenen Ortsindex gematcht - bleibt er leer oder
+    # löst er nicht auf (z. B. "Deutschland", das LinkedIns Index nicht
+    # kennt), liefert die Suche kommentarlos WELTWEITE Treffer statt
+    # deutscher (siehe ce-debug-Untersuchung, 2026-08-18). `geoId` ist der
+    # einzige serverseitige, zuverlässige Hebel, der den Suchradius immer
+    # auf Deutschland begrenzt, unabhängig davon, ob/wie `location` auflöst.
+    GERMANY_GEO_ID = "101282230"
+
     # Klassen-Level-State (siehe Moduldocstring): überlebt neue Instanzen,
     # solange der Prozess läuft. Setzen erfolgt ausschließlich über
     # `_set_cooldown`, das explizit auf der Klasse (nicht `self`) schreibt.
@@ -89,7 +100,14 @@ class LinkedInJobsClient:
             logger.info("LinkedIn-Client: aktiver Cooldown - Anfrage übersprungen.")
             return []
 
-        params: dict[str, Any] = {"keywords": keywords, "start": 0}
+        # geoId ist immer gesetzt (siehe GERMANY_GEO_ID) - `location` bleibt
+        # zusätzlich ein Freitext-Hinweis, wird aber nie allein zur
+        # Länder-Eingrenzung verlassen.
+        params: dict[str, Any] = {
+            "keywords": keywords,
+            "start": 0,
+            "geoId": self.GERMANY_GEO_ID,
+        }
         if location:
             params["location"] = location
 

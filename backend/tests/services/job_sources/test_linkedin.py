@@ -114,6 +114,33 @@ def test_cooldown_skips_request_on_next_search(requests_mock):
     assert requests_mock.call_count == 1
 
 
+def test_search_always_scopes_to_germany_via_geo_id(requests_mock):
+    """LinkedIn's free-text `location` param is matched against LinkedIn's own
+    place index and silently falls back to WORLDWIDE results whenever it does
+    not resolve (empty location, or a location string LinkedIn doesn't know) -
+    see ce-debug investigation, 2026-08-18. `geoId` is the only reliable,
+    server-side way to force every result into Germany regardless of what (or
+    whether) `location` resolves, so it must always be sent."""
+    requests_mock.get(LinkedInJobsClient.BASE_URL, text=ZERO_CARDS_FRAGMENT)
+
+    _client().search("Angular")  # no location at all
+
+    assert requests_mock.last_request.qs["geoid"] == [LinkedInJobsClient.GERMANY_GEO_ID]
+
+
+def test_geo_id_still_sent_when_location_text_does_not_resolve(requests_mock):
+    """A location LinkedIn's index can't resolve (e.g. the German spelling
+    "Deutschland", which LinkedIn's guest search does not recognize) must not
+    remove the Germany scope - geoId is the floor, location text is only a
+    best-effort hint on top of it."""
+    requests_mock.get(LinkedInJobsClient.BASE_URL, text=ZERO_CARDS_FRAGMENT)
+
+    _client().search("Angular", "Deutschland")
+
+    assert requests_mock.last_request.qs["geoid"] == [LinkedInJobsClient.GERMANY_GEO_ID]
+    assert requests_mock.last_request.qs["location"] == ["deutschland"]
+
+
 def test_cooldown_persists_across_separate_instances(requests_mock):
     """Beweist, dass der Cooldown Klassen-/Modul-Level-State ist, nicht ein
     Instanzattribut - pro Request wird ein neuer Client instanziiert (KTD3),
