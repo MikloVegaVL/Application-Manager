@@ -29,9 +29,10 @@ class Settings(BaseSettings):
     # --- Datenbank ---
     DATABASE_URL: str = "sqlite:///./app.db"
 
-    # --- OpenAI / LLM ---
-    OPENAI_API_KEY: str | None = None
-    OPENAI_MODEL: str = "gpt-4o"
+    # --- Ollama / LLM ---
+    OLLAMA_BASE_URL: str = "http://ollama:11434"
+    OLLAMA_MODEL: str = "qwen2.5:7b-instruct"
+    OLLAMA_TIMEOUT_SECONDS: float = 120.0
 
     # --- SMTP / Mailversand ---
     SMTP_HOST: str | None = None

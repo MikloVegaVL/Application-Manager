@@ -21,7 +21,7 @@ class AiTailoredCvContent(BaseModel):
 
 
 class AiGenerationResult(BaseModel):
-    """Rohes Ergebnis des GPT-4o-Aufrufs (siehe `_SYSTEM_PROMPT` in `ai_generator.py`)."""
+    """Rohes Ergebnis des LLM-Aufrufs (siehe `_SYSTEM_PROMPT` in `ai_generator.py`)."""
 
     cover_letter_text: str
     cv_content: AiTailoredCvContent

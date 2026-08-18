@@ -1,8 +1,9 @@
 """Service zur KI-gestützten Generierung von Bewerbungsunterlagen.
 
 Nimmt das `MasterProfile` und ein ausgewähltes `JobOffer` entgegen und lässt
-GPT-4o daraus ein maßgeschneidertes Anschreiben sowie eine auf die Stelle
-zugeschnittene Auswahl/Formulierung der Lebenslauf-Stationen erzeugen.
+das LLM (via Ollama) daraus ein maßgeschneidertes Anschreiben sowie eine auf
+die Stelle zugeschnittene Auswahl/Formulierung der Lebenslauf-Stationen
+erzeugen.
 
 Kontaktdaten (Name, E-Mail, Telefon, Adresse) werden NICHT von der KI
 generiert, sondern deterministisch aus dem Profil übernommen - so können bei
@@ -13,13 +14,11 @@ from __future__ import annotations
 import json
 import logging
 
-from openai import OpenAI, OpenAIError
-from pydantic import ValidationError
-
-from app.core.config import settings
 from app.models.job_offer import JobOffer
 from app.models.master_profile import MasterProfile
 from app.schemas.generation import AiGenerationResult, TailoredCv
+from app.services import llm_client
+from app.services.llm_client import LlmUnavailableError, LlmValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -104,47 +103,24 @@ def generate_application_content(
     """Erzeugt Anschreiben-Text und maßgeschneiderten Lebenslauf für `job_offer`.
 
     Gibt ein Tupel `(cover_letter_text, tailored_cv)` zurück. Wirft
-    `ApplicationGenerationError` bei fehlender Konfiguration, API-Fehlern
-    oder ungültiger KI-Antwort.
+    `ApplicationGenerationError`, wenn Ollama nicht erreichbar ist oder
+    keine gültige KI-Antwort zustande kam.
     """
-    if not settings.OPENAI_API_KEY:
-        raise ApplicationGenerationError(
-            "OPENAI_API_KEY ist nicht konfiguriert - die KI-Generierung ist "
-            "nicht verfügbar. Bitte in der .env hinterlegen."
-        )
-
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": _build_user_prompt(profile, job_offer)},
+    ]
 
     try:
-        response = client.chat.completions.create(
-            model=settings.OPENAI_MODEL,
-            temperature=0.6,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": _build_user_prompt(profile, job_offer)},
-            ],
-        )
-    except OpenAIError as exc:
-        logger.exception("OpenAI-Aufruf zur Bewerbungsgenerierung fehlgeschlagen.")
-        raise ApplicationGenerationError(f"KI-Generierung fehlgeschlagen: {exc}") from exc
-
-    content = response.choices[0].message.content if response.choices else None
-    if not content:
-        raise ApplicationGenerationError("Die KI-Antwort enthielt keine Daten.")
-
-    try:
-        raw_json = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise ApplicationGenerationError("Die KI-Antwort war kein valides JSON.") from exc
-
-    try:
-        result = AiGenerationResult.model_validate(raw_json)
-    except ValidationError as exc:
+        result = llm_client.generate_structured(AiGenerationResult, messages)
+    except LlmValidationError as exc:
         logger.warning("KI-Antwort entsprach nicht dem erwarteten Schema: %s", exc)
         raise ApplicationGenerationError(
             "Die KI-Antwort entsprach nicht dem erwarteten Schema."
         ) from exc
+    except LlmUnavailableError as exc:
+        logger.exception("Ollama-Aufruf zur Bewerbungsgenerierung fehlgeschlagen.")
+        raise ApplicationGenerationError(f"KI-Generierung fehlgeschlagen: {exc}") from exc
 
     tailored_cv = TailoredCv(
         full_name=profile.full_name,
