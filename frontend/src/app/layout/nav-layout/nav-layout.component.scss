@@ -1,0 +1,28 @@
+.app-shell {
+  height: 100vh;
+}
+
+.app-sidenav {
+  width: 240px;
+}
+
+.app-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+
+  &__title {
+    margin-left: 12px;
+    font-size: 1.1rem;
+    font-weight: 500;
+  }
+}
+
+.app-content {
+  min-height: calc(100vh - 64px);
+}
+
+::ng-deep .active-link {
+  background-color: rgba(0, 0, 0, 0.06);
+  font-weight: 600;
+}

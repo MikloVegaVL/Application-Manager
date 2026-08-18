@@ -1,0 +1,131 @@
+<div class="job-search">
+  <header class="job-search__intro">
+    <h1>Jobsuche</h1>
+    <p>Durchsuche offene Stellen und speichere passende Angebote für deine Bewerbung.</p>
+  </header>
+
+  <form class="job-search__form" [formGroup]="searchForm" (ngSubmit)="onSearch()">
+    <mat-form-field appearance="outline" class="job-search__field">
+      <mat-label>Suchbegriff</mat-label>
+      <mat-icon matPrefix>search</mat-icon>
+      <input matInput formControlName="keywords" placeholder="z. B. Backend Engineer" />
+      @if (searchForm.controls.keywords.hasError('required') && searchForm.controls.keywords.touched) {
+        <mat-error>Bitte gib einen Suchbegriff ein.</mat-error>
+      } @else if (searchForm.controls.keywords.hasError('minlength') && searchForm.controls.keywords.touched) {
+        <mat-error>Der Suchbegriff muss mindestens 2 Zeichen lang sein.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="job-search__field">
+      <mat-label>Ort</mat-label>
+      <mat-icon matPrefix>place</mat-icon>
+      <input matInput formControlName="location" placeholder="z. B. Berlin" />
+    </mat-form-field>
+
+    <button mat-raised-button color="primary" type="submit" class="job-search__submit" [disabled]="loading()">
+      <mat-icon>search</mat-icon>
+      Suchen
+    </button>
+  </form>
+
+  @if (loading()) {
+    <div class="job-search__loading">
+      <mat-progress-spinner mode="indeterminate" diameter="48" />
+      <p>Stellenangebote werden geladen ...</p>
+    </div>
+  }
+
+  @if (!loading() && errorMessage()) {
+    <p class="job-search__error">{{ errorMessage() }}</p>
+  }
+
+  @if (!loading() && hasSearched() && !errorMessage() && sourceStatuses().length > 0) {
+    <div class="job-search__source-status">
+      <mat-chip-set>
+        @for (source of sourceStatuses(); track source.platform) {
+          <mat-chip [class.job-search__source-chip--unavailable]="source.status === 'unavailable'">
+            <mat-icon matChipAvatar>{{ source.status === 'ok' ? 'check_circle' : 'error_outline' }}</mat-icon>
+            {{ sourceLabel(source.platform) }}
+            @if (source.status === 'unavailable') {
+              · nicht verfügbar
+            }
+          </mat-chip>
+        }
+      </mat-chip-set>
+    </div>
+  }
+
+  @if (!loading() && hasSearched() && !errorMessage() && results().length === 0) {
+    @if (allSourcesUnavailable()) {
+      <p class="job-search__empty">
+        Alle Quellen waren gerade nicht erreichbar. Bitte versuche es in ein paar Minuten erneut.
+      </p>
+    } @else {
+      <p class="job-search__empty">Keine Stellenangebote gefunden. Versuche einen anderen Suchbegriff oder Ort.</p>
+    }
+  }
+
+  @if (!loading() && results().length > 0) {
+    <div class="job-search__results">
+      @for (job of results(); track job.source_url) {
+        <mat-card class="job-card" appearance="outlined">
+          <mat-card-header>
+            <mat-card-title>{{ job.title }}</mat-card-title>
+            <mat-card-subtitle>
+              {{ job.company }}
+              @if (job.location) {
+                · {{ job.location }}
+              }
+            </mat-card-subtitle>
+          </mat-card-header>
+
+          <mat-card-content>
+            <p class="job-card__description">
+              {{ job.description_text || 'Keine Beschreibung verfügbar.' }}
+            </p>
+            <mat-chip-set>
+              <mat-chip>{{ job.source_platform }}</mat-chip>
+            </mat-chip-set>
+          </mat-card-content>
+
+          <mat-card-actions align="end">
+            <a mat-button [href]="job.source_url" target="_blank" rel="noopener noreferrer">
+              <mat-icon>open_in_new</mat-icon>
+              Anzeige öffnen
+            </a>
+
+            <button
+              mat-stroked-button
+              type="button"
+              [disabled]="isSaved(job) || isSaving(job)"
+              (click)="onSaveJob(job)"
+            >
+              @if (isSaving(job)) {
+                <mat-progress-spinner mode="indeterminate" diameter="18" />
+              } @else {
+                <mat-icon>{{ isSaved(job) ? 'bookmark_added' : 'bookmark_add' }}</mat-icon>
+              }
+              {{ isSaved(job) ? 'Gespeichert' : 'Job speichern' }}
+            </button>
+
+            <button
+              mat-raised-button
+              color="accent"
+              type="button"
+              class="job-card__generate-btn"
+              [disabled]="isGenerating(job)"
+              (click)="onGenerateApplication(job)"
+            >
+              @if (isGenerating(job)) {
+                <mat-progress-spinner mode="indeterminate" diameter="18" />
+              } @else {
+                <span aria-hidden="true">⚡</span>
+              }
+              Bewerbung generieren
+            </button>
+          </mat-card-actions>
+        </mat-card>
+      }
+    </div>
+  }
+</div>

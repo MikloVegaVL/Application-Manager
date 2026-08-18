@@ -1,0 +1,44 @@
+<h2 mat-dialog-title>Bewerbung jetzt per E-Mail versenden?</h2>
+
+<mat-dialog-content>
+  @if (data.jobTitle || data.companyName) {
+    <p class="dialog-hint">
+      Bewerbung für <strong>{{ data.jobTitle }}</strong>
+      @if (data.companyName) {
+        bei <strong>{{ data.companyName }}</strong>
+      }
+      wird inkl. PDF-Anhang versendet.
+    </p>
+  }
+
+  <form [formGroup]="form" class="dialog-form">
+    <mat-form-field appearance="outline" class="dialog-form__field">
+      <mat-label>Empfänger-E-Mail</mat-label>
+      <mat-icon matPrefix>mail</mat-icon>
+      <input matInput type="email" formControlName="to_email" />
+      @if (form.controls.to_email.hasError('required') && form.controls.to_email.touched) {
+        <mat-error>Bitte gib eine Empfänger-E-Mail an.</mat-error>
+      } @else if (form.controls.to_email.hasError('email') && form.controls.to_email.touched) {
+        <mat-error>Bitte gib eine gültige E-Mail-Adresse an.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="dialog-form__field">
+      <mat-label>Betreff</mat-label>
+      <input matInput formControlName="subject" placeholder="Wird sonst automatisch gesetzt" />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="dialog-form__field">
+      <mat-label>Mail-Text</mat-label>
+      <textarea matInput formControlName="message" rows="5" placeholder="Wird sonst automatisch gesetzt"></textarea>
+    </mat-form-field>
+  </form>
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-button type="button" (click)="onCancel()">Abbrechen</button>
+  <button mat-raised-button color="primary" type="button" (click)="onConfirm()">
+    <mat-icon>send</mat-icon>
+    Jetzt versenden
+  </button>
+</mat-dialog-actions>

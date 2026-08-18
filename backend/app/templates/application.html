@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Bewerbung - {{ cv.full_name }}</title>
+<style>
+  @page {
+    size: A4;
+    margin: 2.2cm;
+    @bottom-center {
+      content: "Seite " counter(page) " von " counter(pages);
+      font-size: 8pt;
+      color: #999;
+    }
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    color: #1a1a1a;
+    margin: 0;
+  }
+
+  /* ============ Anschreiben (DIN-5008-orientiertes Layout) ============ */
+  .cover-letter {
+    font-size: 11pt;
+    line-height: 1.55;
+  }
+
+  .cover-letter .sender-block {
+    text-align: right;
+    font-size: 9pt;
+    color: #555;
+    margin-bottom: 20mm;
+  }
+
+  .cover-letter .sender-block .name {
+    font-weight: 600;
+    color: #1a1a1a;
+    font-size: 10.5pt;
+  }
+
+  .cover-letter .recipient-block {
+    width: 85mm;
+    margin-bottom: 8mm;
+  }
+
+  .cover-letter .recipient-block p {
+    margin: 0;
+  }
+
+  .cover-letter .date-block {
+    text-align: right;
+    margin-bottom: 10mm;
+  }
+
+  .cover-letter .letter-body {
+    white-space: pre-line;
+  }
+
+  /* ============ Lebenslauf ============ */
+  .cv {
+    page-break-before: always;
+    font-size: 10.5pt;
+    line-height: 1.45;
+  }
+
+  .cv h1 {
+    font-size: 22pt;
+    margin: 0 0 2mm;
+    color: #1f2d50;
+  }
+
+  .cv .contact-line {
+    font-size: 9.5pt;
+    color: #555;
+    margin-bottom: 8mm;
+  }
+
+  .cv .contact-line span:not(:last-child)::after {
+    content: " \00b7 ";
+  }
+
+  .cv h2 {
+    font-size: 12pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5pt;
+    color: #1f2d50;
+    border-bottom: 1pt solid #1f2d50;
+    padding-bottom: 1mm;
+    margin: 8mm 0 4mm;
+  }
+
+  .cv .summary {
+    margin: 0;
+  }
+
+  .cv .entry {
+    margin-bottom: 5mm;
+  }
+
+  .cv .entry__title-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 4mm;
+    font-weight: 600;
+  }
+
+  .cv .entry__description {
+    margin: 1mm 0 0;
+    white-space: pre-line;
+    font-weight: 400;
+    color: #333;
+  }
+
+  .cv .skills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2mm;
+  }
+
+  .cv .skill-tag {
+    background: #eef1fb;
+    color: #1f2d50;
+    border-radius: 3mm;
+    padding: 1mm 4mm;
+    font-size: 9pt;
+  }
+</style>
+</head>
+<body>
+  <!-- ============ Seite 1: Anschreiben ============ -->
+  <section class="cover-letter">
+    <div class="sender-block">
+      <div class="name">{{ cv.full_name }}</div>
+      {% if cv.address %}<div>{{ cv.address }}</div>{% endif %}
+      {% if cv.phone %}<div>{{ cv.phone }}</div>{% endif %}
+      <div>{{ cv.email }}</div>
+    </div>
+
+    <div class="recipient-block">
+      <p>{{ recipient.company }}</p>
+      {% if recipient.location %}<p>{{ recipient.location }}</p>{% endif %}
+    </div>
+
+    <div class="date-block">{{ date }}</div>
+
+    <div class="letter-body">{{ cover_letter_text }}</div>
+  </section>
+
+  <!-- ============ Seite 2+: Lebenslauf ============ -->
+  <section class="cv">
+    <h1>{{ cv.full_name }}</h1>
+    <div class="contact-line">
+      {% if cv.address %}<span>{{ cv.address }}</span>{% endif %}
+      {% if cv.phone %}<span>{{ cv.phone }}</span>{% endif %}
+      <span>{{ cv.email }}</span>
+    </div>
+
+    {% if cv.summary %}
+    <h2>Profil</h2>
+    <p class="summary">{{ cv.summary }}</p>
+    {% endif %}
+
+    {% if experiences %}
+    <h2>Berufserfahrung</h2>
+    {% for exp in experiences %}
+    <div class="entry">
+      <div class="entry__title-row">
+        <span>{{ exp.role }}, {{ exp.company }}</span>
+        <span>{{ exp.date_range }}</span>
+      </div>
+      {% if exp.description %}<p class="entry__description">{{ exp.description }}</p>{% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if education %}
+    <h2>Ausbildung</h2>
+    {% for edu in education %}
+    <div class="entry">
+      <div class="entry__title-row">
+        <span>{{ edu.degree }}{% if edu.field_of_study %} &middot; {{ edu.field_of_study }}{% endif %}, {{ edu.institution }}</span>
+        <span>{{ edu.date_range }}</span>
+      </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if cv.skills %}
+    <h2>Skills &amp; Zertifikate</h2>
+    <div class="skills">
+      {% for skill in cv.skills %}<span class="skill-tag">{{ skill }}</span>{% endfor %}
+    </div>
+    {% endif %}
+  </section>
+</body>
+</html>

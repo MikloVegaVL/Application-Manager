@@ -1,0 +1,176 @@
+.profile-page {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 24px;
+
+  &__intro {
+    margin-bottom: 16px;
+
+    h1 {
+      margin: 0 0 4px;
+    }
+
+    p {
+      margin: 0;
+      color: rgba(0, 0, 0, 0.6);
+    }
+  }
+
+  &__loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 64px 0;
+    color: rgba(0, 0, 0, 0.6);
+  }
+
+  &__actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 24px;
+
+    button {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+  }
+}
+
+.tab-content {
+  padding: 24px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 16px;
+
+  &__full {
+    grid-column: 1 / -1;
+  }
+}
+
+.form-array-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    h3 {
+      margin: 0;
+    }
+  }
+
+  &__empty {
+    color: rgba(0, 0, 0, 0.5);
+    font-style: italic;
+    margin: 0;
+  }
+}
+
+.entry-card {
+  &__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(200px, 1fr));
+    gap: 8px 16px;
+    padding-top: 8px;
+  }
+
+  &__description {
+    grid-column: 1 / -1;
+  }
+}
+
+.skills-field {
+  width: 100%;
+  max-width: 640px;
+}
+
+.cv-import {
+  &__hint {
+    margin: 0;
+    color: rgba(0, 0, 0, 0.6);
+    max-width: 640px;
+  }
+
+  &__submit {
+    align-self: flex-start;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+}
+
+.cv-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  max-width: 640px;
+  padding: 40px 24px;
+  border: 2px dashed rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: center;
+  color: rgba(0, 0, 0, 0.6);
+  transition: border-color 150ms ease, background-color 150ms ease;
+
+  mat-icon {
+    font-size: 40px;
+    width: 40px;
+    height: 40px;
+  }
+
+  &--dragover {
+    border-color: var(--mat-sys-primary, #3f51b5);
+    background-color: rgba(63, 81, 181, 0.06);
+  }
+
+  &__filename {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 500;
+    color: rgba(0, 0, 0, 0.87);
+  }
+}
+
+button mat-progress-spinner {
+  display: inline-block;
+  margin-right: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .profile-page__intro p,
+  .profile-page__loading,
+  .form-array-section__empty,
+  .cv-import__hint,
+  .cv-dropzone {
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .cv-dropzone {
+    border-color: rgba(255, 255, 255, 0.25);
+  }
+
+  .cv-dropzone__filename {
+    color: rgba(255, 255, 255, 0.87);
+  }
+}
+
+@media (max-width: 600px) {
+  .form-grid,
+  .entry-card__grid {
+    grid-template-columns: 1fr;
+  }
+}
