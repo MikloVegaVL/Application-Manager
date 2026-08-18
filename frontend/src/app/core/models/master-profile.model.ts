@@ -34,3 +34,15 @@ export interface MasterProfileRead extends MasterProfile {
   created_at: string;
   updated_at: string;
 }
+
+/**
+ * Entspricht `CvUploadResponse`: Antwort von `POST /profile/upload-cv`.
+ * `upload_cv` übernimmt ein Feld nur, wenn die KI dafür etwas gefunden hat -
+ * `warnings` benennt jedes Feld, das deshalb NICHT übernommen wurde, damit
+ * ein unvollständiger CV-Import nicht als unbedingter Erfolg erscheint
+ * (siehe ce-debug-Untersuchung, 2026-08-18).
+ */
+export interface CvUploadResponse {
+  profile: MasterProfileRead;
+  warnings: string[];
+}

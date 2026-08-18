@@ -5,10 +5,30 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.models.master_profile import MasterProfile
-from app.schemas.master_profile import MasterProfileCreate, MasterProfileRead
-from app.services.pdf_parser import CvAnalysisError, PdfParsingError, parse_cv_pdf
+from app.schemas.master_profile import CvUploadResponse, MasterProfileCreate, MasterProfileRead
+from app.services.pdf_parser import CvAnalysisError, ParsedCvProfile, PdfParsingError, parse_cv_pdf
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
+
+# Felder, für die eine leere KI-Antwort dem Nutzer als Warnung gemeldet wird
+# (siehe CvUploadResponse.warnings) - bewusst nur die inhaltlich substanziellen
+# Felder, nicht Telefon/Adresse, die auf vielen Lebensläufen legitim fehlen.
+_WARNING_LABELS: dict[str, str] = {
+    "summary": "Kein Kurzprofil/Zusammenfassung gefunden.",
+    "experiences": "Keine Berufserfahrung gefunden - vorhandene Angaben blieben unverändert.",
+    "education": "Keine Ausbildung gefunden - vorhandene Angaben blieben unverändert.",
+    "skills": "Keine Skills gefunden.",
+}
+
+
+def _missing_field_warnings(parsed: ParsedCvProfile) -> list[str]:
+    """Baut die Warnungsliste für `CvUploadResponse` (siehe ce-debug-
+    Untersuchung, 2026-08-18): `upload_cv` übernimmt ein Feld nur, wenn die KI
+    dafür etwas gefunden hat, damit ein unvollständiger Parse ein bereits
+    gepflegtes Profil nicht mit leeren Werten überschreibt - das blieb bisher
+    aber komplett unsichtbar für den Nutzer, der einen unbedingten Erfolg
+    sah, obwohl z. B. keine Berufserfahrung übernommen wurde."""
+    return [message for field, message in _WARNING_LABELS.items() if not getattr(parsed, field)]
 
 
 @router.get("", response_model=MasterProfileRead)
@@ -43,18 +63,20 @@ def upsert_profile(payload: MasterProfileCreate, db: Session = Depends(get_db)) 
     return profile
 
 
-@router.post("/upload-cv", response_model=MasterProfileRead)
+@router.post("/upload-cv", response_model=CvUploadResponse)
 def upload_cv(
     file: UploadFile = File(..., description="Lebenslauf als PDF-Datei"),
     db: Session = Depends(get_db),
-) -> MasterProfile:
+) -> CvUploadResponse:
     """Nimmt eine Lebenslauf-PDF entgegen, extrahiert den Text und lässt die KI
     (via Ollama) daraus ein strukturiertes Profil ableiten.
 
     Existiert noch kein Profil, wird eines angelegt (dafür müssen mindestens
     Name und E-Mail aus dem CV extrahierbar sein). Existiert bereits ein
     Profil, werden nur Felder überschrieben/ergänzt, die die KI tatsächlich
-    im Lebenslauf gefunden hat - vorhandene Daten gehen nicht verloren.
+    im Lebenslauf gefunden hat - vorhandene Daten gehen nicht verloren, aber
+    die Antwort benennt in `warnings`, welche Felder deshalb NICHT übernommen
+    wurden (siehe CvUploadResponse).
     """
     is_pdf = file.content_type == "application/pdf" or (file.filename or "").lower().endswith(".pdf")
     if not is_pdf:
@@ -117,4 +139,4 @@ def upload_cv(
 
     db.commit()
     db.refresh(profile)
-    return profile
+    return CvUploadResponse(profile=profile, warnings=_missing_field_warnings(parsed))

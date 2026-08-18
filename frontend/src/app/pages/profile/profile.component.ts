@@ -276,13 +276,26 @@ export class ProfileComponent implements OnInit {
 
     this.uploading.set(true);
     this.profileService.uploadCv(file).subscribe({
-      next: (profile) => {
+      next: ({ profile, warnings }) => {
         this.uploading.set(false);
         this.selectedFile.set(null);
         this.applyProfileToForm(profile);
-        this.snackBar.open('Profil wurde aus dem Lebenslauf befüllt. Bitte prüfen und speichern.', 'OK', {
-          duration: 5000,
-        });
+        // `warnings` benennt Felder, die die KI nicht im CV fand und die
+        // deshalb NICHT übernommen wurden (bestehende Daten bleiben
+        // unverändert) - ohne diese Meldung wirkte ein unvollständiger
+        // Import wie ein unbedingter Erfolg (siehe ce-debug-Untersuchung,
+        // 2026-08-18).
+        if (warnings.length > 0) {
+          this.snackBar.open(
+            `Profil teilweise befüllt - bitte manuell prüfen: ${warnings.join(' ')}`,
+            'OK',
+            { duration: 10000 },
+          );
+        } else {
+          this.snackBar.open('Profil wurde aus dem Lebenslauf befüllt. Bitte prüfen und speichern.', 'OK', {
+            duration: 5000,
+          });
+        }
       },
       error: (error: HttpErrorResponse) => {
         this.uploading.set(false);

@@ -65,6 +65,26 @@ class MasterProfileRead(MasterProfileBase):
     updated_at: datetime
 
 
+class CvUploadResponse(BaseModel):
+    """Antwort von `POST /profile/upload-cv`.
+
+    `upload_cv` übernimmt Felder aus dem CV nur, wenn die KI dafür tatsächlich
+    etwas gefunden hat (siehe `app.api.profile.upload_cv`) - ein unvollständig
+    gelesener CV darf ein bereits gepflegtes Profil nicht mit leeren Werten
+    überschreiben. Das schützt gute Daten, verschluckt aber ohne `warnings`
+    stillschweigend, dass z. B. gar keine Berufserfahrung erkannt wurde -
+    siehe ce-debug-Untersuchung, 2026-08-18 (ein Nutzer bemerkte erst beim
+    manuellen Nachsehen, dass sein Profil trotz "erfolgreichem" Import keine
+    Berufserfahrung/Ausbildung enthielt). `warnings` benennt jedes Feld, das
+    die KI leer zurückgab und das deshalb NICHT übernommen wurde, damit das
+    Frontend das transparent anzeigen kann statt einen unbedingten Erfolg zu
+    melden.
+    """
+
+    profile: MasterProfileRead
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ParsedCvProfile(BaseModel):
     """Ergebnis der KI-gestützten CV-Analyse (siehe `app.services.pdf_parser`).
 

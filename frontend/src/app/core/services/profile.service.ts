@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
-import { MasterProfile, MasterProfileRead } from '../models/master-profile.model';
+import { CvUploadResponse, MasterProfile, MasterProfileRead } from '../models/master-profile.model';
 
 /**
  * Kommuniziert mit den Profil-Endpunkten des Backends
@@ -24,10 +24,14 @@ export class ProfileService {
     return this.http.put<MasterProfileRead>(this.baseUrl, profile);
   }
 
-  /** Lädt eine Lebenslauf-PDF hoch und lässt sie serverseitig per KI analysieren. */
-  uploadCv(file: File): Observable<MasterProfileRead> {
+  /**
+   * Lädt eine Lebenslauf-PDF hoch und lässt sie serverseitig per KI analysieren.
+   * `warnings` in der Antwort benennt Felder, die die KI nicht fand und die
+   * deshalb NICHT übernommen wurden (siehe CvUploadResponse).
+   */
+  uploadCv(file: File): Observable<CvUploadResponse> {
     const formData = new FormData();
     formData.append('file', file, file.name);
-    return this.http.post<MasterProfileRead>(`${this.baseUrl}/upload-cv`, formData);
+    return this.http.post<CvUploadResponse>(`${this.baseUrl}/upload-cv`, formData);
   }
 }

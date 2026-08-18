@@ -46,17 +46,23 @@ class Settings(BaseSettings):
     # CV-Analyse abdeckt, nicht die Bewerbungstext-Generierung - ein globaler
     # Wechsel hätte deren Qualität ungetestet mitverändert.
     OLLAMA_MODEL_CV_PARSING: str = "qwen2.5:3b-instruct"
-    # War zuvor 120.0 - auf CPU-only Ollama (kein GPU-Passthrough im Docker-
-    # Setup, siehe ce-debug-Untersuchung, 2026-08-18) misst schema-
-    # eingeschränkte Generierung (jeder generate_structured-Aufruf, auch die
-    # CV-Analyse) nur ~2.2 Token/s - ein echter mehrseitiger Lebenslauf
-    # brauchte damit regelmäßig länger als 120s und lief in einen Timeout
-    # (bestätigt per Live-Reproduktion und echten Backend-Logs). 300s gibt
-    # einem einzelnen Ollama-Aufruf realistisch Zeit zum Fertigwerden -
-    # `frontend/nginx.conf`s `proxy_read_timeout` MUSS deutlich darüber
-    # liegen, da `generate_structured` bis zu drei sequentielle Aufrufe
-    # machen kann (Erstversuch + Retry + Abflach-Fallback).
-    OLLAMA_TIMEOUT_SECONDS: float = 300.0
+    # War zuvor 120.0, dann 300.0 - auf CPU-only Ollama (kein GPU-Passthrough
+    # im Docker-Setup) ist schema-eingeschränkte Generierung nicht nur
+    # langsam (~2.2 Token/s), sondern auch spürbar UNGLEICHMÄSSIG: bei der
+    # ce-debug-Untersuchung zur Bewerbungsgenerierung (ai_generator.py, nutzt
+    # weiterhin qwen2.5:7b-instruct - ein kleineres Modell lieferte für
+    # Anschreiben spürbar schlechtere Prosequalität, siehe Commit-Historie)
+    # brauchten zwei erfolgreiche Läufe für dieselbe echte Bewerberin/Stelle
+    # 228s bzw. 259s, ein dritter Lauf überschritt 300s klar. Auch die CV-
+    # Analyse (qwen2.5:3b-instruct, sonst 108-246s) überschritt bei einem
+    # Lauf gegen eine reale, echte CV-PDF ebenfalls 300s, obwohl ein exakt
+    # identischer Wiederholungslauf nur 141s brauchte - reine Lauf-zu-Lauf-
+    # Varianz auf CPU-only Hardware, kein Datenproblem. 600s gibt selbst dem
+    # langsameren 7b-Modell realistisch Zeit inkl. Spielraum für diese
+    # Varianz - `frontend/nginx.conf`s `proxy_read_timeout` MUSS deutlich
+    # darüber liegen, da `generate_structured` bis zu drei sequentielle
+    # Aufrufe machen kann (Erstversuch + Retry + Abflach-Fallback).
+    OLLAMA_TIMEOUT_SECONDS: float = 600.0
 
     # --- SMTP / Mailversand ---
     SMTP_HOST: str | None = None
