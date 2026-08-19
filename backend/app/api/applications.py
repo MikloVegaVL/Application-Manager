@@ -23,7 +23,7 @@ from app.schemas.application import (
 from app.schemas.generation import TailoredCv
 from app.services.ai_generator import ApplicationGenerationError, generate_application_content
 from app.services.mail_service import MailSendError, send_application_email
-from app.services.pdf_service import PdfRenderError, render_application_pdf
+from app.services.pdf_service import PdfRenderError, render_cv_pdf
 
 router = APIRouter(prefix="/applications", tags=["Applications"])
 
@@ -73,7 +73,7 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
     try:
-        pdf_bytes = render_application_pdf(cover_letter_text, tailored_cv, job_offer)
+        pdf_bytes = render_cv_pdf(tailored_cv)
     except PdfRenderError as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
@@ -166,7 +166,7 @@ def update_application(
             ) from exc
 
         try:
-            pdf_bytes = render_application_pdf(application.cover_letter_text or "", tailored_cv, job_offer)
+            pdf_bytes = render_cv_pdf(tailored_cv)
         except PdfRenderError as exc:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
@@ -228,7 +228,7 @@ def get_application_pdf(application_id: int, db: Session = Depends(get_db)) -> S
     return StreamingResponse(
         iter_pdf_file(pdf_path),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="bewerbung_{application_id}.pdf"'},
+        headers={"Content-Disposition": f'inline; filename="lebenslauf_{application_id}.pdf"'},
     )
 
 
@@ -253,7 +253,7 @@ def send_application(
     subject = payload.subject or default_subject
     body_text = payload.message or (
         "Sehr geehrte Damen und Herren,\n\n"
-        "anbei erhalten Sie meine Bewerbungsunterlagen (Anschreiben und Lebenslauf).\n\n"
+        "anbei erhalten Sie meinen Lebenslauf zu meiner Bewerbung.\n\n"
         "Für Rückfragen stehe ich gerne zur Verfügung.\n\n"
         "Mit freundlichen Grüßen"
     )
@@ -265,7 +265,7 @@ def send_application(
             subject=subject,
             body_text=body_text,
             attachment_bytes=pdf_bytes,
-            attachment_filename=f"bewerbung_{application_id}.pdf",
+            attachment_filename=f"lebenslauf_{application_id}.pdf",
         )
     except MailSendError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
