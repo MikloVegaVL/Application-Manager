@@ -161,3 +161,37 @@ def test_delete_application_returns_404_for_unknown_id(client: TestClient) -> No
     response = client.delete("/api/applications/999")
 
     assert response.status_code == 404
+
+
+def test_delete_application_also_frees_the_job_offer_for_resaving(client: TestClient, db_session_local) -> None:
+    # Regression: `source_url` ist eindeutig (siehe JobOffer-Modell) - blieb
+    # das Stellenangebot nach dem Löschen der Bewerbung bestehen, schlug ein
+    # erneutes Speichern/Generieren für denselben Job dauerhaft mit 409 fehl,
+    # während die Bewerbung selbst nirgends mehr auffindbar war.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/1"
+        )
+        job_offer_id = job_offer.id
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+    finally:
+        session.close()
+
+    response = client.delete(f"/api/applications/{application_id}")
+    assert response.status_code == 204
+
+    assert client.get(f"/api/jobs/{job_offer_id}").status_code == 404
+
+    resave_response = client.post(
+        "/api/jobs/save",
+        json={
+            "title": "Backend Engineer",
+            "company": "Acme GmbH",
+            "location": "Berlin",
+            "source_url": "https://example.com/job/1",
+            "description_text": None,
+            "source_platform": "arbeitsagentur",
+        },
+    )
+    assert resave_response.status_code == 201

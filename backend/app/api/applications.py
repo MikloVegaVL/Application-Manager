@@ -182,7 +182,16 @@ def update_application(
 
 @router.delete("/{application_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_application(application_id: int, db: Session = Depends(get_db)) -> None:
-    """Löscht eine einzelne Bewerbung unwiderruflich inkl. der generierten PDF-Datei."""
+    """Löscht eine Bewerbung unwiderruflich inkl. der generierten PDF-Datei UND
+    des zugehörigen Stellenangebots.
+
+    `JobOffer.source_url` ist eindeutig (siehe Modell) - bliebe das
+    Stellenangebot bestehen, würde ein erneutes Speichern/Generieren für
+    denselben Job in `POST /jobs/save` dauerhaft mit 409 fehlschlagen,
+    während die Bewerbung selbst nirgends mehr auffindbar wäre. Das Löschen
+    des `JobOffer` nimmt die zugehörige `Application` per ORM-Cascade
+    (siehe `JobOffer.applications`) automatisch mit.
+    """
     application = db.get(Application, application_id)
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung wurde nicht gefunden.")
@@ -192,7 +201,8 @@ def delete_application(application_id: int, db: Session = Depends(get_db)) -> No
         if pdf_path.exists():
             pdf_path.unlink()
 
-    db.delete(application)
+    job_offer = db.get(JobOffer, application.job_offer_id)
+    db.delete(job_offer if job_offer is not None else application)
     db.commit()
 
 
