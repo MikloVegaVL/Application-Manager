@@ -1,22 +1,19 @@
-"""Service zur PDF-Erstellung der Bewerbungsmappe (Anschreiben + Lebenslauf).
+"""Service zur PDF-Erstellung des Lebenslaufs.
 
-Rendert ein Jinja2-HTML/CSS-Template (DIN-5008-orientiertes Anschreiben-
-Layout, gefolgt vom Lebenslauf auf eigener Seite) mit den generierten/
-kuratierten Bewerbungsdaten und konvertiert das Ergebnis via WeasyPrint zu
-PDF-Bytes. Beide Dokumente werden bewusst als EIN zusammenhängendes PDF
-gerendert (statt zwei separate Dateien zu erzeugen und zu mergen), damit
-Layout und Seitennummerierung durchgängig konsistent bleiben.
+Rendert ein Jinja2-HTML/CSS-Template mit den generierten/kuratierten
+Lebenslauf-Daten und konvertiert das Ergebnis via WeasyPrint zu PDF-Bytes.
+Das PDF enthält ausschließlich den Lebenslauf - das Anschreiben wird nicht
+mehr ins PDF gerendert, sondern als Text direkt in die E-Mail übernommen
+(siehe `docs/plans/2026-08-19-001-feat-cv-only-email-attachment-plan.md`).
 """
 from __future__ import annotations
 
 import logging
-from datetime import date
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from weasyprint import HTML
 
-from app.models.job_offer import JobOffer
 from app.schemas.generation import TailoredCv
 
 logger = logging.getLogger(__name__)
@@ -45,12 +42,8 @@ def _format_date_range(start: str | None, end: str | None) -> str:
     return f"{start} – {end}"
 
 
-def render_application_pdf(
-    cover_letter_text: str,
-    cv: TailoredCv,
-    job_offer: JobOffer,
-) -> bytes:
-    """Rendert Anschreiben + Lebenslauf als ein zusammenhängendes PDF (bytes)."""
+def render_cv_pdf(cv: TailoredCv) -> bytes:
+    """Rendert den Lebenslauf als PDF (bytes)."""
     template = _env.get_template("application.html")
 
     experiences = [
@@ -66,9 +59,6 @@ def render_application_pdf(
         cv=cv,
         experiences=experiences,
         education=education,
-        recipient={"company": job_offer.company, "location": job_offer.location},
-        cover_letter_text=cover_letter_text,
-        date=date.today().strftime("%d.%m.%Y"),
     )
 
     try:

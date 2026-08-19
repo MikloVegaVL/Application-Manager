@@ -24,46 +24,8 @@
     margin: 0;
   }
 
-  /* ============ Anschreiben (DIN-5008-orientiertes Layout) ============ */
-  .cover-letter {
-    font-size: 11pt;
-    line-height: 1.55;
-  }
-
-  .cover-letter .sender-block {
-    text-align: right;
-    font-size: 9pt;
-    color: #555;
-    margin-bottom: 20mm;
-  }
-
-  .cover-letter .sender-block .name {
-    font-weight: 600;
-    color: #1a1a1a;
-    font-size: 10.5pt;
-  }
-
-  .cover-letter .recipient-block {
-    width: 85mm;
-    margin-bottom: 8mm;
-  }
-
-  .cover-letter .recipient-block p {
-    margin: 0;
-  }
-
-  .cover-letter .date-block {
-    text-align: right;
-    margin-bottom: 10mm;
-  }
-
-  .cover-letter .letter-body {
-    white-space: pre-line;
-  }
-
   /* ============ Lebenslauf ============ */
   .cv {
-    page-break-before: always;
     font-size: 10.5pt;
     line-height: 1.45;
   }
@@ -132,26 +94,7 @@
 </style>
 </head>
 <body>
-  <!-- ============ Seite 1: Anschreiben ============ -->
-  <section class="cover-letter">
-    <div class="sender-block">
-      <div class="name">{{ cv.full_name }}</div>
-      {% if cv.address %}<div>{{ cv.address }}</div>{% endif %}
-      {% if cv.phone %}<div>{{ cv.phone }}</div>{% endif %}
-      <div>{{ cv.email }}</div>
-    </div>
-
-    <div class="recipient-block">
-      <p>{{ recipient.company }}</p>
-      {% if recipient.location %}<p>{{ recipient.location }}</p>{% endif %}
-    </div>
-
-    <div class="date-block">{{ date }}</div>
-
-    <div class="letter-body">{{ cover_letter_text }}</div>
-  </section>
-
-  <!-- ============ Seite 2+: Lebenslauf ============ -->
+  <!-- ============ Lebenslauf ============ -->
   <section class="cv">
     <h1>{{ cv.full_name }}</h1>
     <div class="contact-line">
