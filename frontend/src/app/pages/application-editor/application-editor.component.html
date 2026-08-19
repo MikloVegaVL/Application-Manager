@@ -225,9 +225,10 @@
           <mat-tab label="E-Mail-Text">
             <form [formGroup]="emailForm" class="tab-content">
               <p class="tab-content__hint">
-                Diese Angaben werden beim Versand vorausgefüllt und können im
-                Bestätigungsdialog noch einmal angepasst werden. Bleiben Betreff/Text leer,
-                setzt das Backend automatisch sinnvolle Standardwerte.
+                Betreff und Mail-Text werden normalerweise aus der Betreff-Zeile
+                des Anschreibens abgeleitet und im Bestätigungsdialog angezeigt.
+                Trägst du hier selbst etwas ein, wird das stattdessen als
+                Override verwendet.
               </p>
 
               <mat-form-field appearance="outline" class="cv-summary-field">

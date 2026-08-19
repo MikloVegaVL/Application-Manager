@@ -32,6 +32,7 @@ import { EducationEntry, ExperienceEntry } from '../../core/models/master-profil
 import { JobOfferRead } from '../../core/models/job-offer.model';
 import { ApplicationService } from '../../core/services/application.service';
 import { JobService } from '../../core/services/job.service';
+import { parseBetreff } from '../../core/utils/cover-letter.util';
 import {
   SendApplicationDialogComponent,
   SendApplicationDialogData,
@@ -353,7 +354,7 @@ export class ApplicationEditorComponent implements OnInit {
         const objectUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = objectUrl;
-        link.download = `bewerbung_${application.id}.pdf`;
+        link.download = `lebenslauf_${application.id}.pdf`;
         link.click();
         URL.revokeObjectURL(objectUrl);
       },
@@ -373,12 +374,29 @@ export class ApplicationEditorComponent implements OnInit {
     const emailRaw = this.emailForm.getRawValue();
     const jobOffer = this.jobOffer();
 
+    // KTD2: Subject/Message derive from the *saved* Anschreiben text
+    // (application(), not the live coverLetterForm value) - keeps the email
+    // text consistent with the CV/application state that's actually attached.
+    const { subject: derivedSubject, message: derivedMessage } = parseBetreff(
+      application.cover_letter_text ?? null,
+    );
+    const fallbackSubject = jobOffer?.title ? `Bewerbung als ${jobOffer.title}` : 'Bewerbung';
+
+    // KTD3: the "E-Mail-Text" tab's fields are an explicit override; Betreff-
+    // derivation is the default only when those fields are empty. Subject and
+    // Message are evaluated independently of each other - a manually-typed
+    // value in one field does not suppress derivation for the other.
+    const subject = emailRaw.subject.trim()
+      ? emailRaw.subject
+      : (derivedSubject ?? fallbackSubject);
+    const message = emailRaw.message.trim() ? emailRaw.message : derivedMessage;
+
     const dialogRef = this.dialog.open(SendApplicationDialogComponent, {
       width: '520px',
       data: {
         toEmail: emailRaw.to_email,
-        subject: emailRaw.subject,
-        message: emailRaw.message,
+        subject,
+        message,
         jobTitle: jobOffer?.title,
         companyName: jobOffer?.company,
       } satisfies SendApplicationDialogData,
