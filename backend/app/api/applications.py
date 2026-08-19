@@ -145,12 +145,6 @@ def update_application(
     db.refresh(application)
 
     if "cover_letter_text" in data or "tailored_cv_json" in data:
-        job_offer = db.get(JobOffer, application.job_offer_id)
-        if job_offer is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Zugehöriges Stellenangebot wurde nicht gefunden.",
-            )
         if not application.tailored_cv_json:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
