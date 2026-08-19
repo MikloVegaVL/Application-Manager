@@ -22,20 +22,7 @@ from app.db.database import Base, get_db
 from app.main import app
 from app.models.application import Application, ApplicationStatus
 from app.models.job_offer import JobOffer
-
-# Minimaler, aber schema-gültiger `TailoredCv`-Inhalt (siehe
-# `app.schemas.generation.TailoredCv`) - genügt `TailoredCv.model_validate()`
-# in `update_application`, ohne echte KI-Generierung anzustoßen.
-_VALID_TAILORED_CV_JSON = {
-    "full_name": "Max Mustermann",
-    "email": "max.mustermann@example.com",
-    "phone": None,
-    "address": None,
-    "summary": "Erfahrener Backend-Entwickler.",
-    "experiences": [],
-    "education": [],
-    "skills": [],
-}
+from app.models.master_profile import MasterProfile
 
 
 @pytest.fixture
@@ -96,6 +83,24 @@ def _create_application(session, *, job_offer_id: int, status: ApplicationStatus
     return application
 
 
+def _create_profile_with_cv_file(session, tmp_path, *, filename: str = "lebenslauf.pdf") -> MasterProfile:
+    """Legt ein Profil MIT hochgeladener Lebenslauf-Anhang-Datei an - das ist
+    seit dem Wegfall der KI-CV-Generierung Voraussetzung für `POST
+    /{id}/send` (siehe `app.api.applications.send_application`)."""
+    cv_path = tmp_path / "cv.pdf"
+    cv_path.write_bytes(b"%PDF-1.4 fake-cv")
+    profile = MasterProfile(
+        full_name="Max Mustermann",
+        email="max.mustermann@example.com",
+        cv_file_path=str(cv_path),
+        cv_filename=filename,
+    )
+    session.add(profile)
+    session.commit()
+    session.refresh(profile)
+    return profile
+
+
 def test_list_applications_returns_empty_list_when_none_exist(client: TestClient) -> None:
     response = client.get("/api/applications")
 
@@ -151,25 +156,19 @@ def test_list_applications_orders_most_recently_created_first(client: TestClient
     assert [item["id"] for item in body] == [second_id, first_id]
 
 
-def test_delete_application_removes_it_and_its_pdf_file(client: TestClient, db_session_local, tmp_path) -> None:
+def test_delete_application_removes_it(client: TestClient, db_session_local) -> None:
     session = db_session_local()
     try:
         job_offer = _create_job_offer(
             session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/1"
         )
-        application = _create_application(session, job_offer_id=job_offer.id)
-        pdf_path = tmp_path / f"application_{application.id}.pdf"
-        pdf_path.write_bytes(b"%PDF-1.4")
-        application.pdf_path = str(pdf_path)
-        session.commit()
-        application_id = application.id
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
     finally:
         session.close()
 
     response = client.delete(f"/api/applications/{application_id}")
 
     assert response.status_code == 204
-    assert not pdf_path.exists()
     assert client.get(f"/api/applications/{application_id}").status_code == 404
 
 
@@ -213,29 +212,17 @@ def test_delete_application_also_frees_the_job_offer_for_resaving(client: TestCl
     assert resave_response.status_code == 201
 
 
-def test_update_application_with_changed_cover_letter_text_rerenders_pdf_via_cv_only_renderer(
-    client: TestClient, db_session_local, tmp_path, monkeypatch
+def test_update_application_updates_cover_letter_text_without_ai_call(
+    client: TestClient, db_session_local
 ) -> None:
-    # Regression: die Trigger-Bedingung fürs Neu-Rendern (Änderung an
-    # `cover_letter_text` ODER `tailored_cv_json`) bleibt unverändert - nur
-    # der aufgerufene Renderer wechselt von `render_application_pdf` zu
-    # `render_cv_pdf` (siehe U1/U2, cv-only-email-attachment-Plan).
-    monkeypatch.setattr("app.core.config.settings.GENERATED_FILES_DIR", str(tmp_path))
-
     session = db_session_local()
     try:
         job_offer = _create_job_offer(
             session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/1"
         )
-        application = _create_application(session, job_offer_id=job_offer.id)
-        application.tailored_cv_json = _VALID_TAILORED_CV_JSON
-        session.commit()
-        application_id = application.id
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
     finally:
         session.close()
-
-    mock_render_cv_pdf = Mock(return_value=b"%PDF-1.4 fake-cv-pdf-bytes")
-    monkeypatch.setattr("app.api.applications.render_cv_pdf", mock_render_cv_pdf)
 
     response = client.put(
         f"/api/applications/{application_id}",
@@ -243,34 +230,29 @@ def test_update_application_with_changed_cover_letter_text_rerenders_pdf_via_cv_
     )
 
     assert response.status_code == 200
-    mock_render_cv_pdf.assert_called_once()
     body = response.json()
     assert body["cover_letter_text"] == "Betreff: Neue Position\n\nSehr geehrte Damen und Herren,..."
-    assert body["pdf_path"] is not None
-    assert (tmp_path / f"application_{application_id}.pdf").read_bytes() == b"%PDF-1.4 fake-cv-pdf-bytes"
 
 
-def test_get_application_pdf_uses_lebenslauf_filename_in_content_disposition(
-    client: TestClient, db_session_local, tmp_path
-) -> None:
+def test_send_application_fails_when_no_cv_file_uploaded(client: TestClient, db_session_local) -> None:
+    # Regression: seit Wegfall der KI-CV-Generierung braucht der Versand die
+    # im Profil hochgeladene Lebenslauf-Datei statt eines gerenderten PDFs.
     session = db_session_local()
     try:
         job_offer = _create_job_offer(
             session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/1"
         )
-        application = _create_application(session, job_offer_id=job_offer.id)
-        pdf_path = tmp_path / f"application_{application.id}.pdf"
-        pdf_path.write_bytes(b"%PDF-1.4 fake")
-        application.pdf_path = str(pdf_path)
-        session.commit()
-        application_id = application.id
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
     finally:
         session.close()
 
-    response = client.get(f"/api/applications/{application_id}/pdf")
+    response = client.post(
+        f"/api/applications/{application_id}/send",
+        json={"to_email": "recruiter@example.com"},
+    )
 
-    assert response.status_code == 200
-    assert response.headers["content-disposition"] == f'inline; filename="lebenslauf_{application_id}.pdf"'
+    assert response.status_code == 422
+    assert "Lebenslauf" in response.json()["detail"]
 
 
 def test_send_application_with_blank_subject_and_message_uses_reworded_fallback(
@@ -281,12 +263,8 @@ def test_send_application_with_blank_subject_and_message_uses_reworded_fallback(
         job_offer = _create_job_offer(
             session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/1"
         )
-        application = _create_application(session, job_offer_id=job_offer.id)
-        pdf_path = tmp_path / f"application_{application.id}.pdf"
-        pdf_path.write_bytes(b"%PDF-1.4 fake")
-        application.pdf_path = str(pdf_path)
-        session.commit()
-        application_id = application.id
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+        _create_profile_with_cv_file(session, tmp_path, filename="mein-lebenslauf.pdf")
     finally:
         session.close()
 
@@ -302,7 +280,7 @@ def test_send_application_with_blank_subject_and_message_uses_reworded_fallback(
     mock_send_application_email.assert_called_once()
     _, call_kwargs = mock_send_application_email.call_args
     assert call_kwargs["subject"] == "Bewerbung als Backend Engineer"
-    assert call_kwargs["attachment_filename"] == f"lebenslauf_{application_id}.pdf"
+    assert call_kwargs["attachment_filename"] == "mein-lebenslauf.pdf"
     assert "Anschreiben" not in call_kwargs["body_text"]
     assert "Lebenslauf" in call_kwargs["body_text"]
 
@@ -315,12 +293,8 @@ def test_send_application_fallback_body_text_does_not_mention_anschreiben(
         job_offer = _create_job_offer(
             session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/2"
         )
-        application = _create_application(session, job_offer_id=job_offer.id)
-        pdf_path = tmp_path / f"application_{application.id}.pdf"
-        pdf_path.write_bytes(b"%PDF-1.4 fake")
-        application.pdf_path = str(pdf_path)
-        session.commit()
-        application_id = application.id
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+        _create_profile_with_cv_file(session, tmp_path)
     finally:
         session.close()
 
@@ -335,3 +309,29 @@ def test_send_application_fallback_body_text_does_not_mention_anschreiben(
     assert response.status_code == 200
     _, call_kwargs = mock_send_application_email.call_args
     assert "Anschreiben" not in call_kwargs["body_text"]
+
+
+def test_send_application_marks_application_as_sent(
+    client: TestClient, db_session_local, tmp_path, monkeypatch
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/3"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+        _create_profile_with_cv_file(session, tmp_path)
+    finally:
+        session.close()
+
+    monkeypatch.setattr("app.api.applications.send_application_email", Mock(return_value=None))
+
+    response = client.post(
+        f"/api/applications/{application_id}/send",
+        json={"to_email": "recruiter@example.com"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "sent"
+    assert body["sent_at"] is not None

@@ -1,6 +1,5 @@
 """Pydantic-Schemas für Bewerbungen (`Application`)."""
 from datetime import datetime
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -25,8 +24,6 @@ class ApplicationBase(BaseModel):
 
     job_offer_id: int
     cover_letter_text: str | None = None
-    tailored_cv_json: dict[str, Any] | None = None
-    pdf_path: str | None = Field(default=None, max_length=1024)
     status: ApplicationStatus = ApplicationStatus.DRAFT
 
 
@@ -42,8 +39,6 @@ class ApplicationUpdate(BaseModel):
     """
 
     cover_letter_text: str | None = None
-    tailored_cv_json: dict[str, Any] | None = None
-    pdf_path: str | None = Field(default=None, max_length=1024)
     status: ApplicationStatus | None = None
     sent_at: datetime | None = None
 

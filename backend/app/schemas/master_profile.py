@@ -56,11 +56,18 @@ class MasterProfileUpdate(BaseModel):
 
 
 class MasterProfileRead(MasterProfileBase):
-    """Antwortmodell inkl. serverseitig verwalteter Felder."""
+    """Antwortmodell inkl. serverseitig verwalteter Felder.
+
+    `cv_filename` ist nur gesetzt, wenn der Nutzer bereits eine Lebenslauf-
+    Datei hochgeladen hat (siehe `POST /profile/cv-file`); `null` bedeutet
+    "noch keine Datei hochgeladen" - das Frontend nutzt das, um den Upload-
+    Status anzuzeigen und den Versand entsprechend zu warnen.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    cv_filename: str | None = None
     created_at: datetime
     updated_at: datetime
 

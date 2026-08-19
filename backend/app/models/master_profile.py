@@ -38,6 +38,14 @@ class MasterProfile(Base):
     )
     skills_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
 
+    # Vom Nutzer hochgeladene Lebenslauf-Datei (unverändert, kein KI-Rendering
+    # mehr) - wird beim Versand einer Bewerbung als E-Mail-Anhang verwendet
+    # (siehe `app.api.profile`, `app.api.applications.send_application`).
+    # `cv_file_path` ist der Pfad auf der Festplatte, `cv_filename` der
+    # ursprüngliche Dateiname (für Content-Disposition/E-Mail-Anhang).
+    cv_file_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    cv_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

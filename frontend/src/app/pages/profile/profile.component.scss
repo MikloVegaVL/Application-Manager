@@ -110,6 +110,29 @@
   }
 }
 
+.cv-attachment__current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 640px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.04);
+  font-weight: 500;
+
+  button {
+    margin-left: auto;
+  }
+
+  &--empty {
+    font-weight: 400;
+    color: rgba(0, 0, 0, 0.6);
+    background: transparent;
+    padding-left: 0;
+  }
+}
+
 .cv-dropzone {
   display: flex;
   flex-direction: column;
@@ -165,6 +188,14 @@ button mat-progress-spinner {
 
   .cv-dropzone__filename {
     color: rgba(33, 30, 30, 0.87);
+  }
+
+  .cv-attachment__current {
+    background: rgba(255, 255, 255, 0.08);
+
+    &--empty {
+      color: rgba(24, 22, 22, 0.6);
+    }
   }
 }
 

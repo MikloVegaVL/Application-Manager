@@ -31,6 +31,8 @@ export interface MasterProfile {
 /** Entspricht `MasterProfileRead`: das persistierte Profil inkl. Metadaten. */
 export interface MasterProfileRead extends MasterProfile {
   id: number;
+  /** Name der hochgeladenen Lebenslauf-Anhang-Datei, `null` = noch keine hochgeladen. */
+  cv_filename: string | null;
   created_at: string;
   updated_at: string;
 }

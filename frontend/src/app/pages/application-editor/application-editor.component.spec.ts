@@ -31,17 +31,6 @@ function buildApplication(coverLetterText: string | null): Application {
     id: 1,
     job_offer_id: 1,
     cover_letter_text: coverLetterText,
-    tailored_cv_json: {
-      full_name: 'Erika Musterfrau',
-      email: 'erika@example.com',
-      phone: null,
-      address: null,
-      summary: 'Zusammenfassung',
-      experiences: [],
-      education: [],
-      skills: ['Angular'],
-    },
-    pdf_path: '/generated/applications/application_1.pdf',
     status: 'draft',
     sent_at: null,
     created_at: '2026-08-11T00:00:00',
@@ -65,8 +54,6 @@ function loadApplication(
 
   const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
   appReq.flush(buildApplication(coverLetterText));
-
-  httpMock.expectOne((req) => req.url.endsWith('/applications/1/pdf')).flush(new Blob(['%PDF-1.4']));
 }
 
 /** Ersetzt `MatDialog.open()` durch einen Fake, der sofort mit `result` schließt. */
@@ -106,48 +93,15 @@ describe('ApplicationEditorComponent', () => {
     expect(component).toBeTruthy();
 
     const jobReq = httpMock.expectOne((req) => req.url.endsWith('/jobs/1'));
-    jobReq.flush({
-      id: 1,
-      title: 'Backend Engineer',
-      company: 'Acme GmbH',
-      location: 'Berlin',
-      source_url: 'https://example.com/jobs/1',
-      description_text: null,
-      source_platform: 'arbeitsagentur',
-      created_at: '2026-08-11T00:00:00',
-      is_processed: false,
-    });
+    jobReq.flush(defaultJobOffer);
 
     const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-    appReq.flush({ detail: 'not found' }, { status: 404, statusText: 'Not Found' });
-
-    const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
-    expect(generateReq.request.body).toEqual({ job_offer_id: 1 });
-    generateReq.flush({
-      id: 1,
-      job_offer_id: 1,
-      cover_letter_text: 'Sehr geehrte Damen und Herren,',
-      tailored_cv_json: {
-        full_name: 'Erika Musterfrau',
-        email: 'erika@example.com',
-        phone: null,
-        address: null,
-        summary: 'Zusammenfassung',
-        experiences: [],
-        education: [],
-        skills: ['Angular'],
-      },
-      pdf_path: '/generated/applications/application_1.pdf',
-      status: 'draft',
-      sent_at: null,
-      created_at: '2026-08-11T00:00:00',
-    });
-
-    const pdfReq = httpMock.expectOne((req) => req.url.endsWith('/applications/1/pdf'));
-    pdfReq.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+    appReq.flush(buildApplication('Sehr geehrte Damen und Herren,'));
 
     expect(component['application']()?.id).toBe(1);
-    expect(component['skills']()).toEqual(['Angular']);
+    expect(component['coverLetterForm'].getRawValue().cover_letter_text).toBe(
+      'Sehr geehrte Damen und Herren,',
+    );
   });
 
   it('Regression: shows the "can take minutes" hint only while a first-time generation is in flight', () => {
@@ -155,17 +109,7 @@ describe('ApplicationEditorComponent', () => {
     // neuen Job-Angebot lief messbar 4+ Minuten - ohne Hinweis wirkte das wie
     // hängengeblieben statt nur langsam.)
     const jobReq = httpMock.expectOne((req) => req.url.endsWith('/jobs/1'));
-    jobReq.flush({
-      id: 1,
-      title: 'Backend Engineer',
-      company: 'Acme GmbH',
-      location: 'Berlin',
-      source_url: 'https://example.com/jobs/1',
-      description_text: null,
-      source_platform: 'arbeitsagentur',
-      created_at: '2026-08-11T00:00:00',
-      is_processed: false,
-    });
+    jobReq.flush(defaultJobOffer);
 
     const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
     appReq.flush({ detail: 'not found' }, { status: 404, statusText: 'Not Found' });
@@ -177,73 +121,48 @@ describe('ApplicationEditorComponent', () => {
     expect(fixture.nativeElement.textContent as string).toContain('mehrere Minuten dauern');
 
     const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
-    generateReq.flush({
-      id: 1,
-      job_offer_id: 1,
-      cover_letter_text: 'Sehr geehrte Damen und Herren,',
-      tailored_cv_json: {
-        full_name: 'Erika Musterfrau',
-        email: 'erika@example.com',
-        phone: null,
-        address: null,
-        summary: 'Zusammenfassung',
-        experiences: [],
-        education: [],
-        skills: ['Angular'],
-      },
-      pdf_path: '/generated/applications/application_1.pdf',
-      status: 'draft',
-      sent_at: null,
-      created_at: '2026-08-11T00:00:00',
-    });
-
-    httpMock.expectOne((req) => req.url.endsWith('/applications/1/pdf')).flush(new Blob(['%PDF-1.4']));
+    generateReq.flush(buildApplication('Sehr geehrte Damen und Herren,'));
 
     expect(component['isFirstGeneration']()).toBeFalse();
   });
 
   it('does not show the generation hint when an already-generated application loads instantly', () => {
     const jobReq = httpMock.expectOne((req) => req.url.endsWith('/jobs/1'));
-    jobReq.flush({
-      id: 1,
-      title: 'Backend Engineer',
-      company: 'Acme GmbH',
-      location: 'Berlin',
-      source_url: 'https://example.com/jobs/1',
-      description_text: null,
-      source_platform: 'arbeitsagentur',
-      created_at: '2026-08-11T00:00:00',
-      is_processed: true,
-    });
+    jobReq.flush({ ...defaultJobOffer, is_processed: true });
 
     const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-    appReq.flush({
-      id: 1,
-      job_offer_id: 1,
-      cover_letter_text: 'Sehr geehrte Damen und Herren,',
-      tailored_cv_json: {
-        full_name: 'Erika Musterfrau',
-        email: 'erika@example.com',
-        phone: null,
-        address: null,
-        summary: 'Zusammenfassung',
-        experiences: [],
-        education: [],
-        skills: ['Angular'],
-      },
-      pdf_path: '/generated/applications/application_1.pdf',
-      status: 'draft',
-      sent_at: null,
-      created_at: '2026-08-11T00:00:00',
-    });
-
-    httpMock.expectOne((req) => req.url.endsWith('/applications/1/pdf')).flush(new Blob(['%PDF-1.4']));
+    appReq.flush(buildApplication('Sehr geehrte Damen und Herren,'));
 
     expect(component['isFirstGeneration']()).toBeFalse();
   });
 
+  describe('onSaveCoverLetter()', () => {
+    it('saves the edited cover-letter text without triggering a new AI generation', () => {
+      loadApplication(httpMock, { coverLetterText: 'Alter Text' });
+      component['coverLetterForm'].patchValue({ cover_letter_text: 'Neuer Text' });
+
+      component.onSaveCoverLetter();
+
+      const req = httpMock.expectOne((r) => r.url.endsWith('/applications/1') && r.method === 'PUT');
+      expect(req.request.body).toEqual({ cover_letter_text: 'Neuer Text' });
+      req.flush(buildApplication('Neuer Text'));
+
+      expect(component['application']()?.cover_letter_text).toBe('Neuer Text');
+    });
+
+    it('does not submit when the cover-letter text is blank', () => {
+      loadApplication(httpMock, { coverLetterText: 'Text' });
+      component['coverLetterForm'].patchValue({ cover_letter_text: '' });
+
+      component.onSaveCoverLetter();
+
+      expect(component['saving']()).toBeFalse();
+      httpMock.expectNone((r) => r.url.endsWith('/applications/1') && r.method === 'PUT');
+    });
+  });
+
   describe('onOpenSendDialog()', () => {
-    it('Tab-3 empty + Anschreiben has a Betreff line -> dialog opens with the derived subject and message', () => {
+    it('Anschreiben has a Betreff line -> dialog opens with the derived subject and message', () => {
       loadApplication(httpMock, {
         coverLetterText:
           'Betreff: Bewerbung als Softwareentwickler\n\nSehr geehrte Damen und Herren,\n\nMit freundlichen Grüßen\nMax Mustermann',
@@ -257,38 +176,10 @@ describe('ApplicationEditorComponent', () => {
       expect(data.message).toBe(
         'Sehr geehrte Damen und Herren,\n\nMit freundlichen Grüßen\nMax Mustermann',
       );
+      expect(data.toEmail).toBe('');
     });
 
-    it('Tab-3 has a manually-typed subject -> dialog opens with Tab-3\'s subject, not the derived one', () => {
-      loadApplication(httpMock, {
-        coverLetterText: 'Betreff: Bewerbung als Softwareentwickler\n\nSehr geehrte Damen und Herren,',
-      });
-      component['emailForm'].patchValue({ subject: 'Meine eigene Betreffzeile' });
-      const openSpy = spyOnDialogOpen(component);
-
-      component.onOpenSendDialog();
-
-      const data = openSpy.calls.mostRecent().args[1].data as SendApplicationDialogData;
-      expect(data.subject).toBe('Meine eigene Betreffzeile');
-    });
-
-    it('per-field evaluation: Tab-3 subject + empty Tab-3 message -> Tab-3 subject AND the Betreff-derived message', () => {
-      // Doc-review-flagged scenario: a value in one Tab-3 field must not
-      // suppress Betreff-derivation for the other field.
-      loadApplication(httpMock, {
-        coverLetterText: 'Betreff: Bewerbung als Softwareentwickler\n\nSehr geehrte Damen und Herren,',
-      });
-      component['emailForm'].patchValue({ subject: 'Meine eigene Betreffzeile', message: '' });
-      const openSpy = spyOnDialogOpen(component);
-
-      component.onOpenSendDialog();
-
-      const data = openSpy.calls.mostRecent().args[1].data as SendApplicationDialogData;
-      expect(data.subject).toBe('Meine eigene Betreffzeile');
-      expect(data.message).toBe('Sehr geehrte Damen und Herren,');
-    });
-
-    it('Anschreiben has no Betreff line + Tab-3 empty -> dialog subject shows the job-title-based fallback', () => {
+    it('Anschreiben has no Betreff line -> dialog subject shows the job-title-based fallback', () => {
       loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren, ich bewerbe mich...' });
       const openSpy = spyOnDialogOpen(component);
 
@@ -298,7 +189,7 @@ describe('ApplicationEditorComponent', () => {
       expect(data.subject).toBe('Bewerbung als Backend Engineer');
     });
 
-    it('no job offer linked + no Betreff line + Tab-3 empty -> dialog subject shows the generic "Bewerbung" fallback', () => {
+    it('no job offer linked + no Betreff line -> dialog subject shows the generic "Bewerbung" fallback', () => {
       loadApplication(httpMock, {
         coverLetterText: 'Sehr geehrte Damen und Herren, ich bewerbe mich...',
         withJobOffer: false,
@@ -311,47 +202,31 @@ describe('ApplicationEditorComponent', () => {
       expect(data.subject).toBe('Bewerbung');
     });
 
-    it('Regression: after a failed send, reopening the dialog still shows the previously-confirmed values', () => {
+    it('sends with the dialog-confirmed values and shows a success message', () => {
       loadApplication(httpMock, {
         coverLetterText: 'Betreff: Bewerbung als Softwareentwickler\n\nSehr geehrte Damen und Herren,',
       });
-
       const confirmedResult: SendApplicationDialogResult = {
         to_email: 'empfaenger@example.com',
-        subject: 'Vom Nutzer bestätigter Betreff',
-        message: 'Vom Nutzer bestätigte Nachricht',
+        subject: 'Bewerbung als Softwareentwickler',
+        message: 'Sehr geehrte Damen und Herren,',
       };
-      const firstDialogRef = {
-        afterClosed: () => of(confirmedResult),
-      } as unknown as MatDialogRef<SendApplicationDialogComponent, SendApplicationDialogResult>;
-      // Second open() call is a fresh dialog the user hasn't confirmed yet -
-      // it must not trigger another send while we only assert on the data
-      // it was pre-filled with.
-      const secondDialogRef = {
-        afterClosed: () => of(undefined),
-      } as unknown as MatDialogRef<SendApplicationDialogComponent, SendApplicationDialogResult>;
-      const openSpy: jasmine.Spy = spyOn(component['dialog'], 'open').and.returnValues(
-        firstDialogRef,
-        secondDialogRef,
-      );
+      spyOnDialogOpen(component, confirmedResult);
 
       component.onOpenSendDialog();
 
-      httpMock
-        .expectOne((req) => req.url.endsWith('/applications/1/send'))
-        .flush({ detail: 'SMTP-Fehler' }, { status: 500, statusText: 'Internal Server Error' });
+      const req = httpMock.expectOne((r) => r.url.endsWith('/applications/1/send'));
+      expect(req.request.body).toEqual({
+        to_email: 'empfaenger@example.com',
+        subject: 'Bewerbung als Softwareentwickler',
+        message: 'Sehr geehrte Damen und Herren,',
+      });
+      req.flush(buildApplication('Betreff: Bewerbung als Softwareentwickler\n\nSehr geehrte Damen und Herren,'));
 
-      // Reopen: emailForm now holds the previously-confirmed, non-empty
-      // values, so onOpenSendDialog treats them as a Tab-3 override and
-      // keeps them - unchanged `patchValue(result)` behavior.
-      component.onOpenSendDialog();
-
-      const data = openSpy.calls.mostRecent().args[1].data as SendApplicationDialogData;
-      expect(data.subject).toBe('Vom Nutzer bestätigter Betreff');
-      expect(data.message).toBe('Vom Nutzer bestätigte Nachricht');
+      expect(component['application']()?.status).toBe('draft');
     });
 
-    it('Regression (R7): opening the send dialog does not modify the saved Anschreiben text or coverLetterForm', () => {
+    it('Regression: opening the send dialog does not modify the saved Anschreiben text or coverLetterForm', () => {
       const coverLetterText = 'Betreff: Bewerbung als Softwareentwickler\n\nSehr geehrte Damen und Herren,';
       loadApplication(httpMock, { coverLetterText });
       spyOnDialogOpen(component);
@@ -360,28 +235,6 @@ describe('ApplicationEditorComponent', () => {
 
       expect(component['application']()?.cover_letter_text).toBe(coverLetterText);
       expect(component['coverLetterForm'].getRawValue().cover_letter_text).toBe(coverLetterText);
-    });
-  });
-
-  describe('onDownloadPdf()', () => {
-    it('sets link.download to lebenslauf_{id}.pdf', () => {
-      loadApplication(httpMock);
-
-      let capturedLink: HTMLAnchorElement | undefined;
-      const originalCreateElement = document.createElement.bind(document);
-      spyOn(document, 'createElement').and.callFake((tagName: string) => {
-        const element = originalCreateElement(tagName);
-        if (tagName === 'a') {
-          capturedLink = element as HTMLAnchorElement;
-          spyOn(capturedLink, 'click');
-        }
-        return element;
-      });
-
-      component.onDownloadPdf();
-      httpMock.expectOne((req) => req.url.endsWith('/applications/1/pdf')).flush(new Blob(['%PDF-1.4']));
-
-      expect(capturedLink?.download).toBe('lebenslauf_1.pdf');
     });
   });
 });

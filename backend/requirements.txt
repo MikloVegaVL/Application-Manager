@@ -23,8 +23,6 @@ ollama==0.6.2
 
 # --- Dokumente ---
 pypdf
-weasyprint
-jinja2
 
 # --- Multipart / Form-Uploads ---
 python-multipart

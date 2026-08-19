@@ -7,7 +7,7 @@ import pytest
 
 from app.models.job_offer import JobOffer
 from app.models.master_profile import MasterProfile
-from app.schemas.generation import AiGenerationResult, AiTailoredCvContent, TailoredCv
+from app.schemas.generation import AiGenerationResult
 from app.services import ai_generator
 from app.services.ai_generator import ApplicationGenerationError, _build_user_prompt
 from app.services.llm_client import LlmUnavailableError, LlmValidationError
@@ -59,33 +59,11 @@ def _job_offer(**overrides) -> JobOffer:
 
 VALID_RESULT = AiGenerationResult(
     cover_letter_text="Betreff: Bewerbung als Senior Backend-Entwickler\n\nSehr geehrte Damen und Herren,\n\n...\n\nMit freundlichen Grüßen\nMax Mustermann",
-    cv_content=AiTailoredCvContent(
-        summary="Erfahrener Backend-Entwickler mit Fokus auf Python.",
-        experiences=[
-            {
-                "company": "Acme GmbH",
-                "role": "Backend-Entwickler",
-                "start_date": "2020",
-                "end_date": None,
-                "description": "Backend-Entwicklung mit Python.",
-            }
-        ],
-        education=[
-            {
-                "institution": "TU Musterstadt",
-                "degree": "B.Sc. Informatik",
-                "field_of_study": "Informatik",
-                "start_date": "2016",
-                "end_date": "2020",
-            }
-        ],
-        skills=["Python"],
-    ),
 )
 
 
 class TestGenerateApplicationContentHappyPath:
-    def test_returns_cover_letter_and_tailored_cv_from_helper(self, mocker):
+    def test_returns_cover_letter_text_from_helper(self, mocker):
         mock_generate = mocker.patch.object(
             ai_generator.llm_client, "generate_structured", return_value=VALID_RESULT
         )
@@ -93,20 +71,9 @@ class TestGenerateApplicationContentHappyPath:
         profile = _profile()
         job_offer = _job_offer()
 
-        cover_letter_text, tailored_cv = ai_generator.generate_application_content(profile, job_offer)
+        cover_letter_text = ai_generator.generate_application_content(profile, job_offer)
 
         assert cover_letter_text == VALID_RESULT.cover_letter_text
-        assert isinstance(tailored_cv, TailoredCv)
-        # Kontaktdaten kommen deterministisch aus dem Profil, nicht von der KI.
-        assert tailored_cv.full_name == profile.full_name
-        assert tailored_cv.email == profile.email
-        assert tailored_cv.phone == profile.phone
-        assert tailored_cv.address == profile.address
-        # Restliche Inhalte kommen aus dem KI-Ergebnis.
-        assert tailored_cv.summary == VALID_RESULT.cv_content.summary
-        assert tailored_cv.experiences == VALID_RESULT.cv_content.experiences
-        assert tailored_cv.education == VALID_RESULT.cv_content.education
-        assert tailored_cv.skills == VALID_RESULT.cv_content.skills
 
         mock_generate.assert_called_once()
         called_model_cls, called_messages = mock_generate.call_args[0]

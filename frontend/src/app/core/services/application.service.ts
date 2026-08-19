@@ -23,7 +23,7 @@ export class ApplicationService {
     return this.http.get<Application[]>(this.baseUrl);
   }
 
-  /** Stößt die KI-gestützte Erstgenerierung von Anschreiben + Lebenslauf-PDF an. */
+  /** Stößt die KI-gestützte Erstgenerierung des Anschreibens an. */
   generate(jobOfferId: number): Observable<Application> {
     return this.http.post<Application>(`${this.baseUrl}/generate`, { job_offer_id: jobOfferId });
   }
@@ -38,22 +38,17 @@ export class ApplicationService {
     return this.http.get<Application>(`${this.baseUrl}/${applicationId}`);
   }
 
-  /** Speichert manuell bearbeitete Texte und lässt das PDF (ohne erneuten KI-Aufruf) neu rendern. */
+  /** Speichert den manuell bearbeiteten Anschreiben-Text (ohne erneuten KI-Aufruf). */
   update(applicationId: number, payload: ApplicationUpdatePayload): Observable<Application> {
     return this.http.put<Application>(`${this.baseUrl}/${applicationId}`, payload);
   }
 
-  /** Versendet die Bewerbung per E-Mail inkl. PDF-Anhang. */
+  /** Versendet die Bewerbung per E-Mail inkl. der im Profil hochgeladenen Lebenslauf-Datei als Anhang. */
   send(applicationId: number, payload: ApplicationSendPayload): Observable<Application> {
     return this.http.post<Application>(`${this.baseUrl}/${applicationId}/send`, payload);
   }
 
-  /** Lädt die generierte PDF-Datei als Blob (für Vorschau und Download). */
-  downloadPdfBlob(applicationId: number): Observable<Blob> {
-    return this.http.get(`${this.baseUrl}/${applicationId}/pdf`, { responseType: 'blob' });
-  }
-
-  /** Löscht eine einzelne Bewerbung unwiderruflich inkl. der generierten PDF-Datei. */
+  /** Löscht eine einzelne Bewerbung unwiderruflich. */
   deleteById(applicationId: number): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${applicationId}`);
   }

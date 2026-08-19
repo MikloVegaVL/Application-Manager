@@ -46,4 +46,66 @@ describe('ProfileComponent', () => {
     component.removeSkill('Python');
     expect(component['skills']()).toEqual([]);
   });
+
+  describe('Lebenslauf-Anhang', () => {
+    const pdfFile = new File([new Blob(['%PDF-1.4'])], 'lebenslauf.pdf', { type: 'application/pdf' });
+
+    it('rejects a non-PDF file without uploading', () => {
+      const input = { files: [new File(['x'], 'lebenslauf.docx')] } as unknown as HTMLInputElement;
+      component.onCvFileSelected({ target: input } as unknown as Event);
+
+      expect(component['selectedCvFile']()).toBeNull();
+    });
+
+    it('uploads the selected CV file and stores the returned filename', () => {
+      const input = { files: [pdfFile] } as unknown as HTMLInputElement;
+      component.onCvFileSelected({ target: input } as unknown as Event);
+      expect(component['selectedCvFile']()).toBe(pdfFile);
+
+      component.uploadCvFile();
+
+      const req = httpMock.expectOne((r) => r.url.endsWith('/profile/cv-file') && r.method === 'POST');
+      req.flush({
+        id: 1,
+        full_name: 'Max Mustermann',
+        email: 'max@example.com',
+        phone: null,
+        address: null,
+        summary: null,
+        experiences_json: [],
+        education_json: [],
+        skills_json: [],
+        cv_filename: 'lebenslauf.pdf',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      expect(component['cvFilename']()).toBe('lebenslauf.pdf');
+      expect(component['selectedCvFile']()).toBeNull();
+    });
+
+    it('deletes the uploaded CV file and clears the filename', () => {
+      component['cvFilename'].set('lebenslauf.pdf');
+
+      component.deleteCvFile();
+
+      const req = httpMock.expectOne((r) => r.url.endsWith('/profile/cv-file') && r.method === 'DELETE');
+      req.flush({
+        id: 1,
+        full_name: 'Max Mustermann',
+        email: 'max@example.com',
+        phone: null,
+        address: null,
+        summary: null,
+        experiences_json: [],
+        education_json: [],
+        skills_json: [],
+        cv_filename: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      expect(component['cvFilename']()).toBeNull();
+    });
+  });
 });

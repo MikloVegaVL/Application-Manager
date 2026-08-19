@@ -1,13 +1,12 @@
 """Service zur KI-gestützten Generierung von Bewerbungsunterlagen.
 
 Nimmt das `MasterProfile` und ein ausgewähltes `JobOffer` entgegen und lässt
-das LLM (via Ollama) daraus ein maßgeschneidertes Anschreiben sowie eine auf
-die Stelle zugeschnittene Auswahl/Formulierung der Lebenslauf-Stationen
-erzeugen.
+das LLM (via Ollama) daraus ein maßgeschneidertes Anschreiben erzeugen.
 
-Kontaktdaten (Name, E-Mail, Telefon, Adresse) werden NICHT von der KI
-generiert, sondern deterministisch aus dem Profil übernommen - so können bei
-diesen sicherheitsrelevanten Feldern keine Halluzinationen auftreten.
+Der Lebenslauf wird NICHT mehr von der KI generiert/gerendert - der Nutzer
+lädt seinen eigenen Lebenslauf als Datei im Profil hoch, die unverändert als
+E-Mail-Anhang verwendet wird (siehe `app.api.profile`,
+`app.api.applications.send_application`).
 """
 from __future__ import annotations
 
@@ -16,7 +15,7 @@ import logging
 
 from app.models.job_offer import JobOffer
 from app.models.master_profile import MasterProfile
-from app.schemas.generation import AiGenerationResult, TailoredCv
+from app.schemas.generation import AiGenerationResult
 from app.services import llm_client
 from app.services.llm_client import LlmUnavailableError, LlmValidationError
 
@@ -30,44 +29,22 @@ Du bist ein erfahrener Karriereberater und Texter für Bewerbungsunterlagen \
 im deutschsprachigen Raum.
 
 Du erhältst das Profil eines Bewerbers sowie eine Zielstelle (jeweils als \
-JSON). Erstelle daraus:
-
-1. Ein maßgeschneidertes, überzeugendes Anschreiben auf Deutsch, das \
-konkret auf die Stellenanzeige eingeht.
-2. Lebenslauf-Inhalte, zugeschnitten auf die Zielstelle: eine kurze \
-berufliche Zusammenfassung, eine nach Relevanz sortierte Auswahl/Formulierung \
-der Berufserfahrungen, die Ausbildungsstationen sowie eine nach Relevanz \
-sortierte Auswahl der wichtigsten Skills.
+JSON). Erstelle daraus ein maßgeschneidertes, überzeugendes Anschreiben auf \
+Deutsch, das konkret auf die Stellenanzeige eingeht.
 
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt exakt in folgender Form \
 (keine Erklärtexte, kein Markdown, keine Code-Fences):
 
 {
-  "cover_letter_text": "Betreff: Bewerbung als <Position>\\n\\nSehr geehrte Damen und Herren,\\n\\n<3-5 überzeugende Absätze mit klarem Bezug zur Stellenanzeige>\\n\\nMit freundlichen Grüßen\\n<Vollständiger Name des Bewerbers>",
-  "cv_content": {
-    "summary": "2-3 Sätze berufliches Profil, zugeschnitten auf die Zielstelle",
-    "experiences": [
-      {"company": "...", "role": "...", "start_date": "...", "end_date": "...", "description": "..."}
-    ],
-    "education": [
-      {"institution": "...", "degree": "...", "field_of_study": "...", "start_date": "...", "end_date": "..."}
-    ],
-    "skills": ["..."]
-  }
+  "cover_letter_text": "Betreff: Bewerbung als <Position>\\n\\nSehr geehrte Damen und Herren,\\n\\n<3-5 überzeugende Absätze mit klarem Bezug zur Stellenanzeige>\\n\\nMit freundlichen Grüßen\\n<Vollständiger Name des Bewerbers>"
 }
 
 Regeln:
 - Erfinde KEINE Fakten (Firmen, Zeiträume, Abschlüsse, Institutionen), die \
-nicht im Bewerberprofil stehen. Du darfst vorhandene Erfahrungen/Ausbildungs- \
-stationen auswählen, umformulieren und nach Relevanz sortieren, aber keine \
-neuen erfinden.
-- Ist im Profil keine Erfahrung/Ausbildung vorhanden, gib eine leere Liste \
-zurück statt Platzhalter zu erfinden.
+nicht im Bewerberprofil stehen.
 - Ist keine Ansprechperson aus der Stellenbeschreibung erkennbar, nutze \
 "Sehr geehrte Damen und Herren" als Anrede.
 - Der Name in der Grußformel ist der vollständige Name aus dem Bewerberprofil.
-- "skills" enthält eine auf die Stelle zugeschnittene Auswahl aus den im \
-Profil vorhandenen Skills (keine neuen erfinden).
 """
 
 
@@ -97,13 +74,10 @@ def _build_user_prompt(profile: MasterProfile, job_offer: JobOffer) -> str:
     )
 
 
-def generate_application_content(
-    profile: MasterProfile, job_offer: JobOffer
-) -> tuple[str, TailoredCv]:
-    """Erzeugt Anschreiben-Text und maßgeschneiderten Lebenslauf für `job_offer`.
+def generate_application_content(profile: MasterProfile, job_offer: JobOffer) -> str:
+    """Erzeugt den Anschreiben-Text für `job_offer`.
 
-    Gibt ein Tupel `(cover_letter_text, tailored_cv)` zurück. Wirft
-    `ApplicationGenerationError`, wenn Ollama nicht erreichbar ist oder
+    Wirft `ApplicationGenerationError`, wenn Ollama nicht erreichbar ist oder
     keine gültige KI-Antwort zustande kam.
     """
     messages = [
@@ -122,15 +96,4 @@ def generate_application_content(
         logger.exception("Ollama-Aufruf zur Bewerbungsgenerierung fehlgeschlagen.")
         raise ApplicationGenerationError(f"KI-Generierung fehlgeschlagen: {exc}") from exc
 
-    tailored_cv = TailoredCv(
-        full_name=profile.full_name,
-        email=profile.email,
-        phone=profile.phone,
-        address=profile.address,
-        summary=result.cv_content.summary,
-        experiences=result.cv_content.experiences,
-        education=result.cv_content.education,
-        skills=result.cv_content.skills,
-    )
-
-    return result.cover_letter_text, tailored_cv
+    return result.cover_letter_text

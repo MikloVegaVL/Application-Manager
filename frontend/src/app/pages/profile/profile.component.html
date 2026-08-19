@@ -237,6 +237,79 @@
             }
           </div>
         </mat-tab>
+
+        <!-- Tab 5: Lebenslauf-Anhang -->
+        <mat-tab label="Lebenslauf-Anhang">
+          <div class="tab-content">
+            <p class="cv-import__hint">
+              Lade hier deinen Lebenslauf als PDF hoch - diese Datei wird unverändert (keine
+              KI-Analyse) als Anhang verwendet, wenn du eine Bewerbung per E-Mail versendest.
+            </p>
+
+            @if (cvFilename(); as filename) {
+              <p class="cv-attachment__current">
+                <mat-icon>description</mat-icon>
+                {{ filename }}
+                <button
+                  mat-button
+                  color="warn"
+                  type="button"
+                  [disabled]="deletingCvFile()"
+                  (click)="deleteCvFile()"
+                >
+                  @if (deletingCvFile()) {
+                    <mat-progress-spinner mode="indeterminate" diameter="18" />
+                  } @else {
+                    <mat-icon>delete</mat-icon>
+                  }
+                  Entfernen
+                </button>
+              </p>
+            } @else {
+              <p class="cv-attachment__current cv-attachment__current--empty">
+                Noch keine Lebenslauf-Datei hochgeladen - Bewerbungen können erst versendet werden,
+                sobald eine Datei hochgeladen wurde.
+              </p>
+            }
+
+            <div
+              class="cv-dropzone"
+              [class.cv-dropzone--dragover]="isCvFileDragOver()"
+              (dragover)="onCvFileDragOver($event)"
+              (dragleave)="onCvFileDragLeave($event)"
+              (drop)="onCvFileDrop($event)"
+              (click)="cvFileInput.click()"
+            >
+              <mat-icon>upload_file</mat-icon>
+              <p>PDF hierher ziehen oder klicken zum Auswählen</p>
+              @if (selectedCvFile(); as file) {
+                <p class="cv-dropzone__filename">
+                  {{ file.name }}
+                  <button mat-icon-button type="button" (click)="clearSelectedCvFile(); $event.stopPropagation()">
+                    <mat-icon>close</mat-icon>
+                  </button>
+                </p>
+              }
+            </div>
+            <input #cvFileInput type="file" accept="application/pdf,.pdf" hidden (change)="onCvFileSelected($event)" />
+
+            <button
+              mat-raised-button
+              color="primary"
+              type="button"
+              class="cv-import__submit"
+              [disabled]="!selectedCvFile() || uploadingCvFile()"
+              (click)="uploadCvFile()"
+            >
+              @if (uploadingCvFile()) {
+                <mat-progress-spinner mode="indeterminate" diameter="18" />
+              } @else {
+                <mat-icon>upload</mat-icon>
+              }
+              Lebenslauf-Datei hochladen
+            </button>
+          </div>
+        </mat-tab>
       </mat-tab-group>
 
       <div class="profile-page__actions">

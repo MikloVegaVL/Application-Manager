@@ -89,8 +89,13 @@ class Settings(BaseSettings):
     # Wie lange LinkedIn nach einem 429 übersprungen wird (KTD5).
     JOB_SEARCH_LINKEDIN_COOLDOWN_SECONDS: float = 300.0
 
-    # --- Generierte Dateien (Bewerbungs-PDFs) ---
-    GENERATED_FILES_DIR: str = "generated/applications"
+    # --- Generierte/hochgeladene Dateien ---
+    # Ablageort der vom Nutzer hochgeladenen Lebenslauf-Anhang-Datei (siehe
+    # `app.api.profile`). Es gibt keine serverseitig generierten Bewerbungs-
+    # PDFs mehr - die KI generiert nur noch den Anschreiben-Text, der
+    # Lebenslauf wird vom Nutzer als Datei hochgeladen und unverändert als
+    # E-Mail-Anhang versendet.
+    PROFILE_FILES_DIR: str = "generated/profile"
 
 
 @lru_cache

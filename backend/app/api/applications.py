@@ -1,15 +1,16 @@
-"""API-Router für Bewerbungen: KI-Generierung, PDF-Auslieferung und Mailversand."""
+"""API-Router für Bewerbungen: KI-Generierung (Anschreiben) und Mailversand.
+
+Der Lebenslauf wird nicht mehr serverseitig generiert/gerendert - der
+Mailversand hängt die vom Nutzer im Profil hochgeladene Lebenslauf-Datei an
+(siehe `app.api.profile`, `MasterProfile.cv_file_path`)."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import StreamingResponse
-from pydantic import ValidationError
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.config import settings
 from app.db.database import get_db
 from app.models.application import Application, ApplicationStatus
 from app.models.job_offer import JobOffer
@@ -20,16 +21,10 @@ from app.schemas.application import (
     ApplicationSendRequest,
     ApplicationUpdate,
 )
-from app.schemas.generation import TailoredCv
 from app.services.ai_generator import ApplicationGenerationError, generate_application_content
 from app.services.mail_service import MailSendError, send_application_email
-from app.services.pdf_service import PdfRenderError, render_cv_pdf
 
 router = APIRouter(prefix="/applications", tags=["Applications"])
-
-
-def _pdf_path_for(application_id: int) -> Path:
-    return Path(settings.GENERATED_FILES_DIR) / f"application_{application_id}.pdf"
 
 
 @router.get("", response_model=list[ApplicationRead])
@@ -49,9 +44,8 @@ def list_applications(db: Session = Depends(get_db)) -> list[Application]:
 
 @router.post("/generate", response_model=ApplicationRead)
 def generate_application(payload: ApplicationGenerateRequest, db: Session = Depends(get_db)) -> Application:
-    """Generiert eine maßgeschneiderte Bewerbung (Anschreiben + Lebenslauf)
-    für ein gespeichertes Stellenangebot per KI, rendert sie als PDF und
-    speichert das Ergebnis als `Application`.
+    """Generiert ein maßgeschneidertes Anschreiben für ein gespeichertes
+    Stellenangebot per KI und speichert das Ergebnis als `Application`.
 
     Existiert für dieses Stellenangebot bereits eine Bewerbung, wird sie
     neu generiert (Upsert) statt eine doppelte anzulegen.
@@ -68,14 +62,9 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
         )
 
     try:
-        cover_letter_text, tailored_cv = generate_application_content(profile, job_offer)
+        cover_letter_text = generate_application_content(profile, job_offer)
     except ApplicationGenerationError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
-
-    try:
-        pdf_bytes = render_cv_pdf(tailored_cv)
-    except PdfRenderError as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
     application = db.query(Application).filter(Application.job_offer_id == job_offer.id).first()
     if application is None:
@@ -83,15 +72,6 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
         db.add(application)
 
     application.cover_letter_text = cover_letter_text
-    application.tailored_cv_json = tailored_cv.model_dump()
-    db.commit()
-    db.refresh(application)
-
-    pdf_path = _pdf_path_for(application.id)
-    pdf_path.parent.mkdir(parents=True, exist_ok=True)
-    pdf_path.write_bytes(pdf_bytes)
-    application.pdf_path = str(pdf_path)
-
     job_offer.is_processed = True
     db.commit()
     db.refresh(application)
@@ -130,9 +110,8 @@ def get_application(application_id: int, db: Session = Depends(get_db)) -> Appli
 def update_application(
     application_id: int, payload: ApplicationUpdate, db: Session = Depends(get_db)
 ) -> Application:
-    """Aktualisiert Anschreiben- und/oder Lebenslauf-Inhalte einer Bewerbung
-    (z. B. manuelle Bearbeitung im Editor) und rendert das PDF aus dem
-    bearbeiteten Inhalt neu - OHNE die KI erneut aufzurufen, damit manuelle
+    """Aktualisiert den Anschreiben-Text einer Bewerbung (z. B. manuelle
+    Bearbeitung im Editor) - OHNE die KI erneut aufzurufen, damit manuelle
     Änderungen des Nutzers erhalten bleiben."""
     application = db.get(Application, application_id)
     if application is None:
@@ -144,40 +123,13 @@ def update_application(
     db.commit()
     db.refresh(application)
 
-    if "cover_letter_text" in data or "tailored_cv_json" in data:
-        if not application.tailored_cv_json:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Es liegen keine Lebenslauf-Daten vor - bitte zunächst über /generate erzeugen.",
-            )
-
-        try:
-            tailored_cv = TailoredCv.model_validate(application.tailored_cv_json)
-        except ValidationError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Lebenslauf-Daten sind ungültig: {exc}",
-            ) from exc
-
-        try:
-            pdf_bytes = render_cv_pdf(tailored_cv)
-        except PdfRenderError as exc:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
-
-        pdf_path = _pdf_path_for(application.id)
-        pdf_path.parent.mkdir(parents=True, exist_ok=True)
-        pdf_path.write_bytes(pdf_bytes)
-        application.pdf_path = str(pdf_path)
-        db.commit()
-        db.refresh(application)
-
     return application
 
 
 @router.delete("/{application_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_application(application_id: int, db: Session = Depends(get_db)) -> None:
-    """Löscht eine Bewerbung unwiderruflich inkl. der generierten PDF-Datei UND
-    des zugehörigen Stellenangebots.
+    """Löscht eine Bewerbung unwiderruflich inkl. des zugehörigen
+    Stellenangebots.
 
     `JobOffer.source_url` ist eindeutig (siehe Modell) - bliebe das
     Stellenangebot bestehen, würde ein erneutes Speichern/Generieren für
@@ -190,56 +142,26 @@ def delete_application(application_id: int, db: Session = Depends(get_db)) -> No
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung wurde nicht gefunden.")
 
-    if application.pdf_path:
-        pdf_path = Path(application.pdf_path)
-        if pdf_path.exists():
-            pdf_path.unlink()
-
     job_offer = db.get(JobOffer, application.job_offer_id)
     db.delete(job_offer if job_offer is not None else application)
     db.commit()
-
-
-@router.get("/{application_id}/pdf")
-def get_application_pdf(application_id: int, db: Session = Depends(get_db)) -> StreamingResponse:
-    """Liefert die generierte PDF-Datei der Bewerbung als Stream zurück."""
-    application = db.get(Application, application_id)
-    if application is None or not application.pdf_path:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Für diese Bewerbung wurde noch keine PDF erzeugt.",
-        )
-
-    pdf_path = Path(application.pdf_path)
-    if not pdf_path.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PDF-Datei wurde nicht gefunden.")
-
-    def iter_pdf_file(path: Path, chunk_size: int = 65_536):
-        with path.open("rb") as file:
-            while chunk := file.read(chunk_size):
-                yield chunk
-
-    return StreamingResponse(
-        iter_pdf_file(pdf_path),
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="lebenslauf_{application_id}.pdf"'},
-    )
 
 
 @router.post("/{application_id}/send", response_model=ApplicationRead)
 def send_application(
     application_id: int, payload: ApplicationSendRequest, db: Session = Depends(get_db)
 ) -> Application:
-    """Versendet die generierte Bewerbung per E-Mail inkl. PDF-Anhang und
-    markiert sie als `sent`."""
+    """Versendet die Bewerbung per E-Mail inkl. der im Profil hochgeladenen
+    Lebenslauf-Datei als Anhang und markiert sie als `sent`."""
     application = db.get(Application, application_id)
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung wurde nicht gefunden.")
 
-    if not application.pdf_path or not Path(application.pdf_path).exists():
+    profile = db.query(MasterProfile).first()
+    if profile is None or not profile.cv_file_path or not Path(profile.cv_file_path).exists():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Für diese Bewerbung liegt noch keine PDF vor - bitte zuerst generieren.",
+            detail="Es wurde noch keine Lebenslauf-Datei im Profil hochgeladen - bitte zuerst hochladen.",
         )
 
     job_offer = db.get(JobOffer, application.job_offer_id)
@@ -251,15 +173,15 @@ def send_application(
         "Für Rückfragen stehe ich gerne zur Verfügung.\n\n"
         "Mit freundlichen Grüßen"
     )
-    pdf_bytes = Path(application.pdf_path).read_bytes()
+    cv_bytes = Path(profile.cv_file_path).read_bytes()
 
     try:
         send_application_email(
             to_email=payload.to_email,
             subject=subject,
             body_text=body_text,
-            attachment_bytes=pdf_bytes,
-            attachment_filename=f"lebenslauf_{application_id}.pdf",
+            attachment_bytes=cv_bytes,
+            attachment_filename=profile.cv_filename or "lebenslauf.pdf",
         )
     except MailSendError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc

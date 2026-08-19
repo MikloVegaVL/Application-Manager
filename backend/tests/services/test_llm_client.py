@@ -8,11 +8,27 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from app.schemas.generation import AiGenerationResult
-from app.schemas.master_profile import ParsedCvProfile
+from app.schemas.master_profile import EducationEntry, ExperienceEntry, ParsedCvProfile
 from app.services import llm_client
+
+
+class _NestedSubmodelContent(BaseModel):
+    """Test-lokales Modell mit einem verschachtelten Listenfeld, rein um den
+    generischen Abflach-Fallback des Helfers gegen ein Submodell (statt
+    gegen das Top-Level-Modell) zu prüfen - unabhängig von echten
+    App-Schemas, die inzwischen flach sind (siehe `AiGenerationResult`)."""
+
+    summary: str
+    experiences: list[ExperienceEntry]
+    education: list[EducationEntry]
+    skills: list[str]
+
+
+class _NestedSubmodelResult(BaseModel):
+    cover_letter_text: str
+    cv_content: _NestedSubmodelContent
 
 
 def _response(payload: dict) -> SimpleNamespace:
@@ -225,7 +241,7 @@ class TestStructuralFailureFallback:
         assert first_format != fallback_format
 
     def test_nested_submodel_list_field_also_detected_as_structural(self, mock_client):
-        """Verschachtelung eine Ebene tiefer (AiGenerationResult.cv_content.experiences)."""
+        """Verschachtelung eine Ebene tiefer (_NestedSubmodelResult.cv_content.experiences)."""
         first_invalid = {
             "cover_letter_text": "Anschreiben",
             "cv_content": {
@@ -273,9 +289,9 @@ class TestStructuralFailureFallback:
             _response(flat_payload),
         ]
 
-        result = llm_client.generate_structured(AiGenerationResult, _messages())
+        result = llm_client.generate_structured(_NestedSubmodelResult, _messages())
 
-        assert isinstance(result, AiGenerationResult)
+        assert isinstance(result, _NestedSubmodelResult)
         assert result.cv_content.experiences[0].company == "Acme GmbH"
         assert mock_client.chat.call_count == 3
 

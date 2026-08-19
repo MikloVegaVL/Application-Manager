@@ -12,30 +12,16 @@
     <button
       mat-button
       type="button"
-      matTooltip="Speichert die bearbeiteten Texte und rendert das PDF neu (ohne erneute KI-Generierung)"
-      [disabled]="!application() || regenerating()"
-      (click)="onRegeneratePdf()"
+      matTooltip="Speichert den bearbeiteten Anschreiben-Text"
+      [disabled]="!application() || saving()"
+      (click)="onSaveCoverLetter()"
     >
-      @if (regenerating()) {
+      @if (saving()) {
         <mat-progress-spinner mode="indeterminate" diameter="18" />
       } @else {
-        <mat-icon>refresh</mat-icon>
+        <mat-icon>save</mat-icon>
       }
-      PDF Neu generieren
-    </button>
-
-    <button
-      mat-button
-      type="button"
-      [disabled]="!application() || downloading()"
-      (click)="onDownloadPdf()"
-    >
-      @if (downloading()) {
-        <mat-progress-spinner mode="indeterminate" diameter="18" />
-      } @else {
-        <mat-icon>download</mat-icon>
-      }
-      PDF Herunterladen
+      Anschreiben speichern
     </button>
 
     <button
@@ -71,213 +57,26 @@
       <p>{{ errorMessage() }}</p>
     </div>
   } @else {
-    <div class="editor-split">
-      <!-- ============ Linke Spalte: Editieren ============ -->
-      <section class="editor-split__edit">
-        <mat-tab-group animationDuration="150ms">
-          <!-- Tab 1: Anschreiben -->
-          <mat-tab label="Anschreiben">
-            <form [formGroup]="coverLetterForm" class="tab-content">
-              <mat-form-field appearance="outline" class="cover-letter-field">
-                <mat-label>Anschreiben-Text</mat-label>
-                <textarea
-                  matInput
-                  formControlName="cover_letter_text"
-                  rows="24"
-                  cdkTextareaAutosize
-                ></textarea>
-                @if (coverLetterForm.controls.cover_letter_text.hasError('required') && coverLetterForm.controls.cover_letter_text.touched) {
-                  <mat-error>Das Anschreiben darf nicht leer sein.</mat-error>
-                }
-              </mat-form-field>
-            </form>
-          </mat-tab>
-
-          <!-- Tab 2: Lebenslauf-Anpassungen -->
-          <mat-tab label="Lebenslauf-Anpassungen">
-            <form [formGroup]="cvForm" class="tab-content">
-              <mat-form-field appearance="outline" class="cv-summary-field">
-                <mat-label>Berufliches Profil / Zusammenfassung</mat-label>
-                <textarea matInput formControlName="summary" rows="3"></textarea>
-              </mat-form-field>
-
-              <section class="form-array-section">
-                <div class="form-array-section__header">
-                  <h3>Berufserfahrung</h3>
-                  <button mat-stroked-button type="button" (click)="addExperience()">
-                    <mat-icon>add</mat-icon>
-                    Station hinzufügen
-                  </button>
-                </div>
-
-                @if (experiencesArray.length === 0) {
-                  <p class="form-array-section__empty">Keine Berufserfahrung ausgewählt.</p>
-                }
-
-                <div formArrayName="experiences">
-                  @for (group of experiencesArray.controls; track $index) {
-                    <mat-card class="entry-card" appearance="outlined" [formGroupName]="$index">
-                      <mat-card-content class="entry-card__grid">
-                        <mat-form-field appearance="outline">
-                          <mat-label>Unternehmen</mat-label>
-                          <input matInput formControlName="company" />
-                        </mat-form-field>
-                        <mat-form-field appearance="outline">
-                          <mat-label>Position</mat-label>
-                          <input matInput formControlName="role" />
-                        </mat-form-field>
-                        <mat-form-field appearance="outline">
-                          <mat-label>Start</mat-label>
-                          <input matInput formControlName="start_date" />
-                        </mat-form-field>
-                        <mat-form-field appearance="outline">
-                          <mat-label>Ende</mat-label>
-                          <input matInput formControlName="end_date" placeholder="leer = aktuell" />
-                        </mat-form-field>
-                        <mat-form-field appearance="outline" class="entry-card__description">
-                          <mat-label>Beschreibung</mat-label>
-                          <textarea matInput formControlName="description" rows="2"></textarea>
-                        </mat-form-field>
-                      </mat-card-content>
-                      <mat-card-actions align="end">
-                        <button mat-button color="warn" type="button" (click)="removeExperience($index)">
-                          <mat-icon>delete</mat-icon>
-                          Entfernen
-                        </button>
-                      </mat-card-actions>
-                    </mat-card>
-                  }
-                </div>
-              </section>
-
-              <section class="form-array-section">
-                <div class="form-array-section__header">
-                  <h3>Ausbildung</h3>
-                  <button mat-stroked-button type="button" (click)="addEducation()">
-                    <mat-icon>add</mat-icon>
-                    Station hinzufügen
-                  </button>
-                </div>
-
-                @if (educationArray.length === 0) {
-                  <p class="form-array-section__empty">Keine Ausbildung ausgewählt.</p>
-                }
-
-                <div formArrayName="education">
-                  @for (group of educationArray.controls; track $index) {
-                    <mat-card class="entry-card" appearance="outlined" [formGroupName]="$index">
-                      <mat-card-content class="entry-card__grid">
-                        <mat-form-field appearance="outline">
-                          <mat-label>Einrichtung</mat-label>
-                          <input matInput formControlName="institution" />
-                        </mat-form-field>
-                        <mat-form-field appearance="outline">
-                          <mat-label>Abschluss</mat-label>
-                          <input matInput formControlName="degree" />
-                        </mat-form-field>
-                        <mat-form-field appearance="outline">
-                          <mat-label>Studienfach</mat-label>
-                          <input matInput formControlName="field_of_study" />
-                        </mat-form-field>
-                        <mat-form-field appearance="outline">
-                          <mat-label>Start</mat-label>
-                          <input matInput formControlName="start_date" />
-                        </mat-form-field>
-                        <mat-form-field appearance="outline">
-                          <mat-label>Ende</mat-label>
-                          <input matInput formControlName="end_date" />
-                        </mat-form-field>
-                      </mat-card-content>
-                      <mat-card-actions align="end">
-                        <button mat-button color="warn" type="button" (click)="removeEducation($index)">
-                          <mat-icon>delete</mat-icon>
-                          Entfernen
-                        </button>
-                      </mat-card-actions>
-                    </mat-card>
-                  }
-                </div>
-              </section>
-
-              <mat-form-field appearance="outline" class="skills-field">
-                <mat-label>Skills & Zertifikate</mat-label>
-                <mat-chip-grid #chipGrid aria-label="Skills-Eingabe">
-                  @for (skill of skills(); track skill) {
-                    <mat-chip-row (removed)="removeSkill(skill)" [editable]="true" (edited)="editSkill(skill, $event)">
-                      {{ skill }}
-                      <button matChipRemove [attr.aria-label]="'entferne ' + skill">
-                        <mat-icon>cancel</mat-icon>
-                      </button>
-                    </mat-chip-row>
-                  }
-                </mat-chip-grid>
-                <input
-                  placeholder="Neuer Skill - mit Enter oder Komma bestätigen"
-                  [matChipInputFor]="chipGrid"
-                  [matChipInputSeparatorKeyCodes]="separatorKeysCodes"
-                  (matChipInputTokenEnd)="addSkill($event)"
-                />
-              </mat-form-field>
-            </form>
-          </mat-tab>
-
-          <!-- Tab 3: E-Mail-Text -->
-          <mat-tab label="E-Mail-Text">
-            <form [formGroup]="emailForm" class="tab-content">
-              <p class="tab-content__hint">
-                Betreff und Mail-Text werden normalerweise aus der Betreff-Zeile
-                des Anschreibens abgeleitet und im Bestätigungsdialog angezeigt.
-                Trägst du hier selbst etwas ein, wird das stattdessen als
-                Override verwendet.
-              </p>
-
-              <mat-form-field appearance="outline" class="cv-summary-field">
-                <mat-label>Empfänger-E-Mail</mat-label>
-                <input matInput type="email" formControlName="to_email" />
-                @if (emailForm.controls.to_email.hasError('email') && emailForm.controls.to_email.touched) {
-                  <mat-error>Bitte gib eine gültige E-Mail-Adresse an.</mat-error>
-                }
-              </mat-form-field>
-
-              <mat-form-field appearance="outline" class="cv-summary-field">
-                <mat-label>Betreff</mat-label>
-                <input matInput formControlName="subject" placeholder="z. B. Bewerbung als ..." />
-              </mat-form-field>
-
-              <mat-form-field appearance="outline" class="cv-summary-field">
-                <mat-label>Mail-Text</mat-label>
-                <textarea matInput formControlName="message" rows="8"></textarea>
-              </mat-form-field>
-            </form>
-          </mat-tab>
-        </mat-tab-group>
-      </section>
-
-      <!-- ============ Rechte Spalte: PDF-Vorschau ============ -->
-      <section class="editor-split__preview">
-        <div class="preview-header">
-          <h3>Vorschau</h3>
-          @if (application(); as app) {
-            <span class="preview-header__status" [class]="'status--' + app.status">{{ app.status }}</span>
-          }
-        </div>
-
-        <div class="preview-frame">
-          @if (pdfLoading()) {
-            <div class="preview-frame__loading">
-              <mat-progress-spinner mode="indeterminate" diameter="40" />
-            </div>
-          }
-          @if (pdfUrl(); as url) {
-            <iframe [src]="url" title="PDF-Vorschau der Bewerbung"></iframe>
-          } @else if (!pdfLoading()) {
-            <div class="preview-frame__empty">
-              <mat-icon>picture_as_pdf</mat-icon>
-              <p>Noch keine PDF-Vorschau verfügbar.</p>
-            </div>
-          }
-        </div>
-      </section>
-    </div>
+    <section class="editor-content">
+      <mat-tab-group animationDuration="150ms">
+        <!-- Anschreiben (KI-generiert, manuell editierbar) -->
+        <mat-tab label="Anschreiben">
+          <form [formGroup]="coverLetterForm" class="tab-content">
+            <mat-form-field appearance="outline" class="cover-letter-field">
+              <mat-label>Anschreiben-Text</mat-label>
+              <textarea
+                matInput
+                formControlName="cover_letter_text"
+                rows="24"
+                cdkTextareaAutosize
+              ></textarea>
+              @if (coverLetterForm.controls.cover_letter_text.hasError('required') && coverLetterForm.controls.cover_letter_text.touched) {
+                <mat-error>Das Anschreiben darf nicht leer sein.</mat-error>
+              }
+            </mat-form-field>
+          </form>
+        </mat-tab>
+      </mat-tab-group>
+    </section>
   }
 </div>

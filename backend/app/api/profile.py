@@ -1,14 +1,26 @@
 """API-Router für das Master-Profil (Stammdaten, Werdegang, Skills) inkl.
-KI-gestütztem CV-Import."""
+KI-gestütztem CV-Import und der Lebenslauf-Anhang-Datei fürs E-Mail-Versenden."""
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.database import get_db
 from app.models.master_profile import MasterProfile
 from app.schemas.master_profile import CvUploadResponse, MasterProfileCreate, MasterProfileRead
 from app.services.pdf_parser import CvAnalysisError, ParsedCvProfile, PdfParsingError, parse_cv_pdf
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
+
+
+def _cv_file_path_for(profile_id: int) -> Path:
+    # `settings.PROFILE_FILES_DIR` wird bei jedem Aufruf frisch gelesen
+    # (statt als Modul-Konstante gecacht), damit Tests es per `monkeypatch`
+    # umbiegen können (gleiches Muster wie das frühere `_pdf_path_for` in
+    # `app.api.applications`, bevor die Bewerbungs-PDF-Generierung entfiel).
+    return Path(settings.PROFILE_FILES_DIR) / f"cv_{profile_id}.pdf"
 
 # Felder, für die eine leere KI-Antwort dem Nutzer als Warnung gemeldet wird
 # (siehe CvUploadResponse.warnings) - bewusst nur die inhaltlich substanziellen
@@ -140,3 +152,99 @@ def upload_cv(
     db.commit()
     db.refresh(profile)
     return CvUploadResponse(profile=profile, warnings=_missing_field_warnings(parsed))
+
+
+@router.post("/cv-file", response_model=MasterProfileRead)
+def upload_cv_file(
+    file: UploadFile = File(..., description="Lebenslauf als PDF-Datei"),
+    db: Session = Depends(get_db),
+) -> MasterProfile:
+    """Speichert eine Lebenslauf-PDF unverändert (kein KI-Parsing, kein
+    Rendering) als Anhang-Datei fürs Profil.
+
+    Anders als `POST /profile/upload-cv` wird diese Datei nicht analysiert,
+    um Profilfelder zu befüllen - sie wird 1:1 als E-Mail-Anhang verwendet,
+    wenn eine Bewerbung versendet wird (`POST /applications/{id}/send`).
+    Ein bereits existierendes Profil ist Voraussetzung, da die Datei am
+    Profil hängt.
+    """
+    profile = db.query(MasterProfile).first()
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
+        )
+
+    is_pdf = file.content_type == "application/pdf" or (file.filename or "").lower().endswith(".pdf")
+    if not is_pdf:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Nur PDF-Dateien werden unterstützt.",
+        )
+
+    file_bytes = file.file.read()
+    if not file_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Die hochgeladene Datei ist leer.",
+        )
+
+    cv_path = _cv_file_path_for(profile.id)
+    cv_path.parent.mkdir(parents=True, exist_ok=True)
+    cv_path.write_bytes(file_bytes)
+
+    profile.cv_file_path = str(cv_path)
+    profile.cv_filename = file.filename or "lebenslauf.pdf"
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+@router.get("/cv-file")
+def download_cv_file(db: Session = Depends(get_db)) -> StreamingResponse:
+    """Liefert die hochgeladene Lebenslauf-Anhang-Datei zurück (z. B. für
+    eine Vorschau/Download-Prüfung im Profil-Frontend)."""
+    profile = db.query(MasterProfile).first()
+    if profile is None or not profile.cv_file_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Es wurde noch keine Lebenslauf-Datei hochgeladen.",
+        )
+
+    cv_path = Path(profile.cv_file_path)
+    if not cv_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lebenslauf-Datei wurde nicht gefunden.")
+
+    def iter_cv_file(path: Path, chunk_size: int = 65_536):
+        with path.open("rb") as f:
+            while chunk := f.read(chunk_size):
+                yield chunk
+
+    filename = profile.cv_filename or "lebenslauf.pdf"
+    return StreamingResponse(
+        iter_cv_file(cv_path),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.delete("/cv-file", response_model=MasterProfileRead)
+def delete_cv_file(db: Session = Depends(get_db)) -> MasterProfile:
+    """Entfernt die hochgeladene Lebenslauf-Anhang-Datei wieder (z. B. um sie
+    durch eine andere zu ersetzen)."""
+    profile = db.query(MasterProfile).first()
+    if profile is None or not profile.cv_file_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Es wurde noch keine Lebenslauf-Datei hochgeladen.",
+        )
+
+    cv_path = Path(profile.cv_file_path)
+    if cv_path.exists():
+        cv_path.unlink()
+
+    profile.cv_file_path = None
+    profile.cv_filename = None
+    db.commit()
+    db.refresh(profile)
+    return profile

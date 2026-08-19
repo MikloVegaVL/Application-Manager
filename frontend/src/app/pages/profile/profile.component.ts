@@ -62,6 +62,15 @@ export class ProfileComponent implements OnInit {
   protected readonly isDragOver = signal(false);
   protected readonly uploading = signal(false);
 
+  // --- Lebenslauf-Anhang (Tab 5) - unverändert als E-Mail-Anhang genutzt,
+  // im Unterschied zu Tab 4's KI-gestütztem Profil-Import (siehe
+  // `app.api.profile.upload_cv_file` vs. `upload_cv`). ---
+  protected readonly cvFilename = signal<string | null>(null);
+  protected readonly selectedCvFile = signal<File | null>(null);
+  protected readonly isCvFileDragOver = signal(false);
+  protected readonly uploadingCvFile = signal(false);
+  protected readonly deletingCvFile = signal(false);
+
   protected readonly profileForm: FormGroup = this.formBuilder.nonNullable.group({
     full_name: ['', [Validators.required, Validators.maxLength(255)]],
     email: ['', [Validators.required, Validators.email]],
@@ -138,6 +147,7 @@ export class ProfileComponent implements OnInit {
 
   private applyProfileToForm(profile: MasterProfileRead): void {
     this.profileId.set(profile.id);
+    this.cvFilename.set(profile.cv_filename);
     this.profileForm.patchValue({
       full_name: profile.full_name,
       email: profile.email,
@@ -302,6 +312,91 @@ export class ProfileComponent implements OnInit {
         const message =
           (error.error?.detail as string | undefined) ?? 'CV-Analyse fehlgeschlagen. Bitte erneut versuchen.';
         this.snackBar.open(message, 'OK', { duration: 6000 });
+      },
+    });
+  }
+
+  // --- Tab 5: Lebenslauf-Anhang (Dropzone) --------------------------------
+
+  onCvFileDragOver(event: DragEvent): void {
+    event.preventDefault();
+    this.isCvFileDragOver.set(true);
+  }
+
+  onCvFileDragLeave(event: DragEvent): void {
+    event.preventDefault();
+    this.isCvFileDragOver.set(false);
+  }
+
+  onCvFileDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.isCvFileDragOver.set(false);
+    const file = event.dataTransfer?.files?.[0];
+    if (file) {
+      this.setSelectedCvFile(file);
+    }
+  }
+
+  onCvFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file) {
+      this.setSelectedCvFile(file);
+    }
+    input.value = '';
+  }
+
+  private setSelectedCvFile(file: File): void {
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      this.snackBar.open('Bitte eine PDF-Datei auswählen.', 'OK', { duration: 3000 });
+      return;
+    }
+    this.selectedCvFile.set(file);
+  }
+
+  clearSelectedCvFile(): void {
+    this.selectedCvFile.set(null);
+  }
+
+  uploadCvFile(): void {
+    const file = this.selectedCvFile();
+    if (!file || this.uploadingCvFile()) {
+      return;
+    }
+
+    this.uploadingCvFile.set(true);
+    this.profileService.uploadCvFile(file).subscribe({
+      next: (profile) => {
+        this.uploadingCvFile.set(false);
+        this.selectedCvFile.set(null);
+        this.cvFilename.set(profile.cv_filename);
+        this.snackBar.open('Lebenslauf-Datei wurde hochgeladen.', 'OK', { duration: 3000 });
+      },
+      error: (error: HttpErrorResponse) => {
+        this.uploadingCvFile.set(false);
+        const message =
+          (error.error?.detail as string | undefined) ?? 'Upload fehlgeschlagen. Bitte erneut versuchen.';
+        this.snackBar.open(message, 'OK', { duration: 5000 });
+      },
+    });
+  }
+
+  deleteCvFile(): void {
+    if (this.deletingCvFile()) {
+      return;
+    }
+
+    this.deletingCvFile.set(true);
+    this.profileService.deleteCvFile().subscribe({
+      next: (profile) => {
+        this.deletingCvFile.set(false);
+        this.cvFilename.set(profile.cv_filename);
+        this.snackBar.open('Lebenslauf-Datei wurde entfernt.', 'OK', { duration: 3000 });
+      },
+      error: () => {
+        this.deletingCvFile.set(false);
+        this.snackBar.open('Lebenslauf-Datei konnte nicht entfernt werden.', 'OK', { duration: 4000 });
       },
     });
   }

@@ -1,22 +1,16 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  DestroyRef,
   OnInit,
   inject,
   input,
   signal,
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { FormArray, FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
-import { LiveAnnouncer } from '@angular/cdk/a11y';
-import { COMMA, ENTER } from '@angular/cdk/keycodes';
 import { TextFieldModule } from '@angular/cdk/text-field';
 import { MatButtonModule } from '@angular/material/button';
-import { MatCardModule } from '@angular/material/card';
-import { MatChipEditedEvent, MatChipInputEvent, MatChipsModule } from '@angular/material/chips';
 import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
@@ -27,8 +21,7 @@ import { MatTabsModule } from '@angular/material/tabs';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
-import { Application, TailoredCv } from '../../core/models/application.model';
-import { EducationEntry, ExperienceEntry } from '../../core/models/master-profile.model';
+import { Application } from '../../core/models/application.model';
 import { JobOfferRead } from '../../core/models/job-offer.model';
 import { ApplicationService } from '../../core/services/application.service';
 import { JobService } from '../../core/services/job.service';
@@ -45,8 +38,6 @@ import {
   imports: [
     ReactiveFormsModule,
     MatButtonModule,
-    MatCardModule,
-    MatChipsModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
@@ -69,17 +60,10 @@ export class ApplicationEditorComponent implements OnInit {
   private readonly formBuilder = inject(FormBuilder);
   private readonly snackBar = inject(MatSnackBar);
   private readonly dialog = inject(MatDialog);
-  private readonly sanitizer = inject(DomSanitizer);
-  private readonly announcer = inject(LiveAnnouncer);
-  private readonly destroyRef = inject(DestroyRef);
-
-  protected readonly separatorKeysCodes = [ENTER, COMMA] as const;
 
   protected readonly loading = signal(true);
-  protected readonly regenerating = signal(false);
-  protected readonly downloading = signal(false);
+  protected readonly saving = signal(false);
   protected readonly sending = signal(false);
-  protected readonly pdfLoading = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
   /** True während der erstmaligen KI-Generierung (siehe `generateForFirstTime`) -
    * steuert den Hinweis, dass das ohne GPU-Beschleunigung mehrere Minuten
@@ -89,41 +73,13 @@ export class ApplicationEditorComponent implements OnInit {
 
   protected readonly application = signal<Application | null>(null);
   protected readonly jobOffer = signal<JobOfferRead | null>(null);
-  protected readonly skills = signal<string[]>([]);
-  protected readonly pdfUrl = signal<SafeResourceUrl | null>(null);
-
-  private currentPdfObjectUrl: string | null = null;
 
   protected readonly coverLetterForm = this.formBuilder.nonNullable.group({
     cover_letter_text: ['', Validators.required],
   });
 
-  protected readonly cvForm = this.formBuilder.nonNullable.group({
-    summary: [''],
-    experiences: this.formBuilder.array<FormGroup>([]),
-    education: this.formBuilder.array<FormGroup>([]),
-  });
-
-  protected readonly emailForm = this.formBuilder.nonNullable.group({
-    to_email: ['', [Validators.required, Validators.email]],
-    subject: [''],
-    message: [''],
-  });
-
-  constructor() {
-    this.destroyRef.onDestroy(() => this.revokePdfObjectUrl());
-  }
-
   ngOnInit(): void {
     this.loadOrGenerateApplication();
-  }
-
-  protected get experiencesArray(): FormArray<FormGroup> {
-    return this.cvForm.get('experiences') as FormArray<FormGroup>;
-  }
-
-  protected get educationArray(): FormArray<FormGroup> {
-    return this.cvForm.get('education') as FormArray<FormGroup>;
   }
 
   // --- Laden / Erstgenerierung -------------------------------------------
@@ -165,7 +121,7 @@ export class ApplicationEditorComponent implements OnInit {
       next: (application) => {
         this.isFirstGeneration.set(false);
         this.applyApplication(application);
-        this.snackBar.open('Bewerbung wurde erstmalig generiert.', 'OK', { duration: 3000 });
+        this.snackBar.open('Anschreiben wurde erstmalig generiert.', 'OK', { duration: 3000 });
       },
       error: (error: HttpErrorResponse) => {
         this.isFirstGeneration.set(false);
@@ -184,119 +140,12 @@ export class ApplicationEditorComponent implements OnInit {
   private applyApplication(application: Application): void {
     this.application.set(application);
     this.coverLetterForm.patchValue({ cover_letter_text: application.cover_letter_text ?? '' });
-
-    const cv = application.tailored_cv_json;
-    this.cvForm.patchValue({ summary: cv?.summary ?? '' });
-
-    this.experiencesArray.clear();
-    (cv?.experiences ?? []).forEach((entry) => this.experiencesArray.push(this.createExperienceGroup(entry)));
-
-    this.educationArray.clear();
-    (cv?.education ?? []).forEach((entry) => this.educationArray.push(this.createEducationGroup(entry)));
-
-    this.skills.set(cv?.skills ? [...cv.skills] : []);
-
     this.loading.set(false);
-    this.loadPdfPreview(application.id);
-  }
-
-  // --- PDF-Vorschau -------------------------------------------------------
-
-  private loadPdfPreview(applicationId: number): void {
-    this.pdfLoading.set(true);
-    this.applicationService.downloadPdfBlob(applicationId).subscribe({
-      next: (blob) => {
-        this.revokePdfObjectUrl();
-        const objectUrl = URL.createObjectURL(blob);
-        this.currentPdfObjectUrl = objectUrl;
-        this.pdfUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(objectUrl));
-        this.pdfLoading.set(false);
-      },
-      error: () => {
-        this.pdfLoading.set(false);
-        this.snackBar.open('PDF-Vorschau konnte nicht geladen werden.', 'OK', { duration: 4000 });
-      },
-    });
-  }
-
-  private revokePdfObjectUrl(): void {
-    if (this.currentPdfObjectUrl) {
-      URL.revokeObjectURL(this.currentPdfObjectUrl);
-      this.currentPdfObjectUrl = null;
-    }
-  }
-
-  // --- Tab 2: Lebenslauf-Anpassungen (dynamische FormArrays) --------------
-
-  private createExperienceGroup(entry?: ExperienceEntry): FormGroup {
-    return this.formBuilder.nonNullable.group({
-      company: [entry?.company ?? '', Validators.required],
-      role: [entry?.role ?? '', Validators.required],
-      start_date: [entry?.start_date ?? ''],
-      end_date: [entry?.end_date ?? ''],
-      description: [entry?.description ?? ''],
-    });
-  }
-
-  private createEducationGroup(entry?: EducationEntry): FormGroup {
-    return this.formBuilder.nonNullable.group({
-      institution: [entry?.institution ?? '', Validators.required],
-      degree: [entry?.degree ?? '', Validators.required],
-      field_of_study: [entry?.field_of_study ?? ''],
-      start_date: [entry?.start_date ?? ''],
-      end_date: [entry?.end_date ?? ''],
-    });
-  }
-
-  addExperience(): void {
-    this.experiencesArray.push(this.createExperienceGroup());
-  }
-
-  removeExperience(index: number): void {
-    this.experiencesArray.removeAt(index);
-  }
-
-  addEducation(): void {
-    this.educationArray.push(this.createEducationGroup());
-  }
-
-  removeEducation(index: number): void {
-    this.educationArray.removeAt(index);
-  }
-
-  addSkill(event: MatChipInputEvent): void {
-    const value = (event.value || '').trim();
-    if (value) {
-      this.skills.update((skills) => (skills.includes(value) ? skills : [...skills, value]));
-    }
-    event.chipInput.clear();
-  }
-
-  removeSkill(skill: string): void {
-    this.skills.update((skills) => skills.filter((s) => s !== skill));
-    this.announcer.announce(`${skill} entfernt`);
-  }
-
-  editSkill(skill: string, event: MatChipEditedEvent): void {
-    const value = event.value.trim();
-    if (!value) {
-      this.removeSkill(skill);
-      return;
-    }
-    this.skills.update((skills) => {
-      const index = skills.indexOf(skill);
-      if (index < 0) {
-        return skills;
-      }
-      const copy = [...skills];
-      copy[index] = value;
-      return copy;
-    });
   }
 
   // --- Toolbar-Aktionen -----------------------------------------------
 
-  onRegeneratePdf(): void {
+  onSaveCoverLetter(): void {
     const application = this.application();
     if (!application) {
       return;
@@ -307,62 +156,24 @@ export class ApplicationEditorComponent implements OnInit {
       return;
     }
 
-    const existingCv = application.tailored_cv_json;
-    const cvRaw = this.cvForm.getRawValue();
-    const tailoredCv: TailoredCv = {
-      full_name: existingCv?.full_name ?? '',
-      email: existingCv?.email ?? '',
-      phone: existingCv?.phone ?? null,
-      address: existingCv?.address ?? null,
-      summary: cvRaw.summary,
-      experiences: cvRaw.experiences as ExperienceEntry[],
-      education: cvRaw.education as EducationEntry[],
-      skills: this.skills(),
-    };
-
-    this.regenerating.set(true);
+    this.saving.set(true);
     this.applicationService
       .update(application.id, {
         cover_letter_text: this.coverLetterForm.getRawValue().cover_letter_text,
-        tailored_cv_json: tailoredCv,
       })
       .subscribe({
         next: (updated) => {
-          this.regenerating.set(false);
+          this.saving.set(false);
           this.applyApplication(updated);
-          this.snackBar.open('PDF wurde neu generiert.', 'OK', { duration: 3000 });
+          this.snackBar.open('Anschreiben wurde gespeichert.', 'OK', { duration: 3000 });
         },
         error: (error: HttpErrorResponse) => {
-          this.regenerating.set(false);
+          this.saving.set(false);
           const message =
-            (error.error?.detail as string | undefined) ?? 'PDF konnte nicht neu generiert werden.';
+            (error.error?.detail as string | undefined) ?? 'Anschreiben konnte nicht gespeichert werden.';
           this.snackBar.open(message, 'OK', { duration: 4000 });
         },
       });
-  }
-
-  onDownloadPdf(): void {
-    const application = this.application();
-    if (!application) {
-      return;
-    }
-
-    this.downloading.set(true);
-    this.applicationService.downloadPdfBlob(application.id).subscribe({
-      next: (blob) => {
-        this.downloading.set(false);
-        const objectUrl = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = objectUrl;
-        link.download = `lebenslauf_${application.id}.pdf`;
-        link.click();
-        URL.revokeObjectURL(objectUrl);
-      },
-      error: () => {
-        this.downloading.set(false);
-        this.snackBar.open('PDF konnte nicht heruntergeladen werden.', 'OK', { duration: 4000 });
-      },
-    });
   }
 
   onOpenSendDialog(): void {
@@ -371,32 +182,22 @@ export class ApplicationEditorComponent implements OnInit {
       return;
     }
 
-    const emailRaw = this.emailForm.getRawValue();
     const jobOffer = this.jobOffer();
 
-    // KTD2: Subject/Message derive from the *saved* Anschreiben text
-    // (application(), not the live coverLetterForm value) - keeps the email
-    // text consistent with the CV/application state that's actually attached.
+    // Subject/Message leiten sich aus der *gespeicherten* Anschreiben-Zeile
+    // ab (application(), nicht der live coverLetterForm-Wert) - das hält den
+    // E-Mail-Text konsistent mit dem zuletzt gespeicherten Anschreiben.
     const { subject: derivedSubject, message: derivedMessage } = parseBetreff(
       application.cover_letter_text ?? null,
     );
     const fallbackSubject = jobOffer?.title ? `Bewerbung als ${jobOffer.title}` : 'Bewerbung';
 
-    // KTD3: the "E-Mail-Text" tab's fields are an explicit override; Betreff-
-    // derivation is the default only when those fields are empty. Subject and
-    // Message are evaluated independently of each other - a manually-typed
-    // value in one field does not suppress derivation for the other.
-    const subject = emailRaw.subject.trim()
-      ? emailRaw.subject
-      : (derivedSubject ?? fallbackSubject);
-    const message = emailRaw.message.trim() ? emailRaw.message : derivedMessage;
-
     const dialogRef = this.dialog.open(SendApplicationDialogComponent, {
       width: '520px',
       data: {
-        toEmail: emailRaw.to_email,
-        subject,
-        message,
+        toEmail: '',
+        subject: derivedSubject ?? fallbackSubject,
+        message: derivedMessage,
         jobTitle: jobOffer?.title,
         companyName: jobOffer?.company,
       } satisfies SendApplicationDialogData,
@@ -406,16 +207,6 @@ export class ApplicationEditorComponent implements OnInit {
       if (!result) {
         return;
       }
-      // Only persist Subject/Message into the "E-Mail-Text" tab as a KTD3
-      // override when the user actually changed them from what the dialog
-      // derived. A plain confirm of the derived text must not "lock in" that
-      // text as a permanent override - the next send should still re-derive
-      // from a since-edited Betreff line instead of replaying stale text.
-      this.emailForm.patchValue({
-        to_email: result.to_email,
-        subject: result.subject === subject ? '' : result.subject,
-        message: result.message === message ? '' : result.message,
-      });
       this.sendApplication(application.id, result);
     });
   }

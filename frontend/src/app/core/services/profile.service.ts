@@ -34,4 +34,19 @@ export class ProfileService {
     formData.append('file', file, file.name);
     return this.http.post<CvUploadResponse>(`${this.baseUrl}/upload-cv`, formData);
   }
+
+  /**
+   * Lädt die Lebenslauf-Anhang-Datei hoch, die (unverändert, ohne KI-
+   * Analyse) beim Versand einer Bewerbung als E-Mail-Anhang verwendet wird.
+   */
+  uploadCvFile(file: File): Observable<MasterProfileRead> {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    return this.http.post<MasterProfileRead>(`${this.baseUrl}/cv-file`, formData);
+  }
+
+  /** Entfernt die hochgeladene Lebenslauf-Anhang-Datei wieder. */
+  deleteCvFile(): Observable<MasterProfileRead> {
+    return this.http.delete<MasterProfileRead>(`${this.baseUrl}/cv-file`);
+  }
 }

@@ -1,9 +1,9 @@
 """ORM-Modell für eine konkrete Bewerbung zu einem Stellenangebot."""
 import enum
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -32,8 +32,6 @@ class Application(Base):
     )
 
     cover_letter_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    tailored_cv_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    pdf_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 
     # `native_enum=False` legt den Wert als VARCHAR ab statt als nativen
     # DB-Enum-Typ. Das hält den Wechsel SQLite -> PostgreSQL unkompliziert,

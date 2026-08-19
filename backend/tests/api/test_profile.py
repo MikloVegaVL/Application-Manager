@@ -125,3 +125,91 @@ def test_upload_cv_missing_experience_does_not_erase_existing_experience(client,
     body = response.json()
     assert body["profile"]["experiences_json"] == [{"company": "Alt GmbH", "role": "Alt-Rolle", "start_date": None, "end_date": None, "description": None}]
     assert "Keine Berufserfahrung gefunden - vorhandene Angaben blieben unverändert." in body["warnings"]
+
+
+# --- POST/GET/DELETE /profile/cv-file -----------------------------------
+#
+# Die Lebenslauf-Anhang-Datei ist unabhängig vom KI-gestützten CV-Import
+# (`upload-cv`, oben): sie wird nicht analysiert, sondern unverändert als
+# E-Mail-Anhang verwendet (siehe `app.api.applications.send_application`).
+
+
+def _create_profile(session_local) -> MasterProfile:
+    db = session_local()
+    profile = MasterProfile(full_name="Max Mustermann", email="max@example.com")
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+    db.close()
+    return profile
+
+
+def test_upload_cv_file_requires_existing_profile(client, tmp_path, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+
+    response = test_client.post(
+        "/api/profile/cv-file",
+        files={"file": ("lebenslauf.pdf", b"%PDF-1.4 fake", "application/pdf")},
+    )
+
+    assert response.status_code == 404
+
+
+def test_upload_cv_file_rejects_non_pdf(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.post(
+        "/api/profile/cv-file",
+        files={"file": ("lebenslauf.docx", b"not a pdf", "application/octet-stream")},
+    )
+
+    assert response.status_code == 415
+
+
+def test_upload_cv_file_stores_file_and_sets_filename(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.post(
+        "/api/profile/cv-file",
+        files={"file": ("mein-lebenslauf.pdf", b"%PDF-1.4 fake content", "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["cv_filename"] == "mein-lebenslauf.pdf"
+
+    download_response = test_client.get("/api/profile/cv-file")
+    assert download_response.status_code == 200
+    assert download_response.content == b"%PDF-1.4 fake content"
+    assert 'filename="mein-lebenslauf.pdf"' in download_response.headers["content-disposition"]
+
+
+def test_download_cv_file_returns_404_when_none_uploaded(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.get("/api/profile/cv-file")
+
+    assert response.status_code == 404
+
+
+def test_delete_cv_file_clears_it(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+    test_client.post(
+        "/api/profile/cv-file",
+        files={"file": ("lebenslauf.pdf", b"%PDF-1.4 fake", "application/pdf")},
+    )
+
+    response = test_client.delete("/api/profile/cv-file")
+
+    assert response.status_code == 200
+    assert response.json()["cv_filename"] is None
+    assert test_client.get("/api/profile/cv-file").status_code == 404
