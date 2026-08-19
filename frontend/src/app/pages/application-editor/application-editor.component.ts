@@ -406,7 +406,16 @@ export class ApplicationEditorComponent implements OnInit {
       if (!result) {
         return;
       }
-      this.emailForm.patchValue(result);
+      // Only persist Subject/Message into the "E-Mail-Text" tab as a KTD3
+      // override when the user actually changed them from what the dialog
+      // derived. A plain confirm of the derived text must not "lock in" that
+      // text as a permanent override - the next send should still re-derive
+      // from a since-edited Betreff line instead of replaying stale text.
+      this.emailForm.patchValue({
+        to_email: result.to_email,
+        subject: result.subject === subject ? '' : result.subject,
+        message: result.message === message ? '' : result.message,
+      });
       this.sendApplication(application.id, result);
     });
   }

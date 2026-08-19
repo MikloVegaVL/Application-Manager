@@ -29,7 +29,11 @@ export function parseBetreff(
     return { subject: null, message: normalized.trim() };
   }
 
-  const subject = betreffMatch[1].trim();
+  // A trimmed-empty capture (e.g. "Betreff:   " with no text after it) is
+  // treated the same as no Betreff line at all, so callers that fall back
+  // with `derivedSubject ?? fallbackSubject` actually fall back instead of
+  // receiving an empty string, which `??` would not catch.
+  const subject = betreffMatch[1].trim() || null;
 
   // Drop the Betreff line itself, plus one immediately-following blank
   // separator line, if present.
