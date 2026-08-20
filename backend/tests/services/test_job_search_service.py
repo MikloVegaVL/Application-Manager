@@ -8,7 +8,7 @@ import time
 from bs4 import BeautifulSoup
 
 from app.schemas.job_offer import JobOfferCreate
-from app.services.job_search_service import GenericJobScraper, JobSearchService
+from app.services.job_search_service import ArbeitsagenturJobsClient, GenericJobScraper, JobSearchService
 
 
 class _FakeClient:
@@ -253,3 +253,99 @@ def test_heuristic_extraction_prefers_heading_over_a_leading_empty_overlay_link(
     assert len(offers) == 1
     assert offers[0].title == "Angular Developer"
     assert offers[0].source_url == "https://example.com/jobs/angular-developer-123"
+
+
+# --- ArbeitsagenturJobsClient.fetch_description() (lazy detail-page load) --
+#
+# Covers the ce-debug follow-up (2026-08-20): search results themselves are
+# never persisted (KTD2), so a description can only be fetched once a
+# JobOffer is actually saved and reopened (see `GET /jobs/{id}` /
+# `JobSearchService.enrich_description`), never eagerly for every one of up
+# to 25 search hits (that would blow the shared search deadline, KTD1).
+
+_ENCODED_REFNR = "MTAwMDEtMTAwMjcxNjkyMi1T"  # base64("10001-1002716922-S")
+
+
+def test_fetch_description_happy_path_decodes_and_strips_html(requests_mock):
+    detail_url = "https://www.arbeitsagentur.de/jobsuche/jobdetail/10001-1002716922-S"
+    requests_mock.get(
+        f"{ArbeitsagenturJobsClient.DETAIL_BASE_URL}/{_ENCODED_REFNR}",
+        json={"stellenangebotsBeschreibung": "<p>Bewerbung an <b>hr@example.de</b></p>"},
+    )
+
+    description = ArbeitsagenturJobsClient().fetch_description(detail_url)
+
+    assert description == "Bewerbung an hr@example.de"
+
+
+def test_fetch_description_falls_back_to_the_legacy_field_name(requests_mock):
+    detail_url = "https://www.arbeitsagentur.de/jobsuche/jobdetail/10001-1002716922-S"
+    requests_mock.get(
+        f"{ArbeitsagenturJobsClient.DETAIL_BASE_URL}/{_ENCODED_REFNR}",
+        json={"stellenbeschreibung": "Nur der alte Feldname ist gesetzt."},
+    )
+
+    description = ArbeitsagenturJobsClient().fetch_description(detail_url)
+
+    assert description == "Nur der alte Feldname ist gesetzt."
+
+
+def test_fetch_description_returns_none_for_an_external_career_page_url():
+    """`source_url` zeigt auf die Karriereseite eines Drittanbieters
+    (`externeURL`, siehe `_map_offer`) - ohne Referenznummer lässt sich kein
+    Detail-Call bauen."""
+    description = ArbeitsagenturJobsClient().fetch_description("https://acme-careers.example/jobs/42")
+
+    assert description is None
+
+
+def test_fetch_description_returns_none_on_http_error(requests_mock):
+    detail_url = "https://www.arbeitsagentur.de/jobsuche/jobdetail/10001-1002716922-S"
+    requests_mock.get(f"{ArbeitsagenturJobsClient.DETAIL_BASE_URL}/{_ENCODED_REFNR}", status_code=404)
+
+    description = ArbeitsagenturJobsClient().fetch_description(detail_url)
+
+    assert description is None
+
+
+def test_fetch_description_returns_none_when_the_field_is_missing_or_empty(requests_mock):
+    detail_url = "https://www.arbeitsagentur.de/jobsuche/jobdetail/10001-1002716922-S"
+    requests_mock.get(f"{ArbeitsagenturJobsClient.DETAIL_BASE_URL}/{_ENCODED_REFNR}", json={})
+
+    description = ArbeitsagenturJobsClient().fetch_description(detail_url)
+
+    assert description is None
+
+
+# --- JobSearchService.enrich_description() (source dispatch) --------------
+
+
+def test_enrich_description_dispatches_to_the_arbeitsagentur_client(mocker):
+    service = JobSearchService()
+    mocker.patch.object(service._arbeitsagentur_client, "fetch_description", return_value="Text")  # noqa: SLF001
+
+    result = service.enrich_description("arbeitsagentur", "https://example.com/job/1")
+
+    assert result == "Text"
+    service._arbeitsagentur_client.fetch_description.assert_called_once_with(  # noqa: SLF001
+        "https://example.com/job/1"
+    )
+
+
+def test_enrich_description_dispatches_to_the_xing_client(mocker):
+    service = JobSearchService()
+    mocker.patch.object(service._xing_client, "fetch_description", return_value="Text")  # noqa: SLF001
+
+    result = service.enrich_description("xing", "https://xing.com/jobs/1")
+
+    assert result == "Text"
+
+
+def test_enrich_description_is_a_no_op_for_unsupported_sources():
+    """LinkedIn und der generische Fallback-Scraper haben keinen
+    Detail-Call (LinkedIn) bzw. füllen `description_text` bereits beim
+    Scrapen (Fallback) - beide liefern hier `None` statt einer Exception."""
+    service = JobSearchService()
+
+    assert service.enrich_description("linkedin", "https://linkedin.com/jobs/1") is None
+    assert service.enrich_description("web-scraper", "https://example.com/jobs/1") is None

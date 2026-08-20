@@ -333,6 +333,44 @@ def test_inner_timeout_treated_same_as_launch_failure(mocker):
     browser.close.assert_called_once()  # Browser wird trotz Timeout sauber geschlossen
 
 
+# --- fetch_description() (lazy single-detail-page load) -------------------
+#
+# Covers the ce-debug follow-up (2026-08-20): fetching a detail page for
+# every search hit would multiply Playwright launches by up to _MAX_RESULTS
+# and blow the shared search deadline (KTD1) - `fetch_description` is
+# instead called once, lazily, for a single already-saved JobOffer (see
+# `JobSearchService.enrich_description` / `GET /jobs/{id}`).
+
+DETAIL_PAGE_HTML = """
+<html><body>
+  <h1>Angular Developer</h1>
+  <p>Bitte sende deine Bewerbung an bewerbung@acme.example.</p>
+</body></html>
+"""
+
+
+def test_fetch_description_returns_the_detail_pages_visible_text(mocker):
+    mocker.patch.object(xing_module, "sync_playwright", _fake_sync_playwright_factory(DETAIL_PAGE_HTML))
+
+    description = XingJobScraper().fetch_description("https://www.xing.com/stellenangebote/12345-angular-developer")
+
+    assert description is not None
+    assert "bewerbung@acme.example" in description
+
+
+def test_fetch_description_returns_none_when_rendering_fails(mocker):
+    @contextmanager
+    def _raising_cm():
+        raise RuntimeError("simulated launch/navigation failure")
+        yield  # pragma: no cover - unreachable, satisfies generator shape
+
+    mocker.patch.object(xing_module, "sync_playwright", _raising_cm)
+
+    description = XingJobScraper().fetch_description("https://www.xing.com/stellenangebote/12345")
+
+    assert description is None
+
+
 def test_concurrent_searches_serialize_on_the_semaphore(mocker):
     """Zwei gleichzeitige `.search()`-Aufrufe dürfen nie gleichzeitig einen
     Browser starten - das Semaphore serialisiert den Start (KTD6), nicht

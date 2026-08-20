@@ -123,6 +123,24 @@ class XingJobScraper:
 
         return self._extract_offers(html, source_url=url)
 
+    def fetch_description(self, url: str) -> str | None:
+        """Lädt die tatsächliche Job-Detailseite (nicht die Suchergebnisseite)
+        nach und liefert deren sichtbaren Text.
+
+        Bewusst NICHT Teil von `search()`/`_extract_offers()`: Xing bietet
+        keine separate Detail-API (siehe Moduldoc), ein Playwright-Rendern
+        JEDES Suchtreffers würde die Suche um bis zu `_MAX_RESULTS` weitere
+        Browser-Starts verlangsamen und die gemeinsame Such-Deadline (KTD1)
+        sprengen. Wird stattdessen einmalig und verzögert für ein einzelnes,
+        bereits gespeichertes `JobOffer` aufgerufen (siehe `GET /jobs/{id}`),
+        dessen `description_text` noch leer ist.
+        """
+        html = self._render(url)
+        if not html:
+            return None
+        text = BeautifulSoup(html, "html.parser").get_text(separator=" ", strip=True)
+        return text or None
+
     @classmethod
     def _is_known_non_german_location(cls, location: str | None) -> bool:
         if not location:

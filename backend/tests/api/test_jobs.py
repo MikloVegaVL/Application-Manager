@@ -139,3 +139,90 @@ def test_get_job_returns_saved_job(client):
 
     assert response.status_code == 200
     assert response.json()["source_url"] == payload["source_url"]
+
+
+# --- Lazy description enrichment (ce-debug follow-up, 2026-08-20) ---------
+#
+# `description_text` is empty for every job offer sourced through
+# Arbeitsagentur/LinkedIn/Xing's search (KTD2: search hits are never
+# persisted with a full detail fetch, see `JobSearchService.search`) - GET
+# /jobs/{id} lazily fetches and caches it the first time a saved job offer
+# with no description_text is reopened.
+
+
+def test_get_job_lazily_enriches_and_persists_a_missing_description(client):
+    payload = {
+        "title": "Angular Developer",
+        "company": "Acme",
+        "location": "Berlin",
+        "source_url": "https://example.com/job/needs-description",
+        "description_text": None,
+        "source_platform": "arbeitsagentur",
+    }
+    saved = client.post("/api/jobs/save", json=payload).json()
+
+    class _FakeEnrichingService:
+        def __init__(self):
+            self.calls: list[tuple] = []
+
+        def enrich_description(self, source_platform, source_url):
+            self.calls.append((source_platform, source_url))
+            return "Bitte sende deine Bewerbung an bewerbung@acme.example."
+
+    fake_service = _FakeEnrichingService()
+    app.dependency_overrides[get_job_search_service] = lambda: fake_service
+
+    first_response = client.get(f"/api/jobs/{saved['id']}")
+    second_response = client.get(f"/api/jobs/{saved['id']}")
+
+    assert first_response.json()["description_text"] == "Bitte sende deine Bewerbung an bewerbung@acme.example."
+    assert second_response.json()["description_text"] == "Bitte sende deine Bewerbung an bewerbung@acme.example."
+    # Nur beim ersten Aufruf war description_text leer - der zweite Aufruf
+    # darf den externen Call nicht wiederholen.
+    assert fake_service.calls == [("arbeitsagentur", "https://example.com/job/needs-description")]
+
+
+def test_get_job_stays_empty_when_enrichment_finds_nothing(client):
+    payload = {
+        "title": "Angular Developer",
+        "company": "Acme",
+        "location": "Berlin",
+        "source_url": "https://example.com/job/no-description-available",
+        "description_text": None,
+        "source_platform": "xing",
+    }
+    saved = client.post("/api/jobs/save", json=payload).json()
+
+    class _FakeEmptyService:
+        def enrich_description(self, source_platform, source_url):
+            return None
+
+    app.dependency_overrides[get_job_search_service] = lambda: _FakeEmptyService()
+
+    response = client.get(f"/api/jobs/{saved['id']}")
+
+    assert response.status_code == 200
+    assert response.json()["description_text"] is None
+
+
+def test_get_job_does_not_call_enrichment_when_description_already_present(client):
+    payload = {
+        "title": "Angular Developer",
+        "company": "Acme",
+        "location": "Berlin",
+        "source_url": "https://example.com/job/already-has-description",
+        "description_text": "Schon vorhanden.",
+        "source_platform": "arbeitsagentur",
+    }
+    saved = client.post("/api/jobs/save", json=payload).json()
+
+    class _FailingService:
+        def enrich_description(self, source_platform, source_url):
+            raise AssertionError("enrich_description must not be called when description_text is already set")
+
+    app.dependency_overrides[get_job_search_service] = lambda: _FailingService()
+
+    response = client.get(f"/api/jobs/{saved['id']}")
+
+    assert response.status_code == 200
+    assert response.json()["description_text"] == "Schon vorhanden."

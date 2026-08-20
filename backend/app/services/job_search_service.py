@@ -28,13 +28,14 @@ befragt - dieser Pfad ist von der neuen Mehrquellen-Suche unberührt.
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from time import monotonic
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import unquote, urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -77,8 +78,16 @@ class ArbeitsagenturJobsClient:
     """
 
     BASE_URL = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6"
+    # Jobdetails leben unter einer eigenen API-Version (v4), nicht unter v6
+    # wie die Suche selbst - siehe https://github.com/bundesAPI/jobsuche-api.
+    DETAIL_BASE_URL = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobdetails"
     API_KEY = "jobboerse-jobsuche"
     SOURCE_PLATFORM = "arbeitsagentur"
+
+    # Passt exakt das Format, das `_map_offer` selbst für `detail_url` baut,
+    # wenn kein `externeURL` vorhanden ist (siehe dort) - nur daraus lässt
+    # sich die für den Detail-Call nötige Referenznummer zurückgewinnen.
+    _DETAIL_URL_PATTERN = re.compile(r"/jobsuche/jobdetail/(?P<refnr>[^/?#]+)")
 
     def __init__(self, timeout: float = 10.0) -> None:
         self._timeout = timeout
@@ -151,6 +160,54 @@ class ArbeitsagenturJobsClient:
             description_text=None,  # Volltext erfordert einen separaten Detail-Call (v4/jobdetails)
             source_platform=self.SOURCE_PLATFORM,
         )
+
+    def fetch_description(self, source_url: str) -> str | None:
+        """Lädt den Volltext einer bereits gespeicherten Arbeitsagentur-Stelle
+        nach (`v4/jobdetails`).
+
+        Bewusst NICHT Teil von `search()`/`_map_offer()`: ein Detail-Call pro
+        Treffer würde bei bis zu 25 Treffern die gemeinsame Such-Deadline
+        (KTD1, `JOB_SEARCH_DEADLINE_SECONDS`) sprengen. Wird stattdessen
+        einmalig und verzögert für ein einzelnes, bereits gespeichertes
+        `JobOffer` aufgerufen (siehe `GET /jobs/{id}`), dessen
+        `description_text` noch leer ist.
+
+        Nur möglich, wenn `source_url` auf die eigene Jobdetail-Seite der
+        Arbeitsagentur zeigt (kein `externeURL`, siehe `_map_offer`) - nur
+        daraus lässt sich die für den Detail-Call nötige Referenznummer
+        rekonstruieren. Zeigt `source_url` auf die Karriereseite eines
+        Drittanbieters, liefert dies `None`.
+        """
+        match = self._DETAIL_URL_PATTERN.search(source_url)
+        if not match:
+            return None
+        refnr = unquote(match.group("refnr"))
+        encoded_refnr = base64.b64encode(refnr.encode("utf-8")).decode("ascii")
+
+        try:
+            response = requests.get(
+                f"{self.DETAIL_BASE_URL}/{encoded_refnr}",
+                headers=self._headers,
+                timeout=self._timeout,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            logger.warning("Arbeitsagentur-Jobdetails für %s nicht erreichbar: %s", source_url, exc)
+            return None
+
+        try:
+            payload = response.json()
+        except ValueError:
+            logger.warning("Arbeitsagentur-Jobdetails lieferten kein valides JSON zurück.")
+            return None
+
+        # Die community-gepflegte API-Doku listet beide Feldnamen für
+        # dieselbe Beschreibung (siehe bundesAPI/jobsuche-api) - defensiv
+        # beide versuchen statt sich auf einen festzulegen.
+        raw_description = payload.get("stellenangebotsBeschreibung") or payload.get("stellenbeschreibung") or ""
+        if not raw_description:
+            return None
+        return BeautifulSoup(raw_description, "html.parser").get_text(separator=" ", strip=True) or None
 
 
 class GenericJobScraper:
@@ -463,6 +520,26 @@ class JobSearchService:
             )
 
         return JobSearchResponse(results=results, sources=sources)
+
+    def enrich_description(self, source_platform: str, source_url: str) -> str | None:
+        """Lädt nachträglich den vollen Anzeigetext für ein einzelnes,
+        bereits gespeichertes `JobOffer` nach, dessen `description_text`
+        noch leer ist (siehe `GET /jobs/{id}`).
+
+        Nur Arbeitsagentur und Xing unterstützen einen Detail-Call; Suchtreffer
+        werden nie persistiert (KTD2), daher kann dieser Nachlade-Schritt erst
+        hier, für die eine tatsächlich gespeicherte Stelle, laufen - nicht
+        schon während `search()` für bis zu 25 Treffer gleichzeitig (siehe
+        die Docstrings von `ArbeitsagenturJobsClient.fetch_description`/
+        `XingJobScraper.fetch_description`). Für andere Quellen (LinkedIn,
+        der generische Fallback-Scraper, der `description_text` bereits beim
+        Scrapen füllt) ein No-Op.
+        """
+        if source_platform == ArbeitsagenturJobsClient.SOURCE_PLATFORM:
+            return self._arbeitsagentur_client.fetch_description(source_url)
+        if source_platform == XingJobScraper.SOURCE_PLATFORM:
+            return self._xing_client.fetch_description(source_url)
+        return None
 
 
 def get_job_search_service() -> JobSearchService:

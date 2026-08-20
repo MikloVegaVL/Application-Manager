@@ -49,10 +49,30 @@ def save_job(payload: JobOfferCreate, db: Session = Depends(get_db)) -> JobOffer
 
 
 @router.get("/{job_offer_id}", response_model=JobOfferRead)
-def get_job(job_offer_id: int, db: Session = Depends(get_db)) -> JobOffer:
+def get_job(
+    job_offer_id: int,
+    db: Session = Depends(get_db),
+    service: JobSearchService = Depends(get_job_search_service),
+) -> JobOffer:
     """Liefert ein einzelnes gespeichertes Stellenangebot (z. B. für die
-    Kopfzeile des Bewerbungs-Editors)."""
+    Kopfzeile des Bewerbungs-Editors).
+
+    Fehlt `description_text` noch (z. B. weil die Suche, aus der die Stelle
+    stammt, nur die Trefferliste kannte, siehe KTD2/`ArbeitsagenturJobsClient
+    .fetch_description`), wird es hier einmalig nachgeladen und persistiert -
+    ab dem zweiten Aufruf entfällt der externe Call. Schlägt das Nachladen
+    fehl oder liefert die Quelle keinen Text, bleibt `description_text` leer
+    und die Anfrage liefert trotzdem normal die gespeicherten Felder zurück.
+    """
     job_offer = db.get(JobOffer, job_offer_id)
     if job_offer is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stellenangebot wurde nicht gefunden.")
+
+    if not job_offer.description_text:
+        description = service.enrich_description(job_offer.source_platform, job_offer.source_url)
+        if description:
+            job_offer.description_text = description
+            db.commit()
+            db.refresh(job_offer)
+
     return job_offer
