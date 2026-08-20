@@ -140,6 +140,23 @@ describe('ApplicationEditorComponent', () => {
     expect(component['isFirstGeneration']()).toBeFalse();
   });
 
+  it('Regression: an application record with no cover letter yet (saved-only job) triggers first-time generation', () => {
+    // (ce-debug-Untersuchung, 2026-08-20: `POST /jobs/save` legt seither
+    // sofort eine Application ohne Anschreiben an, damit gespeicherte Jobs
+    // auf der Bewerbungsübersicht sichtbar sind - der Editor muss diesen
+    // Fall genauso wie ein bislang fehlendes (404) Anschreiben behandeln.)
+    loadApplication(httpMock); // Default: coverLetterText null - genau der Fall aus POST /jobs/save
+    fixture.detectChanges();
+
+    expect(component['isFirstGeneration']()).toBeTrue();
+
+    const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
+    generateReq.flush(buildApplication('Sehr geehrte Damen und Herren,'));
+
+    expect(component['isFirstGeneration']()).toBeFalse();
+    expect(component['application']()?.cover_letter_text).toBe('Sehr geehrte Damen und Herren,');
+  });
+
   describe('onSaveCoverLetter()', () => {
     it('saves the edited cover-letter text without triggering a new AI generation', () => {
       loadApplication(httpMock, { coverLetterText: 'Alter Text' });

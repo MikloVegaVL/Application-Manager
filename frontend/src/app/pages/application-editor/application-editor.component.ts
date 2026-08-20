@@ -105,7 +105,18 @@ export class ApplicationEditorComponent implements OnInit {
     });
 
     this.applicationService.getByJobOffer(jobOfferId).subscribe({
-      next: (application) => this.applyApplication(application),
+      next: (application) => {
+        // `POST /jobs/save` legt seit ce-debug (2026-08-20) sofort eine
+        // Application ohne Anschreiben an, damit gespeicherte Jobs auf der
+        // Bewerbungsübersicht sichtbar sind - dieser Fall (200 mit leerem
+        // `cover_letter_text`) muss die Erstgenerierung genauso anstoßen wie
+        // ein bislang fehlendes (404) Anschreiben.
+        if (!application.cover_letter_text) {
+          this.generateForFirstTime(jobOfferId);
+          return;
+        }
+        this.applyApplication(application);
+      },
       error: (error: HttpErrorResponse) => {
         if (error.status === 404) {
           this.generateForFirstTime(jobOfferId);

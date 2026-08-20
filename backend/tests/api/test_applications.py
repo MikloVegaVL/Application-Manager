@@ -135,6 +135,34 @@ def test_list_applications_returns_saved_applications_with_job_offer_info(
     assert body[0]["job_offer"]["company"] == "Acme GmbH"
 
 
+def test_list_applications_includes_a_job_saved_without_generating_yet(client: TestClient) -> None:
+    # Regression: "Job speichern" in der Jobsuche legte bislang nur ein
+    # JobOffer an, aber nie eine Application - ein gespeicherter, aber noch
+    # nicht generierter Job erschien dadurch nirgends auf der
+    # Bewerbungsübersicht (ce-debug-Untersuchung, 2026-08-20). `POST
+    # /jobs/save` muss dafür sofort eine Bewerbung im Status "draft" ohne
+    # Anschreiben anlegen.
+    payload = {
+        "title": "Backend Engineer",
+        "company": "Acme GmbH",
+        "location": "Berlin",
+        "source_url": "https://example.com/job/saved-only",
+        "description_text": None,
+        "source_platform": "arbeitsagentur",
+    }
+    save_response = client.post("/api/jobs/save", json=payload)
+    assert save_response.status_code == 201
+
+    response = client.get("/api/applications")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["status"] == "draft"
+    assert body[0]["cover_letter_text"] is None
+    assert body[0]["job_offer"]["title"] == "Backend Engineer"
+
+
 def test_list_applications_orders_most_recently_created_first(client: TestClient, db_session_local) -> None:
     session = db_session_local()
     try:

@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
+from app.models.application import Application
 from app.models.job_offer import JobOffer
 from app.schemas.job_offer import JobOfferCreate, JobOfferRead, JobSearchResponse
 from app.services.job_search_service import JobSearchService, get_job_search_service
@@ -43,8 +44,20 @@ def save_job(payload: JobOfferCreate, db: Session = Depends(get_db)) -> JobOffer
 
     job_offer = JobOffer(**payload.model_dump())
     db.add(job_offer)
+    db.flush()  # weist job_offer.id zu, ohne die Transaktion schon zu committen
+
+    # Legt sofort eine Bewerbung im Status "draft" ohne Anschreiben an, damit
+    # das Stellenangebot auf der Bewerbungsübersicht (`GET /applications`)
+    # erscheint, auch bevor das Anschreiben generiert wurde (ce-debug-
+    # Untersuchung, 2026-08-20: gespeicherte Jobs waren dort zuvor gar nicht
+    # sichtbar). `ApplicationEditorComponent.loadOrGenerateApplication` holt
+    # die KI-Generierung nach, sobald `cover_letter_text` noch leer ist. Ein
+    # gemeinsamer Commit hält beide Inserts atomar - schlägt er fehl, bleibt
+    # kein JobOffer ohne zugehörige Application zurück.
+    db.add(Application(job_offer_id=job_offer.id))
     db.commit()
     db.refresh(job_offer)
+
     return job_offer
 
 
