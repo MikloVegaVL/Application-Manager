@@ -6,7 +6,6 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { HttpErrorResponse } from '@angular/common/http';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
 import { TextFieldModule } from '@angular/cdk/text-field';
@@ -21,11 +20,13 @@ import { MatTabsModule } from '@angular/material/tabs';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
+import { HttpErrorResponse } from '@angular/common/http';
 import { Application } from '../../core/models/application.model';
 import { JobOfferRead } from '../../core/models/job-offer.model';
 import { ApplicationService } from '../../core/services/application.service';
 import { JobService } from '../../core/services/job.service';
 import { parseBetreff } from '../../core/utils/cover-letter.util';
+import { extractEmail } from '../../core/utils/email-extraction.util';
 import {
   SendApplicationDialogComponent,
   SendApplicationDialogData,
@@ -195,7 +196,7 @@ export class ApplicationEditorComponent implements OnInit {
     const dialogRef = this.dialog.open(SendApplicationDialogComponent, {
       width: '520px',
       data: {
-        toEmail: '',
+        toEmail: extractEmail(jobOffer?.description_text) ?? '',
         subject: derivedSubject ?? fallbackSubject,
         message: derivedMessage,
         jobTitle: jobOffer?.title,

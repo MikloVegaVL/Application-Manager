@@ -41,13 +41,17 @@ function buildApplication(coverLetterText: string | null): Application {
 /** Flusht Job- und Bewerbungs-Requests, damit `application()`/`jobOffer()` befüllt sind. */
 function loadApplication(
   httpMock: HttpTestingController,
-  options: { coverLetterText?: string | null; withJobOffer?: boolean } = {},
+  options: {
+    coverLetterText?: string | null;
+    withJobOffer?: boolean;
+    jobOffer?: JobOfferRead;
+  } = {},
 ): void {
-  const { coverLetterText = null, withJobOffer = true } = options;
+  const { coverLetterText = null, withJobOffer = true, jobOffer = defaultJobOffer } = options;
 
   const jobReq = httpMock.expectOne((req) => req.url.endsWith('/jobs/1'));
   if (withJobOffer) {
-    jobReq.flush(defaultJobOffer);
+    jobReq.flush(jobOffer);
   } else {
     jobReq.flush({ detail: 'not found' }, { status: 404, statusText: 'Not Found' });
   }
@@ -177,6 +181,22 @@ describe('ApplicationEditorComponent', () => {
         'Sehr geehrte Damen und Herren,\n\nMit freundlichen Grüßen\nMax Mustermann',
       );
       expect(data.toEmail).toBe('');
+    });
+
+    it('job offer text contains a contact email -> dialog opens pre-filled with it', () => {
+      loadApplication(httpMock, {
+        coverLetterText: 'Sehr geehrte Damen und Herren,',
+        jobOffer: {
+          ...defaultJobOffer,
+          description_text: 'Bitte sende deine Bewerbung an bewerbung@acme.example.',
+        },
+      });
+      const openSpy = spyOnDialogOpen(component);
+
+      component.onOpenSendDialog();
+
+      const data = openSpy.calls.mostRecent().args[1].data as SendApplicationDialogData;
+      expect(data.toEmail).toBe('bewerbung@acme.example');
     });
 
     it('Anschreiben has no Betreff line -> dialog subject shows the job-title-based fallback', () => {
