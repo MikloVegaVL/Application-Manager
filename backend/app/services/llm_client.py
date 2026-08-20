@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from functools import lru_cache
 from typing import Any, TypeVar, get_args, get_origin
 
@@ -38,6 +39,21 @@ logger = logging.getLogger(__name__)
 
 Message = dict[str, str]
 ModelT = TypeVar("ModelT", bound=BaseModel)
+
+# Serialisiert alle tatsächlichen Ollama-Chat-Aufrufe prozessweit (siehe
+# ce-debug-Untersuchung, 2026-08-20): `pdf_parser.py` (CV-Analyse,
+# qwen2.5:3b-instruct) und `ai_generator.py` (Bewerbungsgenerierung,
+# qwen2.5:7b-instruct) laufen im selben Backend-Prozess und können, wenn
+# zwei Requests zeitlich nah beieinander liegen, ohne diesen Lock
+# gleichzeitig mit unterschiedlichen Modellen generieren - beobachtet wurde
+# dabei ein Ollama-Speicherbedarf von ~7.3GB (5.1GB + 2.2GB) gegen eine
+# Docker-Desktop-VM mit nur 7.75GB insgesamt, geteilt mit Postgres/Backend/
+# Frontend. Der Lock stellt sicher, dass nie zwei Modelle gleichzeitig mitten
+# in der Generierung (und damit gleichzeitig resident) sind. Ergänzt um
+# `keep_alive=0` (siehe `_call_chat`), das ein Modell direkt nach seinem
+# Aufruf wieder entlädt statt Ollamas Standard-Keep-Alive von 5 Minuten
+# nachwirken zu lassen.
+_ollama_lock = threading.Lock()
 
 # Interne Buchhaltung für den Abflach-Fallback: Für ein verschachteltes
 # Listenfeld (`name -> Item-Modelklasse`) sowie für ein verschachteltes
@@ -85,9 +101,22 @@ def _call_chat(
     (von Ollamas Client NICHT abgefangen, muss separat behandelt werden) -
     und wirft dafür einheitlich `LlmUnavailableError`, ohne erneuten Versuch
     (Retry gilt nur für Validierungsfehler, nicht für Nichterreichbarkeit).
+
+    Hält `_ollama_lock` für die Dauer des Aufrufs (verhindert, dass zwei
+    unterschiedliche Modelle gleichzeitig generieren/resident sind) und
+    übergibt `keep_alive=0`, damit das Modell direkt danach wieder entladen
+    wird statt für Ollamas Standard-Keep-Alive von 5 Minuten resident zu
+    bleiben (siehe Kommentar bei `_ollama_lock` und ce-debug-Untersuchung,
+    2026-08-20). Bewusste Kehrseite: Folgt im selben `generate_structured`-
+    Aufruf ein Retry/Fallback mit demselben Modell, muss dieses erneut
+    geladen werden statt warm zu bleiben - das ist der Trade-off für die
+    Speichersicherheit und betrifft nur den seltenen Retry-Pfad.
     """
     try:
-        response = client.chat(model=model, format=format_schema, messages=messages)
+        with _ollama_lock:
+            response = client.chat(
+                model=model, format=format_schema, messages=messages, keep_alive=0
+            )
     except ollama.ResponseError as exc:
         logger.exception("Ollama-Aufruf fehlgeschlagen (ResponseError).")
         raise LlmUnavailableError(f"Ollama-Anfrage fehlgeschlagen: {exc}") from exc

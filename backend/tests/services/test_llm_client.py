@@ -4,7 +4,9 @@ docs/plans/2026-08-17-001-refactor-openai-to-ollama-migration-plan.md).
 from __future__ import annotations
 
 import json
+import threading
 from types import SimpleNamespace
+from typing import Any
 
 import httpx
 import pytest
@@ -90,6 +92,80 @@ class TestHappyPath:
         assert result.full_name == "Max Mustermann"
         assert result.experiences[0].company == "Acme GmbH"
         assert mock_client.chat.call_count == 1
+
+
+class TestModelResidency:
+    """Regression guard for concurrent Ollama model residency (see ce-debug-
+    Untersuchung, 2026-08-20: CV-Import 'nicht funktionierend/sehr langsam').
+
+    Live-reproduced during that investigation: the CV-parsing model
+    (qwen2.5:3b-instruct) and the application-generation model
+    (qwen2.5:7b-instruct) can end up loaded into Ollama at the same time
+    (Ollama's default 5-minute keep-alive keeps a model resident well after
+    its call finished), and together they measured ~7.3GB against a
+    Docker Desktop VM with only 7.75GB total - shared with Postgres/backend/
+    frontend too. Two changes close this: `keep_alive=0` so a model doesn't
+    linger after its call, and a process-wide lock so two different models
+    can never be mid-generation (and therefore resident) at the same
+    moment."""
+
+    def test_chat_call_requests_immediate_unload_after_use(self, mock_client):
+        mock_client.chat.return_value = _response(VALID_PROFILE)
+
+        llm_client.generate_structured(ParsedCvProfile, _messages())
+
+        assert mock_client.chat.call_args.kwargs["keep_alive"] == 0
+
+    def test_concurrent_calls_for_different_models_are_serialized(self, mocker):
+        """Two `generate_structured` calls for two different models (the
+        CV-parsing and application-generation use cases) must never have
+        their `client.chat()` calls in flight at the same time - that's the
+        window in which both models would be resident together."""
+        call_log: list[str] = []
+        first_call_started = threading.Event()
+        release_first_call = threading.Event()
+
+        def fake_chat(*, model: str, **_kwargs: Any) -> SimpleNamespace:
+            call_log.append(f"start:{model}")
+            if model == "model-a":
+                first_call_started.set()
+                # Hält den Lock absichtlich, bis der zweite Aufruf (anderes
+                # Modell) nachweislich noch NICHT gestartet ist.
+                assert release_first_call.wait(timeout=2), "Test-Deadlock"
+            call_log.append(f"end:{model}")
+            return _response(VALID_PROFILE)
+
+        client_instance = mocker.MagicMock()
+        client_instance.__enter__.return_value = client_instance
+        client_instance.__exit__.return_value = False
+        client_instance.chat.side_effect = fake_chat
+        mocker.patch.object(llm_client.ollama, "Client", return_value=client_instance)
+
+        thread_a = threading.Thread(
+            target=llm_client.generate_structured,
+            args=(ParsedCvProfile, _messages()),
+            kwargs={"model": "model-a"},
+        )
+        thread_a.start()
+        assert first_call_started.wait(timeout=2), "erster Aufruf ist nicht gestartet"
+
+        thread_b = threading.Thread(
+            target=llm_client.generate_structured,
+            args=(ParsedCvProfile, _messages()),
+            kwargs={"model": "model-b"},
+        )
+        thread_b.start()
+
+        # Der zweite Aufruf muss blockieren, solange der erste den Lock hält -
+        # er darf `client.chat` noch nicht erreicht haben.
+        thread_b.join(timeout=0.3)
+        assert call_log == ["start:model-a"], "zweiter Aufruf lief los, bevor der erste fertig war"
+
+        release_first_call.set()
+        thread_a.join(timeout=2)
+        thread_b.join(timeout=2)
+
+        assert call_log == ["start:model-a", "end:model-a", "start:model-b", "end:model-b"]
 
 
 class TestRetrySuccess:
