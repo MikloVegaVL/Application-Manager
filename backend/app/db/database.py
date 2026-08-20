@@ -26,7 +26,30 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import settings
 
-_is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+
+def is_sqlite_url(database_url: str) -> bool:
+    """Erkennt eine SQLite-`DATABASE_URL` - öffentlich, damit andere Module
+    (z. B. `app.db.init_db`, das je nach Datenbank zwischen `create_all()`
+    und Alembic-Migrationen unterscheidet) dieselbe Prüfung nutzen können,
+    statt sie ein zweites Mal zu implementieren."""
+    return database_url.startswith("sqlite")
+
+
+def escape_for_alembic_config(database_url: str) -> str:
+    """Escaped `%` für die Übergabe an `alembic.config.Config.set_main_option()`.
+
+    `Config.set_main_option()` schreibt den Wert in ein `configparser.ConfigParser`
+    mit aktivierter `%`-Interpolation - ein Passwort mit einem wörtlichen `%`
+    (z. B. URL-kodierte Sonderzeichen wie `%40` für `@`) lässt `set_main_option()`
+    sofort mit `ValueError: invalid interpolation syntax` abstürzen, noch bevor
+    eine Migration läuft (ce-debug-Untersuchung, 2026-08-20, per Review
+    reproduziert). `%%` escaped korrekt und wird beim Auslesen über
+    `get_main_option()` wieder zu `%` entfaltet - der Rückgabewert ist exakt
+    die ursprüngliche URL. Genutzt von `app.db.init_db` und `alembic/env.py`."""
+    return database_url.replace("%", "%%")
+
+
+_is_sqlite = is_sqlite_url(settings.DATABASE_URL)
 
 # SQLite erlaubt eine Connection standardmäßig nur im Thread, der sie
 # geöffnet hat. FastAPI kann Requests jedoch aus unterschiedlichen Threads
