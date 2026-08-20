@@ -29,7 +29,8 @@
     min-width: 200px;
   }
 
-  &__submit {
+  &__submit,
+  &__clear {
     height: 56px;
     display: flex;
     align-items: center;

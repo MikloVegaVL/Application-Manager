@@ -175,4 +175,63 @@ describe('JobSearchComponent', () => {
     expect(component['results']().length).toBe(0);
     expect(component['sourceStatuses']().length).toBe(0);
   });
+
+  describe('onClearResults()', () => {
+    it('empties the results list without touching the search form', () => {
+      triggerSearch('Angular', 'Berlin');
+      flushSearch({
+        results: [
+          {
+            title: 'Angular Developer',
+            company: 'Acme',
+            location: 'Berlin',
+            source_url: 'https://example.com/job/1',
+            description_text: null,
+            source_platform: 'arbeitsagentur',
+          },
+        ],
+        sources: [{ platform: 'arbeitsagentur', status: 'ok', reason: null }],
+      });
+      expect(component['results']().length).toBe(1);
+
+      component.onClearResults();
+
+      expect(component['results']().length).toBe(0);
+      expect(component['sourceStatuses']().length).toBe(0);
+      expect(component['hasSearched']()).toBeFalse();
+      // Suchbegriff/Ort bleiben erhalten, damit sich dieselbe Suche leicht
+      // erneut auslösen oder abwandeln lässt.
+      expect(component['searchForm'].getRawValue()).toEqual({ keywords: 'Angular', location: 'Berlin' });
+    });
+  });
+
+  describe('cross-navigation persistence (JobSearchStateService)', () => {
+    it('keeps the results list when the component is recreated (simulates leaving and returning to the page)', () => {
+      triggerSearch('Angular');
+      flushSearch({
+        results: [
+          {
+            title: 'Angular Developer',
+            company: 'Acme',
+            location: 'Berlin',
+            source_url: 'https://example.com/job/1',
+            description_text: null,
+            source_platform: 'arbeitsagentur',
+          },
+        ],
+        sources: [{ platform: 'arbeitsagentur', status: 'ok', reason: null }],
+      });
+      expect(component['results']().length).toBe(1);
+
+      // Neue Komponenten-Instanz im selben TestBed - entspricht einem
+      // Routenwechsel weg von und zurück zur Jobsuche-Seite, ohne die
+      // Anwendung (und damit den `providedIn: 'root'`-Service) neu zu laden.
+      const secondFixture = TestBed.createComponent(JobSearchComponent);
+      secondFixture.detectChanges();
+      const secondComponent = secondFixture.componentInstance;
+
+      expect(secondComponent['results']().length).toBe(1);
+      expect(secondComponent['searchForm'].getRawValue().keywords).toBe('Angular');
+    });
+  });
 });

@@ -26,6 +26,17 @@
       <mat-icon>search</mat-icon>
       Suchen
     </button>
+
+    <button
+      mat-stroked-button
+      type="button"
+      class="job-search__clear"
+      [disabled]="loading() || !hasSearched()"
+      (click)="onClearResults()"
+    >
+      <mat-icon>clear</mat-icon>
+      Ergebnisse löschen
+    </button>
   </form>
 
   @if (loading()) {

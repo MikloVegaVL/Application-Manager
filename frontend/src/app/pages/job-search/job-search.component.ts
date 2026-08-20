@@ -12,7 +12,8 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar } from '@angular/material/snack-bar';
 
-import { JobOffer, SourceStatus } from '../../core/models/job-offer.model';
+import { JobOffer } from '../../core/models/job-offer.model';
+import { JobSearchStateService } from '../../core/services/job-search-state.service';
 import { JobService } from '../../core/services/job.service';
 
 @Component({
@@ -37,18 +38,22 @@ export class JobSearchComponent {
   private readonly jobService = inject(JobService);
   private readonly router = inject(Router);
   private readonly snackBar = inject(MatSnackBar);
+  /** Hält Trefferliste/Status über die Komponenten-Lebensdauer hinaus am
+   * Leben, damit ein Zurücknavigieren (z. B. aus dem Editor) die letzte
+   * Suche nicht verwirft - siehe JobSearchStateService-Doc. */
+  private readonly state = inject(JobSearchStateService);
 
   protected readonly searchForm = this.formBuilder.nonNullable.group({
-    keywords: ['', [Validators.required, Validators.minLength(2)]],
-    location: [''],
+    keywords: [this.state.keywords(), [Validators.required, Validators.minLength(2)]],
+    location: [this.state.location()],
   });
 
-  protected readonly results = signal<JobOffer[]>([]);
+  protected readonly results = this.state.results;
   /** Status pro Quelle (Arbeitsagentur/LinkedIn/Xing) der letzten Suche - siehe R5. */
-  protected readonly sourceStatuses = signal<SourceStatus[]>([]);
+  protected readonly sourceStatuses = this.state.sourceStatuses;
   protected readonly loading = signal(false);
-  protected readonly hasSearched = signal(false);
-  protected readonly errorMessage = signal<string | null>(null);
+  protected readonly hasSearched = this.state.hasSearched;
+  protected readonly errorMessage = this.state.errorMessage;
 
   protected readonly unavailableSources = computed(() =>
     this.sourceStatuses().filter((source) => source.status === 'unavailable'),
@@ -67,8 +72,7 @@ export class JobSearchComponent {
     xing: 'Xing',
   };
 
-  /** Merkt sich bereits gespeicherte Jobs (source_url -> DB-ID), um Doppel-Saves zu vermeiden. */
-  private readonly savedJobIds = signal<Map<string, number>>(new Map());
+  private readonly savedJobIds = this.state.savedJobIds;
   protected readonly savingSourceUrl = signal<string | null>(null);
   protected readonly generatingSourceUrl = signal<string | null>(null);
 
@@ -79,6 +83,8 @@ export class JobSearchComponent {
     }
 
     const { keywords, location } = this.searchForm.getRawValue();
+    this.state.keywords.set(keywords);
+    this.state.location.set(location);
     this.loading.set(true);
     this.errorMessage.set(null);
     // Status der vorherigen Suche zurücksetzen - sonst könnte z. B. noch
@@ -101,6 +107,13 @@ export class JobSearchComponent {
         this.errorMessage.set('Die Jobsuche ist fehlgeschlagen. Bitte versuche es später erneut.');
       },
     });
+  }
+
+  /** Leert die angezeigte Trefferliste, um Platz für eine neue Suche zu
+   * schaffen - lässt Suchbegriff/Ort im Formular unangetastet, damit man
+   * dieselbe Suche leicht abwandeln kann. */
+  onClearResults(): void {
+    this.state.clearResults();
   }
 
   /** Menschenlesbares Label für einen Quellen-Platform-Key (z. B. "linkedin" -> "LinkedIn"). */
@@ -128,7 +141,7 @@ export class JobSearchComponent {
 
     this.jobService.saveJob(job).subscribe({
       next: (saved) => {
-        this.cacheSavedJob(job.source_url, saved.id);
+        this.state.cacheSavedJob(job.source_url, saved.id);
         this.savingSourceUrl.set(null);
         this.snackBar.open(`"${job.title}" wurde gespeichert.`, 'OK', { duration: 3000 });
       },
@@ -157,7 +170,7 @@ export class JobSearchComponent {
 
     this.jobService.saveJob(job).subscribe({
       next: (saved) => {
-        this.cacheSavedJob(job.source_url, saved.id);
+        this.state.cacheSavedJob(job.source_url, saved.id);
         this.generatingSourceUrl.set(null);
         this.navigateToEditor(saved.id);
       },
@@ -170,12 +183,6 @@ export class JobSearchComponent {
         this.snackBar.open(message, 'OK', { duration: 4000 });
       },
     });
-  }
-
-  private cacheSavedJob(sourceUrl: string, id: number): void {
-    const updated = new Map(this.savedJobIds());
-    updated.set(sourceUrl, id);
-    this.savedJobIds.set(updated);
   }
 
   private navigateToEditor(jobOfferId: number): void {
