@@ -116,6 +116,45 @@ def test_save_job_duplicate_source_url_returns_409(client):
     response = client.post("/api/jobs/save", json=payload)
 
     assert response.status_code == 409
+    assert response.json()["detail"]["job_offer_id"] is not None
+
+
+def test_save_job_duplicate_backfills_missing_application(client):
+    """Regression test (ce-debug, 2026-08-24): a `JobOffer` saved before the
+    `98d31c0` atomic-insert fix has no `Application` row. Re-saving it (the
+    "Bewerbung generieren" flow re-hitting `POST /jobs/save` for a job the
+    frontend no longer has cached) must backfill the missing draft
+    `Application` instead of leaving it permanently absent from
+    `GET /applications`."""
+    payload = {
+        "title": "Angular Developer",
+        "company": "Acme",
+        "location": "Berlin",
+        "source_url": "https://example.com/job/legacy-orphan",
+        "description_text": None,
+        "source_platform": "linkedin",
+    }
+    job_offer_id = client.post("/api/jobs/save", json=payload).json()["id"]
+
+    # Simulates a legacy orphan: a JobOffer that predates the fix and has no
+    # paired Application row (see also `test_save_job_returns_201`, which
+    # already covers the happy path's atomic insert).
+    engine = app.dependency_overrides[get_db]
+    session = next(engine())
+    from app.models.application import Application
+
+    session.query(Application).filter(Application.job_offer_id == job_offer_id).delete()
+    session.commit()
+    session.close()
+    assert client.get("/api/applications").json() == []
+
+    response = client.post("/api/jobs/save", json=payload)
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["job_offer_id"] == job_offer_id
+    applications = client.get("/api/applications").json()
+    assert len(applications) == 1
+    assert applications[0]["job_offer"]["id"] == job_offer_id
 
 
 def test_get_job_not_found_returns_404(client):

@@ -21,6 +21,18 @@ export interface JobOfferRead extends JobOffer {
 }
 
 /**
+ * Fehler-`detail` von `POST /jobs/save` bei 409 (Job bereits gespeichert).
+ * Spiegelt das Backend-Detail-Objekt aus `save_job` (siehe
+ * `backend/app/api/jobs.py`) - `job_offer_id` lässt das Frontend trotz
+ * Konflikt direkt zum bereits gespeicherten Job navigieren, statt in einer
+ * Sackgasse zu enden (ce-debug-Fix, 2026-08-24).
+ */
+export interface JobSaveConflictDetail {
+  message: string;
+  job_offer_id: number;
+}
+
+/**
  * Status einer einzelnen Quelle innerhalb einer Jobsuche-Antwort. Spiegelt
  * das Backend-Schema `SourceStatus` (siehe `backend/app/schemas/job_offer.py`).
  * `status: 'unavailable'` deckt laut Anforderung R5 sowohl echte Fehler/

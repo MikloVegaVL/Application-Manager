@@ -12,7 +12,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar } from '@angular/material/snack-bar';
 
-import { JobOffer } from '../../core/models/job-offer.model';
+import { JobOffer, JobSaveConflictDetail } from '../../core/models/job-offer.model';
 import { JobSearchStateService } from '../../core/services/job-search-state.service';
 import { JobService } from '../../core/services/job.service';
 
@@ -147,11 +147,16 @@ export class JobSearchComponent {
       },
       error: (error: HttpErrorResponse) => {
         this.savingSourceUrl.set(null);
-        const message =
-          error.status === 409
-            ? 'Dieser Job wurde bereits gespeichert.'
-            : 'Job konnte nicht gespeichert werden.';
-        this.snackBar.open(message, 'OK', { duration: 3000 });
+        const conflictId = this.conflictJobOfferId(error);
+        if (conflictId !== null) {
+          // Job existiert bereits serverseitig (z. B. nach einem Reload,
+          // siehe JobSearchStateService) - Cache nachziehen statt nur zu
+          // melden, sonst bliebe der Button dauerhaft im "speichern"-Zustand.
+          this.state.cacheSavedJob(job.source_url, conflictId);
+          this.snackBar.open('Dieser Job wurde bereits gespeichert.', 'OK', { duration: 3000 });
+          return;
+        }
+        this.snackBar.open('Job konnte nicht gespeichert werden.', 'OK', { duration: 3000 });
       },
     });
   }
@@ -176,16 +181,33 @@ export class JobSearchComponent {
       },
       error: (error: HttpErrorResponse) => {
         this.generatingSourceUrl.set(null);
-        const message =
-          error.status === 409
-            ? 'Dieser Job wurde bereits gespeichert - bitte über "Bewerbungen" öffnen.'
-            : 'Bewerbung konnte nicht gestartet werden.';
-        this.snackBar.open(message, 'OK', { duration: 4000 });
+        const conflictId = this.conflictJobOfferId(error);
+        if (conflictId !== null) {
+          // Job existiert bereits (z. B. aus einer früheren Session) - statt
+          // in einer Sackgasse zu enden, direkt zum bestehenden Editor
+          // weiterleiten (ce-debug-Fix, 2026-08-24: der Job tauchte vorher
+          // nirgends mehr auf, siehe der `save_job`-Backfill im Backend).
+          this.state.cacheSavedJob(job.source_url, conflictId);
+          this.navigateToEditor(conflictId);
+          return;
+        }
+        this.snackBar.open('Bewerbung konnte nicht gestartet werden.', 'OK', { duration: 4000 });
       },
     });
   }
 
   private navigateToEditor(jobOfferId: number): void {
     void this.router.navigate(['/editor', jobOfferId]);
+  }
+
+  /** Liest `job_offer_id` aus dem 409-Detail von `POST /jobs/save` (siehe
+   * `JobSaveConflictDetail` und das Backend-Backfill in `save_job`) -
+   * `null`, wenn der Fehler kein solcher Konflikt war. */
+  private conflictJobOfferId(error: HttpErrorResponse): number | null {
+    if (error.status !== 409) {
+      return null;
+    }
+    const detail = error.error?.detail as JobSaveConflictDetail | undefined;
+    return typeof detail?.job_offer_id === 'number' ? detail.job_offer_id : null;
   }
 }

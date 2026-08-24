@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 
 import { JobSearchComponent } from './job-search.component';
@@ -162,6 +162,69 @@ describe('JobSearchComponent', () => {
     expect(saveReq.request.method).toBe('POST');
     saveReq.flush({ ...job, id: 1, created_at: new Date().toISOString(), is_processed: false });
 
+    expect(component.isSaved(job)).toBeTrue();
+  });
+
+  it('Regression (ce-debug, 2026-08-24): onSaveJob recovers from a 409 by caching the existing job_offer_id', () => {
+    triggerSearch();
+    flushSearch({
+      results: [
+        {
+          title: 'Angular Developer',
+          company: 'Acme',
+          location: 'Berlin',
+          source_url: 'https://example.com/job/already-saved',
+          description_text: null,
+          source_platform: 'linkedin',
+        },
+      ],
+      sources: [{ platform: 'linkedin', status: 'ok', reason: null }],
+    });
+
+    const job = component['results']()[0];
+    component.onSaveJob(job);
+
+    const saveReq = httpMock.expectOne((request) => request.url === `${environment.apiBaseUrl}/jobs/save`);
+    saveReq.flush(
+      { detail: { message: 'Dieses Stellenangebot wurde bereits gespeichert.', job_offer_id: 42 } },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    // Ohne den Cache-Nachzug bliebe der Button dauerhaft im
+    // "speichern"-Zustand hängen, obwohl der Job serverseitig längst
+    // existiert (siehe save_job-Backfill im Backend).
+    expect(component.isSaved(job)).toBeTrue();
+  });
+
+  it('Regression (ce-debug, 2026-08-24): onGenerateApplication navigates to the existing editor on a 409 instead of dead-ending', () => {
+    triggerSearch();
+    flushSearch({
+      results: [
+        {
+          title: 'Angular Developer',
+          company: 'Acme',
+          location: 'Berlin',
+          source_url: 'https://example.com/job/already-saved',
+          description_text: null,
+          source_platform: 'linkedin',
+        },
+      ],
+      sources: [{ platform: 'linkedin', status: 'ok', reason: null }],
+    });
+
+    const job = component['results']()[0];
+    const router = TestBed.inject(Router);
+    const navigateSpy = spyOn(router, 'navigate').and.resolveTo(true);
+
+    component.onGenerateApplication(job);
+
+    const saveReq = httpMock.expectOne((request) => request.url === `${environment.apiBaseUrl}/jobs/save`);
+    saveReq.flush(
+      { detail: { message: 'Dieses Stellenangebot wurde bereits gespeichert.', job_offer_id: 42 } },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    expect(navigateSpy).toHaveBeenCalledWith(['/editor', 42]);
     expect(component.isSaved(job)).toBeTrue();
   });
 

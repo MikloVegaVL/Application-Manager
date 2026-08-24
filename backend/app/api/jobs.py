@@ -37,9 +37,24 @@ def save_job(payload: JobOfferCreate, db: Session = Depends(get_db)) -> JobOffer
     """Speichert ein ausgewähltes Suchergebnis dauerhaft als `JobOffer`."""
     existing = db.query(JobOffer).filter(JobOffer.source_url == payload.source_url).first()
     if existing is not None:
+        # Backfill: JobOffers gespeichert vor dem Atomic-Insert-Fix (98d31c0,
+        # 2026-08-20) haben keine zugehörige Application - ohne dies bliebe
+        # so ein Job dauerhaft mit 409 stecken (ce-debug-Untersuchung,
+        # 2026-08-24: erneutes "Bewerbung generieren" scheiterte an genau
+        # dieser Lücke, während `GET /applications` den Job nie zeigte). Der
+        # `job_offer_id` im Detail lässt das Frontend trotz 409 direkt zum
+        # Editor navigieren, statt in einer Sackgasse zu enden.
+        application = db.query(Application).filter(Application.job_offer_id == existing.id).first()
+        if application is None:
+            db.add(Application(job_offer_id=existing.id))
+            db.commit()
+
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Dieses Stellenangebot wurde bereits gespeichert.",
+            detail={
+                "message": "Dieses Stellenangebot wurde bereits gespeichert.",
+                "job_offer_id": existing.id,
+            },
         )
 
     job_offer = JobOffer(**payload.model_dump())
