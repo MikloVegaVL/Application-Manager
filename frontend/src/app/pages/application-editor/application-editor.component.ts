@@ -1,12 +1,15 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   OnInit,
   inject,
   input,
   signal,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { catchError, filter, of, switchMap, take, takeUntil, timer } from 'rxjs';
 
 import { TextFieldModule } from '@angular/cdk/text-field';
 import { MatButtonModule } from '@angular/material/button';
@@ -61,6 +64,20 @@ export class ApplicationEditorComponent implements OnInit {
   private readonly formBuilder = inject(FormBuilder);
   private readonly snackBar = inject(MatSnackBar);
   private readonly dialog = inject(MatDialog);
+  private readonly destroyRef = inject(DestroyRef);
+
+  /** Abstand zwischen zwei Status-Abfragen, während auf eine bereits
+   * laufende Generierung gewartet wird (siehe `pollForRunningGeneration`). */
+  private static readonly GENERATION_POLL_INTERVAL_MS = 5000;
+  /** Obergrenze für die Wartezeit auf eine fremde, bereits laufende
+   * Generierung (ce-code-review-Fund, 2026-08-28: ohne diese Grenze wartete
+   * `pollForRunningGeneration` unbegrenzt weiter, wenn die abgewartete
+   * Generierung am Ende fehlschlug - genau das Symptom, das dieser Fix
+   * eigentlich beheben sollte, nur über einen anderen Auslöser). 30 Minuten
+   * geben selbst dem dokumentierten Ollama-Worst-Case (3 sequentielle
+   * Aufrufe à bis zu `OLLAMA_TIMEOUT_SECONDS`=600s, siehe config.py/
+   * nginx.conf) Spielraum. */
+  private static readonly GENERATION_POLL_TIMEOUT_MS = 30 * 60 * 1000;
 
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
@@ -136,10 +153,84 @@ export class ApplicationEditorComponent implements OnInit {
         this.snackBar.open('Anschreiben wurde erstmalig generiert.', 'OK', { duration: 3000 });
       },
       error: (error: HttpErrorResponse) => {
-        this.isFirstGeneration.set(false);
-        this.handleLoadError(error);
+        if (error.status === 409) {
+          // Für dieses Stellenangebot läuft bereits eine Generierung - z. B.
+          // weil dieser Editor schon einmal (Browser-Zurück, Reload, erneuter
+          // Klick auf "Bewerbung generieren" in der Jobsuche) geöffnet wurde,
+          // bevor die erste Generierung fertig war (siehe Backend-Sperre in
+          // `app.api.applications.generate_application`, ce-debug-
+          // Untersuchung, 2026-08-28). Statt eine weitere, überlappende
+          // KI-Generierung anzustoßen - die das laufende Ergebnis nur
+          // überschrieben und den Editor endlos ohne Ergebnis hätte wirken
+          // lassen -, wird stattdessen auf deren Ergebnis gewartet.
+          this.pollForRunningGeneration(jobOfferId);
+          return;
+        }
+        this.handleGenerationError(error);
       },
     });
+  }
+
+  /** Wartet auf das Ergebnis einer bereits laufenden Generierung (409 von
+   * `POST /applications/generate`), statt selbst eine weitere anzustoßen -
+   * fragt periodisch `GET /applications/by-job-offer/:id` ab, bis
+   * `cover_letter_text` gefüllt ist. `takeUntilDestroyed` beendet das
+   * Polling automatisch, sobald der Editor verlassen wird.
+   *
+   * Zwei Robustheits-Eigenschaften (ce-code-review-Fund, 2026-08-28):
+   * - `catchError` auf der einzelnen Status-Abfrage: ein einzelner
+   *   fehlgeschlagener Tick (z. B. kurzer Netzwerk-/Backend-Hänger) darf die
+   *   gesamte Wartezeit nicht sofort mit einem permanenten Fehler beenden -
+   *   er wird übersprungen, der nächste Tick versucht es erneut.
+   * - `takeUntil(timedOut$)`: schlägt die abgewartete fremde Generierung am
+   *   Ende fehl (z. B. 502 beim Original-Aufruf), bliebe `cover_letter_text`
+   *   für immer leer und der `filter` unten würde nie durchlassen - ohne
+   *   diese Obergrenze liefe das Polling dann unbegrenzt weiter, also genau
+   *   das ursprüngliche "Editor läuft endlos ohne Ergebnis"-Symptom, nur
+   *   über einen anderen Auslöser reproduziert. */
+  private pollForRunningGeneration(jobOfferId: number): void {
+    const timedOut$ = timer(ApplicationEditorComponent.GENERATION_POLL_TIMEOUT_MS);
+
+    timer(
+      ApplicationEditorComponent.GENERATION_POLL_INTERVAL_MS,
+      ApplicationEditorComponent.GENERATION_POLL_INTERVAL_MS,
+    )
+      .pipe(
+        switchMap(() =>
+          this.applicationService.getByJobOffer(jobOfferId).pipe(catchError(() => of(null))),
+        ),
+        filter((application): application is Application => !!application?.cover_letter_text),
+        take(1),
+        takeUntil(timedOut$),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (application) => {
+          this.isFirstGeneration.set(false);
+          this.applyApplication(application);
+        },
+        complete: () => {
+          // `takeUntil(timedOut$)` kann den Stream beenden, ohne dass `next`
+          // je gefeuert hat (Timeout erreicht, bevor ein Ergebnis vorlag) -
+          // in dem Fall (isFirstGeneration noch true) einen Fehler zeigen,
+          // statt den Editor stillschweigend im Warte-Zustand zu belassen.
+          if (this.isFirstGeneration()) {
+            this.isFirstGeneration.set(false);
+            this.loading.set(false);
+            this.errorMessage.set(
+              'Die Generierung dauert ungewöhnlich lange oder ist fehlgeschlagen. Bitte lade die Seite neu, um es erneut zu versuchen.',
+            );
+          }
+        },
+      });
+  }
+
+  /** Gemeinsame Fehlerbehandlung für `generateForFirstTime` und
+   * `pollForRunningGeneration` - beide beenden die Generierungs-Wartezeit
+   * gleich (Hinweis-Anzeige aus, Fehler anzeigen). */
+  private handleGenerationError(error: HttpErrorResponse): void {
+    this.isFirstGeneration.set(false);
+    this.handleLoadError(error);
   }
 
   private handleLoadError(error: HttpErrorResponse): void {

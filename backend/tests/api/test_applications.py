@@ -9,6 +9,7 @@ Repo anlegen (gleiches Muster wie `tests/api/test_jobs.py`).
 """
 from __future__ import annotations
 
+import threading
 from unittest.mock import Mock
 
 import pytest
@@ -23,6 +24,7 @@ from app.main import app
 from app.models.application import Application, ApplicationStatus
 from app.models.job_offer import JobOffer
 from app.models.master_profile import MasterProfile
+from app.services.ai_generator import ApplicationGenerationError
 
 
 @pytest.fixture
@@ -81,6 +83,14 @@ def _create_application(session, *, job_offer_id: int, status: ApplicationStatus
     session.commit()
     session.refresh(application)
     return application
+
+
+def _create_profile(session) -> MasterProfile:
+    profile = MasterProfile(full_name="Max Mustermann", email="max.mustermann@example.com")
+    session.add(profile)
+    session.commit()
+    session.refresh(profile)
+    return profile
 
 
 def _create_profile_with_cv_file(session, tmp_path, *, filename: str = "lebenslauf.pdf") -> MasterProfile:
@@ -260,6 +270,157 @@ def test_update_application_updates_cover_letter_text_without_ai_call(
     assert response.status_code == 200
     body = response.json()
     assert body["cover_letter_text"] == "Betreff: Neue Position\n\nSehr geehrte Damen und Herren,..."
+
+
+def test_generate_application_returns_409_for_an_overlapping_request_on_the_same_job_offer(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    # Regression (ce-debug-Untersuchung, 2026-08-28): Der Editor stößt bei
+    # jedem Mounten mit noch leerem `cover_letter_text` erneut eine
+    # Generierung an (z. B. nach Browser-Zurück oder Reload, bevor die erste
+    # Generierung fertig ist). Ohne diese Sperre lief für dasselbe
+    # Stellenangebot eine zweite, überlappende KI-Generierung los, die das
+    # Ergebnis der ersten überschrieb - der Editor wirkte dadurch, als würde
+    # er endlos ohne Ergebnis laufen.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/generate-dup"
+        )
+        job_offer_id = job_offer.id
+        _create_profile(session)
+    finally:
+        session.close()
+
+    first_call_started = threading.Event()
+    release_first_call = threading.Event()
+
+    def slow_generate(profile, job_offer):
+        first_call_started.set()
+        assert release_first_call.wait(timeout=2), "Test-Deadlock"
+        return "Betreff: Bewerbung als Backend Engineer\n\nSehr geehrte Damen und Herren,..."
+
+    monkeypatch.setattr("app.api.applications.generate_application_content", slow_generate)
+
+    first_response: dict[str, object] = {}
+
+    def call_generate() -> None:
+        first_response["response"] = client.post(
+            "/api/applications/generate", json={"job_offer_id": job_offer_id}
+        )
+
+    first_thread = threading.Thread(target=call_generate)
+    first_thread.start()
+    assert first_call_started.wait(timeout=2), "erste Generierung ist nicht gestartet"
+
+    duplicate_response = client.post("/api/applications/generate", json={"job_offer_id": job_offer_id})
+
+    release_first_call.set()
+    first_thread.join(timeout=2)
+
+    assert duplicate_response.status_code == 409
+    assert "bereits eine Generierung" in duplicate_response.json()["detail"]
+    assert first_response["response"].status_code == 200  # type: ignore[union-attr]
+
+    # Die Sperre muss nach Abschluss wieder freigegeben sein - ein Folgeaufruf
+    # darf nicht dauerhaft mit 409 blockiert bleiben.
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer: "Zweite Generierung",
+    )
+    follow_up_response = client.post("/api/applications/generate", json={"job_offer_id": job_offer_id})
+    assert follow_up_response.status_code == 200
+
+
+def test_generate_application_guard_is_scoped_per_job_offer_not_global(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    # Die Sperre (`_generating_job_offer_ids`) ist ein `set`, das per
+    # `job_offer.id` prüft - ein laufender Aufruf für Stellenangebot A darf
+    # einen Aufruf für ein ANDERES Stellenangebot B nicht mit 409 blockieren
+    # (ce-code-review-Fund, 2026-08-28: mehrere Reviewer bemängelten, dass
+    # nur die Docstring/Kommentare das behaupten, kein Test es beweist).
+    session = db_session_local()
+    try:
+        job_offer_a = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/generate-scope-a"
+        )
+        job_offer_b = _create_job_offer(
+            session, title="Frontend Engineer", company="Acme GmbH", source_url="https://example.com/job/generate-scope-b"
+        )
+        job_offer_a_id = job_offer_a.id
+        job_offer_b_id = job_offer_b.id
+        _create_profile(session)
+    finally:
+        session.close()
+
+    first_call_started = threading.Event()
+    release_first_call = threading.Event()
+
+    def slow_generate(profile, job_offer):
+        first_call_started.set()
+        assert release_first_call.wait(timeout=2), "Test-Deadlock"
+        return "Betreff: Bewerbung als Backend Engineer\n\nSehr geehrte Damen und Herren,..."
+
+    monkeypatch.setattr("app.api.applications.generate_application_content", slow_generate)
+
+    first_response: dict[str, object] = {}
+
+    def call_generate_for_a() -> None:
+        first_response["response"] = client.post(
+            "/api/applications/generate", json={"job_offer_id": job_offer_a_id}
+        )
+
+    first_thread = threading.Thread(target=call_generate_for_a)
+    first_thread.start()
+    assert first_call_started.wait(timeout=2), "Generierung für Job A ist nicht gestartet"
+
+    # Job A läuft noch (im Test-Deadlock via release_first_call) - ein
+    # gleichzeitiger Aufruf für Job B muss trotzdem durchlaufen, nicht 409.
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer: "Betreff: Bewerbung als Frontend Engineer\n\nSehr geehrte Damen und Herren,...",
+    )
+    other_job_response = client.post("/api/applications/generate", json={"job_offer_id": job_offer_b_id})
+
+    release_first_call.set()
+    first_thread.join(timeout=2)
+
+    assert other_job_response.status_code == 200
+    assert first_response["response"].status_code == 200  # type: ignore[union-attr]
+
+
+def test_generate_application_releases_the_lock_when_generation_fails(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    # Die Sperre wird in einem `finally` freigegeben (siehe
+    # `app.api.applications.generate_application`) - andernfalls bliebe ein
+    # Stellenangebot nach einem fehlgeschlagenen KI-Aufruf dauerhaft mit 409
+    # blockiert, obwohl gar keine Generierung mehr läuft.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/generate-fail"
+        )
+        job_offer_id = job_offer.id
+        _create_profile(session)
+    finally:
+        session.close()
+
+    def failing_generate(profile, job_offer):
+        raise ApplicationGenerationError("Ollama ist nicht erreichbar")
+
+    monkeypatch.setattr("app.api.applications.generate_application_content", failing_generate)
+
+    failed_response = client.post("/api/applications/generate", json={"job_offer_id": job_offer_id})
+    assert failed_response.status_code == 502
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer: "Erfolgreiche Generierung nach vorherigem Fehler",
+    )
+    retry_response = client.post("/api/applications/generate", json={"job_offer_id": job_offer_id})
+    assert retry_response.status_code == 200
 
 
 def test_send_application_fails_when_no_cv_file_uploaded(client: TestClient, db_session_local) -> None:

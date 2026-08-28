@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed, fakeAsync, flush, tick } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
@@ -156,6 +156,136 @@ describe('ApplicationEditorComponent', () => {
     expect(component['isFirstGeneration']()).toBeFalse();
     expect(component['application']()?.cover_letter_text).toBe('Sehr geehrte Damen und Herren,');
   });
+
+  it(
+    'Regression: a 409 from an already-running generation waits for its result instead of starting another one',
+    fakeAsync(() => {
+      // (ce-debug-Untersuchung, 2026-08-28: erneutes Öffnen des Editors für
+      // denselben Job - vor Abschluss der ersten Generierung - stieß bislang
+      // ausnahmslos eine weitere, überlappende KI-Generierung an. Das
+      // Backend lehnt einen zweiten, überlappenden Aufruf jetzt mit 409 ab
+      // (siehe `app.api.applications.generate_application`) - der Editor
+      // muss diesen Fall abwarten statt ihn wie einen echten Fehler
+      // anzuzeigen.)
+      loadApplication(httpMock); // Default: coverLetterText null
+      fixture.detectChanges();
+
+      const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
+      generateReq.flush(
+        { detail: 'Für dieses Stellenangebot läuft bereits eine Generierung. Bitte warten.' },
+        { status: 409, statusText: 'Conflict' },
+      );
+
+      // Weiterhin im Warte-Zustand - und KEIN zweiter generate-Aufruf.
+      expect(component['isFirstGeneration']()).toBeTrue();
+      expect(component['errorMessage']()).toBeNull();
+      httpMock.expectNone((req) => req.url.endsWith('/applications/generate'));
+
+      // Erste Status-Abfrage: die laufende Generierung ist noch nicht fertig.
+      tick(5000);
+      const firstPoll = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
+      firstPoll.flush(buildApplication(null));
+
+      expect(component['isFirstGeneration']()).toBeTrue();
+      httpMock.expectNone((req) => req.url.endsWith('/applications/generate'));
+
+      // Zweite Status-Abfrage: jetzt liegt das Ergebnis vor.
+      tick(5000);
+      const secondPoll = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
+      secondPoll.flush(buildApplication('Sehr geehrte Damen und Herren,'));
+
+      expect(component['isFirstGeneration']()).toBeFalse();
+      expect(component['application']()?.cover_letter_text).toBe('Sehr geehrte Damen und Herren,');
+      httpMock.expectNone((req) => req.url.endsWith('/applications/generate'));
+
+      // Kein weiteres Polling mehr, nachdem das Ergebnis übernommen wurde.
+      tick(5000);
+      httpMock.expectNone((req) => req.url.endsWith('/applications/by-job-offer/1'));
+    }),
+  );
+
+  it(
+    'Regression: a transient error on a single status poll does not end the wait (ce-code-review, 2026-08-28)',
+    fakeAsync(() => {
+      // Ein einzelner fehlgeschlagener Tick (z. B. kurzer Netzwerk-/Backend-
+      // Hänger) darf die gesamte Wartezeit nicht sofort mit einem
+      // permanenten Fehler beenden - er wird übersprungen, der nächste Tick
+      // versucht es erneut.
+      loadApplication(httpMock);
+      fixture.detectChanges();
+
+      const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
+      generateReq.flush({ detail: 'Läuft bereits.' }, { status: 409, statusText: 'Conflict' });
+
+      // Erster Tick: die Status-Abfrage selbst schlägt fehl (z. B. 503).
+      tick(5000);
+      const failingPoll = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
+      failingPoll.flush({ detail: 'Service nicht verfügbar' }, { status: 503, statusText: 'Service Unavailable' });
+
+      // Die Wartezeit läuft weiter - kein Fehler, kein zweiter generate-Aufruf.
+      expect(component['isFirstGeneration']()).toBeTrue();
+      expect(component['errorMessage']()).toBeNull();
+
+      // Zweiter Tick: diesmal liegt das Ergebnis vor.
+      tick(5000);
+      const secondPoll = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
+      secondPoll.flush(buildApplication('Sehr geehrte Damen und Herren,'));
+
+      expect(component['isFirstGeneration']()).toBeFalse();
+      expect(component['application']()?.cover_letter_text).toBe('Sehr geehrte Damen und Herren,');
+    }),
+  );
+
+  it(
+    'Regression: gives up and shows an error if the awaited generation never finishes (ce-code-review, 2026-08-28)',
+    fakeAsync(() => {
+      // Schlägt die abgewartete fremde Generierung am Ende fehl (z. B. 502
+      // beim Original-Aufruf), bleibt `cover_letter_text` für immer leer -
+      // ohne Obergrenze würde der Editor unbegrenzt weiter pollen (genau das
+      // ursprüngliche "läuft endlos ohne Ergebnis"-Symptom, nur über einen
+      // anderen Auslöser reproduziert).
+      loadApplication(httpMock);
+      fixture.detectChanges();
+
+      const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
+      generateReq.flush({ detail: 'Läuft bereits.' }, { status: 409, statusText: 'Conflict' });
+
+      // Weit über die Obergrenze hinaus vorspulen - jeder Tick liefert
+      // weiterhin ein leeres Anschreiben (die abgewartete Generierung ist
+      // nie fertig geworden).
+      tick(30 * 60 * 1000 + 5000);
+      httpMock.match(() => true).forEach((req) => {
+        if (!req.cancelled) {
+          req.flush(buildApplication(null));
+        }
+      });
+      flush();
+
+      expect(component['isFirstGeneration']()).toBeFalse();
+      expect(component['loading']()).toBeFalse();
+      expect(component['errorMessage']()).toContain('ungewöhnlich lange');
+    }),
+  );
+
+  it(
+    'Regression: leaving the editor while waiting for a running generation stops the polling',
+    fakeAsync(() => {
+      // `takeUntilDestroyed` muss den Timer wirklich beenden, sobald der
+      // Editor verlassen wird - sonst würde eine verwaiste Polling-Instanz
+      // nach jedem Navigieren-weg-und-zurück weiterlaufen.
+      loadApplication(httpMock);
+      fixture.detectChanges();
+
+      const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
+      generateReq.flush({ detail: 'Läuft bereits.' }, { status: 409, statusText: 'Conflict' });
+
+      fixture.destroy();
+
+      // Nach dem Zerstören darf keine weitere Status-Abfrage mehr gestellt werden.
+      tick(5000);
+      httpMock.expectNone((req) => req.url.endsWith('/applications/by-job-offer/1'));
+    }),
+  );
 
   describe('onSaveCoverLetter()', () => {
     it('saves the edited cover-letter text without triggering a new AI generation', () => {

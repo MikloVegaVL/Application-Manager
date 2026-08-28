@@ -5,6 +5,7 @@ Mailversand hängt die vom Nutzer im Profil hochgeladene Lebenslauf-Datei an
 (siehe `app.api.profile`, `MasterProfile.cv_file_path`)."""
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,6 +26,27 @@ from app.services.ai_generator import ApplicationGenerationError, generate_appli
 from app.services.mail_service import MailSendError, send_application_email
 
 router = APIRouter(prefix="/applications", tags=["Applications"])
+
+# Verhindert überlappende KI-Generierungen für dasselbe Stellenangebot
+# (ce-debug-Untersuchung, 2026-08-28): `ApplicationEditorComponent` stößt bei
+# jedem Mounten mit noch leerem `cover_letter_text` erneut eine Generierung
+# an - ohne diese Sperre feuert jeder erneute Besuch des Editors für denselben
+# Job (Browser-Zurück, Reload, erneuter Klick auf "Bewerbung generieren")
+# einen weiteren vollständigen, mehrminütigen KI-Lauf, der hinter
+# `llm_client._ollama_lock` seriell wartet und das Ergebnis des vorherigen
+# Laufs überschreibt, sobald er fertig ist. Für den Nutzer wirkte das wie ein
+# Editor, der endlos ohne Ergebnis läuft - live am laufenden Stack bestätigt
+# (Ollama blieb nach einer bereits abgeschlossenen Generierung weiter mit
+# >2000% CPU beschäftigt, ohne dass ein neuer Request geloggt wurde).
+#
+# Nur prozessweit wirksam (In-Memory-`set`, kein DB-/Redis-Zustand) - passt
+# zum aktuellen Deployment (`uvicorn app.main:app` ohne `--workers`, siehe
+# backend/Dockerfile, also ein einzelner Prozess). Würde das Backend je mit
+# mehreren Workern/Replikas betrieben, hätte jeder Prozess seine eigene Sperre
+# und überlappende Generierungen wären wieder möglich, ohne dass das hier
+# sichtbar würde.
+_generating_job_offer_ids: set[int] = set()
+_generating_lock = threading.Lock()
 
 
 @router.get("", response_model=list[ApplicationRead])
@@ -49,6 +71,12 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
 
     Existiert für dieses Stellenangebot bereits eine Bewerbung, wird sie
     neu generiert (Upsert) statt eine doppelte anzulegen.
+
+    Läuft für dieses Stellenangebot bereits eine Generierung (siehe
+    `_generating_job_offer_ids`), wird sofort mit 409 abgebrochen statt eine
+    zweite, überlappende KI-Generierung zu starten - der Aufrufer (siehe
+    `ApplicationEditorComponent.generateForFirstTime`) wartet stattdessen auf
+    das Ergebnis der bereits laufenden Generierung.
     """
     job_offer = db.get(JobOffer, payload.job_offer_id)
     if job_offer is None:
@@ -61,22 +89,39 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
             detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
         )
 
+    with _generating_lock:
+        if job_offer.id in _generating_job_offer_ids:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Für dieses Stellenangebot läuft bereits eine Generierung. Bitte warten.",
+            )
+        _generating_job_offer_ids.add(job_offer.id)
+
+    # `else` statt einem zweiten verschachtelten try/except (ce-code-review-
+    # Fund, 2026-08-28): läuft nur, wenn `generate_application_content` NICHT
+    # geworfen hat - `finally` gibt die Sperre in jedem Fall frei, aber erst
+    # NACH dem DB-Schreiben, nicht schon direkt nach der KI-Generierung
+    # (sonst könnte ein Duplikat in die Lücke zwischen Generierung und
+    # `db.commit()` hineinlaufen).
     try:
         cover_letter_text = generate_application_content(profile, job_offer)
     except ApplicationGenerationError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    else:
+        application = db.query(Application).filter(Application.job_offer_id == job_offer.id).first()
+        if application is None:
+            application = Application(job_offer_id=job_offer.id)
+            db.add(application)
 
-    application = db.query(Application).filter(Application.job_offer_id == job_offer.id).first()
-    if application is None:
-        application = Application(job_offer_id=job_offer.id)
-        db.add(application)
+        application.cover_letter_text = cover_letter_text
+        job_offer.is_processed = True
+        db.commit()
+        db.refresh(application)
 
-    application.cover_letter_text = cover_letter_text
-    job_offer.is_processed = True
-    db.commit()
-    db.refresh(application)
-
-    return application
+        return application
+    finally:
+        with _generating_lock:
+            _generating_job_offer_ids.discard(job_offer.id)
 
 
 @router.get("/by-job-offer/{job_offer_id}", response_model=ApplicationRead)
