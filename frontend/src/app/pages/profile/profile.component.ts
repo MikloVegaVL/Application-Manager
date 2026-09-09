@@ -23,6 +23,7 @@ import {
   ExperienceEntry,
   MasterProfile,
   MasterProfileRead,
+  ProfileAttachment,
 } from '../../core/models/master-profile.model';
 import { ProfileService } from '../../core/services/profile.service';
 
@@ -70,6 +71,16 @@ export class ProfileComponent implements OnInit {
   protected readonly isCvFileDragOver = signal(false);
   protected readonly uploadingCvFile = signal(false);
   protected readonly deletingCvFile = signal(false);
+
+  // --- Weitere Anhänge (Tab 6) - bis zu MAX_ATTACHMENTS zusätzliche PDFs,
+  // die beim Versand ZUSÄTZLICH zum Lebenslauf mitgeschickt werden (siehe
+  // `app.api.profile`, `app.api.applications.send_application`). ---
+  protected readonly MAX_ATTACHMENTS = 3;
+  protected readonly attachments = signal<ProfileAttachment[]>([]);
+  protected readonly selectedAttachmentFile = signal<File | null>(null);
+  protected readonly isAttachmentDragOver = signal(false);
+  protected readonly uploadingAttachment = signal(false);
+  protected readonly deletingAttachmentId = signal<number | null>(null);
 
   protected readonly profileForm: FormGroup = this.formBuilder.nonNullable.group({
     full_name: ['', [Validators.required, Validators.maxLength(255)]],
@@ -148,6 +159,7 @@ export class ProfileComponent implements OnInit {
   private applyProfileToForm(profile: MasterProfileRead): void {
     this.profileId.set(profile.id);
     this.cvFilename.set(profile.cv_filename);
+    this.attachments.set(profile.attachments ?? []);
     this.profileForm.patchValue({
       full_name: profile.full_name,
       email: profile.email,
@@ -397,6 +409,97 @@ export class ProfileComponent implements OnInit {
       error: () => {
         this.deletingCvFile.set(false);
         this.snackBar.open('Lebenslauf-Datei konnte nicht entfernt werden.', 'OK', { duration: 4000 });
+      },
+    });
+  }
+
+  // --- Tab 6: Weitere Anhänge (Dropzone, bis zu MAX_ATTACHMENTS) ---------
+
+  onAttachmentDragOver(event: DragEvent): void {
+    event.preventDefault();
+    this.isAttachmentDragOver.set(true);
+  }
+
+  onAttachmentDragLeave(event: DragEvent): void {
+    event.preventDefault();
+    this.isAttachmentDragOver.set(false);
+  }
+
+  onAttachmentDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.isAttachmentDragOver.set(false);
+    const file = event.dataTransfer?.files?.[0];
+    if (file) {
+      this.setSelectedAttachmentFile(file);
+    }
+  }
+
+  onAttachmentFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file) {
+      this.setSelectedAttachmentFile(file);
+    }
+    input.value = '';
+  }
+
+  private setSelectedAttachmentFile(file: File): void {
+    if (this.attachments().length >= this.MAX_ATTACHMENTS) {
+      this.snackBar.open(`Es können maximal ${this.MAX_ATTACHMENTS} zusätzliche Anhänge hochgeladen werden.`, 'OK', {
+        duration: 4000,
+      });
+      return;
+    }
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      this.snackBar.open('Bitte eine PDF-Datei auswählen.', 'OK', { duration: 3000 });
+      return;
+    }
+    this.selectedAttachmentFile.set(file);
+  }
+
+  clearSelectedAttachmentFile(): void {
+    this.selectedAttachmentFile.set(null);
+  }
+
+  uploadAttachment(): void {
+    const file = this.selectedAttachmentFile();
+    if (!file || this.uploadingAttachment()) {
+      return;
+    }
+
+    this.uploadingAttachment.set(true);
+    this.profileService.uploadAttachment(file).subscribe({
+      next: (profile) => {
+        this.uploadingAttachment.set(false);
+        this.selectedAttachmentFile.set(null);
+        this.attachments.set(profile.attachments);
+        this.snackBar.open('Anhang wurde hochgeladen.', 'OK', { duration: 3000 });
+      },
+      error: (error: HttpErrorResponse) => {
+        this.uploadingAttachment.set(false);
+        const message =
+          (error.error?.detail as string | undefined) ?? 'Upload fehlgeschlagen. Bitte erneut versuchen.';
+        this.snackBar.open(message, 'OK', { duration: 5000 });
+      },
+    });
+  }
+
+  deleteAttachment(attachmentId: number): void {
+    if (this.deletingAttachmentId() !== null) {
+      return;
+    }
+
+    this.deletingAttachmentId.set(attachmentId);
+    this.profileService.deleteAttachment(attachmentId).subscribe({
+      next: (profile) => {
+        this.deletingAttachmentId.set(null);
+        this.attachments.set(profile.attachments);
+        this.snackBar.open('Anhang wurde entfernt.', 'OK', { duration: 3000 });
+      },
+      error: () => {
+        this.deletingAttachmentId.set(null);
+        this.snackBar.open('Anhang konnte nicht entfernt werden.', 'OK', { duration: 4000 });
       },
     });
   }

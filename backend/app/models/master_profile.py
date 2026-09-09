@@ -6,12 +6,15 @@ automatisierte Zuschneiden ("Tailoring") von Anschreiben und Lebenslauf auf
 ein konkretes Stellenangebot.
 """
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import JSON, DateTime, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
+
+if TYPE_CHECKING:
+    from app.models.profile_attachment import ProfileAttachment
 
 
 class MasterProfile(Base):
@@ -45,6 +48,19 @@ class MasterProfile(Base):
     # ursprüngliche Dateiname (für Content-Disposition/E-Mail-Anhang).
     cv_file_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     cv_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Bis zu drei zusätzliche PDF-Anhänge (z. B. Zeugnisse, Zertifikate),
+    # die beim Versand einer Bewerbung neben dem Lebenslauf mitgeschickt
+    # werden (siehe `ProfileAttachment`, `app.api.profile`,
+    # `app.api.applications.send_application`). `order_by` hält die
+    # Reihenfolge stabil (Upload-Reihenfolge) unabhängig von DB-internem
+    # Zeilen-Ordering.
+    attachments: Mapped[list["ProfileAttachment"]] = relationship(
+        "ProfileAttachment",
+        back_populates="profile",
+        cascade="all, delete-orphan",
+        order_by="ProfileAttachment.created_at",
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

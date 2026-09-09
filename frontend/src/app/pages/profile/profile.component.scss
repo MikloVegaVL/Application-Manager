@@ -110,6 +110,13 @@
   }
 }
 
+.cv-attachment__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 640px;
+}
+
 .cv-attachment__current {
   display: flex;
   align-items: center;

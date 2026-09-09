@@ -108,4 +108,71 @@ describe('ProfileComponent', () => {
       expect(component['cvFilename']()).toBeNull();
     });
   });
+
+  describe('Weitere Anhänge', () => {
+    const pdfFile = new File([new Blob(['%PDF-1.4'])], 'zeugnis.pdf', { type: 'application/pdf' });
+    const baseProfileResponse = {
+      id: 1,
+      full_name: 'Max Mustermann',
+      email: 'max@example.com',
+      phone: null,
+      address: null,
+      summary: null,
+      experiences_json: [],
+      education_json: [],
+      skills_json: [],
+      cv_filename: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    it('rejects a non-PDF file without uploading', () => {
+      const input = { files: [new File(['x'], 'zeugnis.docx')] } as unknown as HTMLInputElement;
+      component.onAttachmentFileSelected({ target: input } as unknown as Event);
+
+      expect(component['selectedAttachmentFile']()).toBeNull();
+    });
+
+    it('refuses to select a file once the maximum is reached', () => {
+      component['attachments'].set([
+        { id: 1, filename: 'a.pdf', created_at: new Date().toISOString() },
+        { id: 2, filename: 'b.pdf', created_at: new Date().toISOString() },
+        { id: 3, filename: 'c.pdf', created_at: new Date().toISOString() },
+      ]);
+
+      const input = { files: [pdfFile] } as unknown as HTMLInputElement;
+      component.onAttachmentFileSelected({ target: input } as unknown as Event);
+
+      expect(component['selectedAttachmentFile']()).toBeNull();
+    });
+
+    it('uploads the selected attachment and stores the returned list', () => {
+      const input = { files: [pdfFile] } as unknown as HTMLInputElement;
+      component.onAttachmentFileSelected({ target: input } as unknown as Event);
+      expect(component['selectedAttachmentFile']()).toBe(pdfFile);
+
+      component.uploadAttachment();
+
+      const req = httpMock.expectOne((r) => r.url.endsWith('/profile/attachments') && r.method === 'POST');
+      req.flush({
+        ...baseProfileResponse,
+        attachments: [{ id: 1, filename: 'zeugnis.pdf', created_at: new Date().toISOString() }],
+      });
+
+      expect(component['attachments']().length).toBe(1);
+      expect(component['attachments']()[0].filename).toBe('zeugnis.pdf');
+      expect(component['selectedAttachmentFile']()).toBeNull();
+    });
+
+    it('deletes an attachment and stores the returned list', () => {
+      component['attachments'].set([{ id: 1, filename: 'zeugnis.pdf', created_at: new Date().toISOString() }]);
+
+      component.deleteAttachment(1);
+
+      const req = httpMock.expectOne((r) => r.url.endsWith('/profile/attachments/1') && r.method === 'DELETE');
+      req.flush({ ...baseProfileResponse, attachments: [] });
+
+      expect(component['attachments']()).toEqual([]);
+    });
+  });
 });

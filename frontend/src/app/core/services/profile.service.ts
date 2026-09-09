@@ -49,4 +49,20 @@ export class ProfileService {
   deleteCvFile(): Observable<MasterProfileRead> {
     return this.http.delete<MasterProfileRead>(`${this.baseUrl}/cv-file`);
   }
+
+  /**
+   * Lädt einen zusätzlichen PDF-Anhang hoch (max. 3, unabhängig vom
+   * Lebenslauf-Anhang), der beim Versand einer Bewerbung zusätzlich zum
+   * Lebenslauf mitgeschickt wird.
+   */
+  uploadAttachment(file: File): Observable<MasterProfileRead> {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    return this.http.post<MasterProfileRead>(`${this.baseUrl}/attachments`, formData);
+  }
+
+  /** Entfernt einen zusätzlichen PDF-Anhang wieder (per ID). */
+  deleteAttachment(attachmentId: number): Observable<MasterProfileRead> {
+    return this.http.delete<MasterProfileRead>(`${this.baseUrl}/attachments/${attachmentId}`);
+  }
 }

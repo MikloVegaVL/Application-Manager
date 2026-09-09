@@ -24,6 +24,7 @@ from app.main import app
 from app.models.application import Application, ApplicationStatus
 from app.models.job_offer import JobOffer
 from app.models.master_profile import MasterProfile
+from app.models.profile_attachment import ProfileAttachment
 from app.services.ai_generator import ApplicationGenerationError
 
 
@@ -524,3 +525,75 @@ def test_send_application_marks_application_as_sent(
     body = response.json()
     assert body["status"] == "sent"
     assert body["sent_at"] is not None
+
+
+def test_send_application_includes_profile_attachments_alongside_cv(
+    client: TestClient, db_session_local, tmp_path, monkeypatch
+) -> None:
+    # Regression: zusätzliche PDF-Anhänge im Profil (siehe `ProfileAttachment`,
+    # `app.api.profile`) müssen neben dem Lebenslauf mitgeschickt werden, ohne
+    # den Lebenslauf-Anhang selbst zu verdrängen.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/4"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+        profile = _create_profile_with_cv_file(session, tmp_path)
+
+        attachment_path = tmp_path / "zeugnis.pdf"
+        attachment_path.write_bytes(b"%PDF-1.4 fake-zeugnis")
+        session.add(
+            ProfileAttachment(profile_id=profile.id, file_path=str(attachment_path), filename="zeugnis.pdf")
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    mock_send_application_email = Mock(return_value=None)
+    monkeypatch.setattr("app.api.applications.send_application_email", mock_send_application_email)
+
+    response = client.post(
+        f"/api/applications/{application_id}/send",
+        json={"to_email": "recruiter@example.com"},
+    )
+
+    assert response.status_code == 200
+    _, call_kwargs = mock_send_application_email.call_args
+    assert call_kwargs["attachment_filename"] == "lebenslauf.pdf"
+    assert call_kwargs["extra_attachments"] == [(b"%PDF-1.4 fake-zeugnis", "zeugnis.pdf")]
+
+
+def test_send_application_skips_missing_attachment_files(
+    client: TestClient, db_session_local, tmp_path, monkeypatch
+) -> None:
+    # Eine am Profil hängende, aber von der Platte verschwundene Anhang-Datei
+    # darf den Versand nicht blockieren - der Lebenslauf bleibt der einzige
+    # Pflicht-Anhang.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/5"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+        profile = _create_profile_with_cv_file(session, tmp_path)
+        session.add(
+            ProfileAttachment(
+                profile_id=profile.id, file_path=str(tmp_path / "missing.pdf"), filename="missing.pdf"
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    mock_send_application_email = Mock(return_value=None)
+    monkeypatch.setattr("app.api.applications.send_application_email", mock_send_application_email)
+
+    response = client.post(
+        f"/api/applications/{application_id}/send",
+        json={"to_email": "recruiter@example.com"},
+    )
+
+    assert response.status_code == 200
+    _, call_kwargs = mock_send_application_email.call_args
+    assert call_kwargs["extra_attachments"] == []

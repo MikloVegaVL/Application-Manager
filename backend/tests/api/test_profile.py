@@ -213,3 +213,101 @@ def test_delete_cv_file_clears_it(client, tmp_path, monkeypatch):
     assert response.status_code == 200
     assert response.json()["cv_filename"] is None
     assert test_client.get("/api/profile/cv-file").status_code == 404
+
+
+# --- POST/GET/DELETE /profile/attachments -------------------------------
+#
+# Zusätzliche PDF-Anhänge (max. 3, siehe `MAX_PROFILE_ATTACHMENTS` in
+# `app.api.profile`) - unabhängig vom Lebenslauf-Anhang oben, werden beim
+# Versand zusätzlich zum Lebenslauf mitgeschickt, nicht anstelle davon.
+
+
+def _upload_attachment(test_client: TestClient, filename: str = "zeugnis.pdf"):
+    return test_client.post(
+        "/api/profile/attachments",
+        files={"file": (filename, b"%PDF-1.4 fake content", "application/pdf")},
+    )
+
+
+def test_upload_attachment_requires_existing_profile(client, tmp_path, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+
+    response = _upload_attachment(test_client)
+
+    assert response.status_code == 404
+
+
+def test_upload_attachment_rejects_non_pdf(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.post(
+        "/api/profile/attachments",
+        files={"file": ("zeugnis.docx", b"not a pdf", "application/octet-stream")},
+    )
+
+    assert response.status_code == 415
+
+
+def test_upload_attachment_stores_file_and_lists_it(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = _upload_attachment(test_client, filename="zeugnis.pdf")
+
+    assert response.status_code == 200
+    attachments = response.json()["attachments"]
+    assert len(attachments) == 1
+    assert attachments[0]["filename"] == "zeugnis.pdf"
+
+    attachment_id = attachments[0]["id"]
+    download_response = test_client.get(f"/api/profile/attachments/{attachment_id}")
+    assert download_response.status_code == 200
+    assert download_response.content == b"%PDF-1.4 fake content"
+    assert 'filename="zeugnis.pdf"' in download_response.headers["content-disposition"]
+
+
+def test_upload_attachment_rejects_a_fourth_file(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    for index in range(3):
+        assert _upload_attachment(test_client, filename=f"anhang-{index}.pdf").status_code == 200
+
+    response = _upload_attachment(test_client, filename="anhang-4.pdf")
+
+    assert response.status_code == 400
+    assert "maximal 3" in response.json()["detail"]
+
+
+def test_delete_attachment_removes_it_and_frees_up_a_slot(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    for index in range(3):
+        assert _upload_attachment(test_client, filename=f"anhang-{index}.pdf").status_code == 200
+
+    profile_attachments = test_client.get("/api/profile").json()["attachments"]
+    delete_response = test_client.delete(f"/api/profile/attachments/{profile_attachments[0]['id']}")
+
+    assert delete_response.status_code == 200
+    remaining = delete_response.json()["attachments"]
+    assert len(remaining) == 2
+
+    # Nach dem Löschen ist wieder ein Slot frei.
+    assert _upload_attachment(test_client, filename="ersatz.pdf").status_code == 200
+
+
+def test_download_attachment_returns_404_when_missing(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.get("/api/profile/attachments/999")
+
+    assert response.status_code == 404

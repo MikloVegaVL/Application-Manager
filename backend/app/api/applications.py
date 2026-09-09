@@ -219,6 +219,15 @@ def send_application(
         "Mit freundlichen Grüßen"
     )
     cv_bytes = Path(profile.cv_file_path).read_bytes()
+    # Zusätzliche, im Profil hochgeladene PDF-Anhänge (siehe `ProfileAttachment`,
+    # `app.api.profile`) werden neben dem Lebenslauf mitgeschickt. Eine fehlende
+    # Datei auf der Festplatte überspringt den jeweiligen Anhang, statt den
+    # gesamten Versand abzubrechen (der Lebenslauf bleibt der einzige Pflicht-Anhang).
+    extra_attachments = [
+        (Path(attachment.file_path).read_bytes(), attachment.filename)
+        for attachment in profile.attachments
+        if Path(attachment.file_path).exists()
+    ]
 
     try:
         send_application_email(
@@ -227,6 +236,7 @@ def send_application(
             body_text=body_text,
             attachment_bytes=cv_bytes,
             attachment_filename=profile.cv_filename or "lebenslauf.pdf",
+            extra_attachments=extra_attachments,
         )
     except MailSendError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc

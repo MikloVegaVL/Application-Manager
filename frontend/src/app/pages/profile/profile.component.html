@@ -310,6 +310,95 @@
             </button>
           </div>
         </mat-tab>
+
+        <!-- Tab 6: Weitere Anhänge -->
+        <mat-tab label="Weitere Anhänge">
+          <div class="tab-content">
+            <p class="cv-import__hint">
+              Lade hier bis zu {{ MAX_ATTACHMENTS }} zusätzliche Dokumente als PDF hoch (z. B.
+              Arbeitszeugnisse, Zertifikate) - sie werden beim Versand einer Bewerbung zusätzlich
+              zum Lebenslauf als weitere E-Mail-Anhänge mitgeschickt.
+            </p>
+
+            @if (attachments().length === 0) {
+              <p class="cv-attachment__current cv-attachment__current--empty">
+                Noch keine zusätzlichen Anhänge hochgeladen.
+              </p>
+            } @else {
+              <div class="cv-attachment__list">
+                @for (attachment of attachments(); track attachment.id) {
+                  <p class="cv-attachment__current">
+                    <mat-icon>description</mat-icon>
+                    {{ attachment.filename }}
+                    <button
+                      mat-button
+                      color="warn"
+                      type="button"
+                      [disabled]="deletingAttachmentId() === attachment.id"
+                      (click)="deleteAttachment(attachment.id)"
+                    >
+                      @if (deletingAttachmentId() === attachment.id) {
+                        <mat-progress-spinner mode="indeterminate" diameter="18" />
+                      } @else {
+                        <mat-icon>delete</mat-icon>
+                      }
+                      Entfernen
+                    </button>
+                  </p>
+                }
+              </div>
+            }
+
+            @if (attachments().length < MAX_ATTACHMENTS) {
+              <div
+                class="cv-dropzone"
+                [class.cv-dropzone--dragover]="isAttachmentDragOver()"
+                (dragover)="onAttachmentDragOver($event)"
+                (dragleave)="onAttachmentDragLeave($event)"
+                (drop)="onAttachmentDrop($event)"
+                (click)="attachmentFileInput.click()"
+              >
+                <mat-icon>upload_file</mat-icon>
+                <p>PDF hierher ziehen oder klicken zum Auswählen</p>
+                @if (selectedAttachmentFile(); as file) {
+                  <p class="cv-dropzone__filename">
+                    {{ file.name }}
+                    <button mat-icon-button type="button" (click)="clearSelectedAttachmentFile(); $event.stopPropagation()">
+                      <mat-icon>close</mat-icon>
+                    </button>
+                  </p>
+                }
+              </div>
+              <input
+                #attachmentFileInput
+                type="file"
+                accept="application/pdf,.pdf"
+                hidden
+                (change)="onAttachmentFileSelected($event)"
+              />
+
+              <button
+                mat-raised-button
+                color="primary"
+                type="button"
+                class="cv-import__submit"
+                [disabled]="!selectedAttachmentFile() || uploadingAttachment()"
+                (click)="uploadAttachment()"
+              >
+                @if (uploadingAttachment()) {
+                  <mat-progress-spinner mode="indeterminate" diameter="18" />
+                } @else {
+                  <mat-icon>upload</mat-icon>
+                }
+                Anhang hochladen
+              </button>
+            } @else {
+              <p class="cv-import__hint">
+                Maximale Anzahl erreicht - entferne zuerst einen Anhang, um einen neuen hochzuladen.
+              </p>
+            }
+          </div>
+        </mat-tab>
       </mat-tab-group>
 
       <div class="profile-page__actions">

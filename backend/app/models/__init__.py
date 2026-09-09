@@ -8,5 +8,6 @@ und Alembic später alle Modelle für Migrationen erkennt.
 from app.models.application import Application, ApplicationStatus
 from app.models.job_offer import JobOffer
 from app.models.master_profile import MasterProfile
+from app.models.profile_attachment import ProfileAttachment
 
-__all__ = ["Application", "ApplicationStatus", "JobOffer", "MasterProfile"]
+__all__ = ["Application", "ApplicationStatus", "JobOffer", "MasterProfile", "ProfileAttachment"]

@@ -28,11 +28,24 @@ export interface MasterProfile {
   skills_json: string[];
 }
 
+/**
+ * Entspricht `ProfileAttachmentRead`: ein zusätzlicher PDF-Anhang am
+ * Stammprofil (max. 3, siehe `ProfileService.uploadAttachment`), der beim
+ * Versand einer Bewerbung neben dem Lebenslauf mitgeschickt wird.
+ */
+export interface ProfileAttachment {
+  id: number;
+  filename: string;
+  created_at: string;
+}
+
 /** Entspricht `MasterProfileRead`: das persistierte Profil inkl. Metadaten. */
 export interface MasterProfileRead extends MasterProfile {
   id: number;
   /** Name der hochgeladenen Lebenslauf-Anhang-Datei, `null` = noch keine hochgeladen. */
   cv_filename: string | null;
+  /** Zusätzliche PDF-Anhänge, unabhängig vom Lebenslauf - siehe `ProfileAttachment`. */
+  attachments: ProfileAttachment[];
   created_at: string;
   updated_at: string;
 }

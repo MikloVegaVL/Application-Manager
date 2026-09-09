@@ -22,8 +22,15 @@ def send_application_email(
     body_text: str,
     attachment_bytes: bytes,
     attachment_filename: str,
+    extra_attachments: list[tuple[bytes, str]] | None = None,
 ) -> None:
     """Versendet eine Bewerbungsmail inkl. PDF-Anhang via SMTP.
+
+    `attachment_bytes`/`attachment_filename` ist der Lebenslauf (Pflicht-
+    Anhang). `extra_attachments` sind die zusätzlichen, im Profil hochgeladenen
+    PDF-Anhänge (siehe `ProfileAttachment`, `app.api.profile`) - jeweils
+    `(bytes, filename)`, optional und auf `MAX_PROFILE_ATTACHMENTS` begrenzt
+    (die Begrenzung erfolgt bereits beim Upload, nicht hier).
 
     Nutzt STARTTLS, sofern `SMTP_USE_TLS` aktiv ist (Standard), sowie
     SMTP-Auth, falls Zugangsdaten konfiguriert sind.
@@ -40,9 +47,10 @@ def send_application_email(
     message["Subject"] = subject
     message.attach(MIMEText(body_text, "plain", "utf-8"))
 
-    attachment = MIMEApplication(attachment_bytes, _subtype="pdf")
-    attachment.add_header("Content-Disposition", "attachment", filename=attachment_filename)
-    message.attach(attachment)
+    for attachment_data, filename in [(attachment_bytes, attachment_filename), *(extra_attachments or [])]:
+        attachment = MIMEApplication(attachment_data, _subtype="pdf")
+        attachment.add_header("Content-Disposition", "attachment", filename=filename)
+        message.attach(attachment)
 
     try:
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:

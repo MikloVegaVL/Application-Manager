@@ -18,6 +18,7 @@ from app.schemas.master_profile import (
     MasterProfileRead,
     MasterProfileUpdate,
     ParsedCvProfile,
+    ProfileAttachmentRead,
 )
 
 __all__ = [
@@ -40,4 +41,5 @@ __all__ = [
     "MasterProfileRead",
     "MasterProfileUpdate",
     "ParsedCvProfile",
+    "ProfileAttachmentRead",
 ]

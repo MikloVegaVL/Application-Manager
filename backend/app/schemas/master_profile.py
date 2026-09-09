@@ -55,19 +55,34 @@ class MasterProfileUpdate(BaseModel):
     skills_json: list[str] | None = None
 
 
+class ProfileAttachmentRead(BaseModel):
+    """Eine zusätzliche Anhang-Datei am Stammprofil (siehe `ProfileAttachment`,
+    `POST /profile/attachments`) - wird beim Versand einer Bewerbung neben dem
+    Lebenslauf als weiterer E-Mail-Anhang verschickt."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    filename: str
+    created_at: datetime
+
+
 class MasterProfileRead(MasterProfileBase):
     """Antwortmodell inkl. serverseitig verwalteter Felder.
 
     `cv_filename` ist nur gesetzt, wenn der Nutzer bereits eine Lebenslauf-
     Datei hochgeladen hat (siehe `POST /profile/cv-file`); `null` bedeutet
     "noch keine Datei hochgeladen" - das Frontend nutzt das, um den Upload-
-    Status anzuzeigen und den Versand entsprechend zu warnen.
+    Status anzuzeigen und den Versand entsprechend zu warnen. `attachments`
+    listet die zusätzlichen PDF-Anhänge (siehe `ProfileAttachmentRead`,
+    maximal `MAX_PROFILE_ATTACHMENTS` in `app.api.profile`).
     """
 
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     cv_filename: str | None = None
+    attachments: list[ProfileAttachmentRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
