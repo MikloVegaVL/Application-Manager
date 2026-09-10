@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 
 import { ProfileComponent } from './profile.component';
@@ -13,7 +14,7 @@ describe('ProfileComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [ProfileComponent, NoopAnimationsModule],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ProfileComponent);
@@ -36,15 +37,31 @@ describe('ProfileComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  it('should start with an empty experiences/education array', () => {
-    expect(component['experiencesArray'].length).toBe(0);
-    expect(component['educationArray'].length).toBe(0);
+  it('renders only identity fields and the file tabs - content-editing and AI CV-Import tabs are gone', () => {
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const labels = Array.from(compiled.querySelectorAll('.mat-mdc-tab .mdc-tab__text-label')).map((el) =>
+      el.textContent?.trim(),
+    );
+
+    expect(labels).toEqual(['Persönliche Daten', 'Lebenslauf-Anhang', 'Weitere Anhänge']);
+    expect(labels).not.toContain('Berufserfahrung & Ausbildung');
+    expect(labels).not.toContain('Skills & Zertifikate');
+    expect(labels).not.toContain('CV-Import');
+
+    expect(compiled.querySelector('input[formcontrolname="full_name"]')).toBeTruthy();
+    expect(compiled.querySelector('input[formcontrolname="email"]')).toBeTruthy();
+    expect(compiled.querySelector('input[formcontrolname="phone"]')).toBeTruthy();
+    expect(compiled.querySelector('input[formcontrolname="address"]')).toBeTruthy();
+    expect(compiled.querySelector('textarea[formcontrolname="summary"]')).toBeFalsy();
   });
 
-  it('should add and remove skills', () => {
-    component['skills'].set(['Python']);
-    component.removeSkill('Python');
-    expect(component['skills']()).toEqual([]);
+  it('no longer exposes skill/experience/education editing APIs', () => {
+    expect((component as unknown as Record<string, unknown>)['skills']).toBeUndefined();
+    expect((component as unknown as Record<string, unknown>)['experiencesArray']).toBeUndefined();
+    expect((component as unknown as Record<string, unknown>)['educationArray']).toBeUndefined();
+    expect((component as unknown as Record<string, unknown>)['uploadCv']).toBeUndefined();
   });
 
   describe('Lebenslauf-Anhang', () => {
@@ -75,6 +92,10 @@ describe('ProfileComponent', () => {
         experiences_json: [],
         education_json: [],
         skills_json: [],
+        languages_json: [],
+        projects_json: [],
+        photo_filename: null,
+        template_id: null,
         cv_filename: 'lebenslauf.pdf',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -100,6 +121,10 @@ describe('ProfileComponent', () => {
         experiences_json: [],
         education_json: [],
         skills_json: [],
+        languages_json: [],
+        projects_json: [],
+        photo_filename: null,
+        template_id: null,
         cv_filename: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -121,6 +146,10 @@ describe('ProfileComponent', () => {
       experiences_json: [],
       education_json: [],
       skills_json: [],
+      languages_json: [],
+      projects_json: [],
+      photo_filename: null,
+      template_id: null,
       cv_filename: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -174,5 +203,80 @@ describe('ProfileComponent', () => {
 
       expect(component['attachments']()).toEqual([]);
     });
+  });
+});
+
+describe('ProfileComponent - non-destructive identity save (KTD14)', () => {
+  let component: ProfileComponent;
+  let fixture: ComponentFixture<ProfileComponent>;
+  let httpMock: HttpTestingController;
+
+  const loadedProfileFixture = {
+    id: 42,
+    full_name: 'Erika Mustermann',
+    email: 'erika@example.com',
+    phone: '+49 30 1234567',
+    address: 'Musterstraße 1, Berlin',
+    summary: 'Erfahrene Softwareentwicklerin.',
+    experiences_json: [
+      { company: 'Acme GmbH', role: 'Senior Engineer', start_date: '2020', end_date: null, description: 'Backend.' },
+    ],
+    education_json: [
+      { institution: 'TU Berlin', degree: 'MSc', field_of_study: 'Informatik', start_date: '2015', end_date: '2019' },
+    ],
+    skills_json: [{ name: 'TypeScript', level: 'Experte' }],
+    languages_json: [{ name: 'Englisch', level: 'C1' }],
+    projects_json: [
+      { title: 'Portfolio', description: 'Persönliche Website.', start_date: '2022', end_date: null, link: null },
+    ],
+    photo_filename: 'photo.jpg',
+    template_id: 'modern',
+    cv_filename: null,
+    attachments: [],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [ProfileComponent, NoopAnimationsModule],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(ProfileComponent);
+    component = fixture.componentInstance;
+    httpMock = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
+
+    httpMock.expectOne((req) => req.url.endsWith('/profile') && req.method === 'GET').flush(loadedProfileFixture);
+  });
+
+  afterEach(() => {
+    httpMock.verify();
+  });
+
+  it('sends a PUT payload whose non-identity fields match the last-loaded profile exactly', () => {
+    component['profileForm'].patchValue({ full_name: 'Erika Musterfrau' });
+
+    component.onSubmit();
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'PUT');
+    const body = req.request.body;
+
+    expect(body.full_name).toBe('Erika Musterfrau');
+    expect(body.email).toBe(loadedProfileFixture.email);
+    expect(body.phone).toBe(loadedProfileFixture.phone);
+    expect(body.address).toBe(loadedProfileFixture.address);
+
+    expect(body.summary).toBe(loadedProfileFixture.summary);
+    expect(body.experiences_json).toEqual(loadedProfileFixture.experiences_json);
+    expect(body.education_json).toEqual(loadedProfileFixture.education_json);
+    expect(body.skills_json).toEqual(loadedProfileFixture.skills_json);
+    expect(body.languages_json).toEqual(loadedProfileFixture.languages_json);
+    expect(body.projects_json).toEqual(loadedProfileFixture.projects_json);
+    expect(body.photo_filename).toBe(loadedProfileFixture.photo_filename);
+    expect(body.template_id).toBe(loadedProfileFixture.template_id);
+
+    req.flush(loadedProfileFixture);
   });
 });

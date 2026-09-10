@@ -16,6 +16,42 @@ export interface EducationEntry {
   end_date: string | null;
 }
 
+/**
+ * KTD3: Skill-Kompetenzgrad als 4-stufige Skala (deutschsprachige Konvention,
+ * bereits im übrigen UI dieser App verwendet) - ein fixer, geschlossener
+ * Wertebereich, kein bespoke-Design. `"Grundkenntnisse"` ist zugleich die
+ * niedrigste Stufe UND der Default, den die Skills-Migration (siehe U1)
+ * bestehenden Skills zuweist - siehe KTD5.
+ */
+export type SkillLevel = 'Grundkenntnisse' | 'Gut' | 'Sehr gut' | 'Experte';
+
+/** Entspricht `SkillEntry`: ein Skill mit Kompetenzgrad. */
+export interface SkillEntry {
+  name: string;
+  level: SkillLevel;
+}
+
+/**
+ * KTD3: Sprachkenntnisse nutzen den bestehenden externen CEFR-Standard
+ * (A1-C2), kein bespoke-Design nötig.
+ */
+export type LanguageLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
+
+/** Entspricht `LanguageEntry`: eine Sprachkenntnis mit CEFR-Niveau. */
+export interface LanguageEntry {
+  name: string;
+  level: LanguageLevel;
+}
+
+/** Entspricht `ProjectEntry`: ein Projekt im CV-Builder. */
+export interface ProjectEntry {
+  title: string;
+  description: string;
+  start_date: string | null;
+  end_date: string | null;
+  link: string | null;
+}
+
 /** Entspricht `MasterProfileCreate` - Payload für `PUT /api/profile` (Upsert). */
 export interface MasterProfile {
   full_name: string;
@@ -25,7 +61,11 @@ export interface MasterProfile {
   summary: string | null;
   experiences_json: ExperienceEntry[];
   education_json: EducationEntry[];
-  skills_json: string[];
+  skills_json: SkillEntry[];
+  languages_json: LanguageEntry[];
+  projects_json: ProjectEntry[];
+  photo_filename: string | null;
+  template_id: string | null;
 }
 
 /**
