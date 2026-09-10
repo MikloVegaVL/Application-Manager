@@ -97,8 +97,7 @@
 .cv-import {
   &__hint {
     margin: 0;
-    color: rgba(0, 0, 0, 0.6);
-    max-width: 640px;
+    color: rgba(255, 255, 255, 0.6);
   }
 
   &__submit {
@@ -113,14 +112,12 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-width: 640px;
 }
 
 .cv-attachment__current {
   display: flex;
   align-items: center;
   gap: 8px;
-  max-width: 640px;
   margin: 0;
   padding: 8px 12px;
   border-radius: 4px;
@@ -145,14 +142,15 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  max-width: 640px;
   padding: 40px 24px;
-  border: 2px dashed rgba(0, 0, 0, 0.25);
+  border: 2px dashed rgba(255, 255, 255, 0.6);
   border-radius: 8px;
   cursor: pointer;
   text-align: center;
-  color: rgba(0, 0, 0, 0.6);
-  transition: border-color 150ms ease, background-color 150ms ease;
+  color: rgba(255, 255, 255, 0.6);
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease;
 
   mat-icon {
     font-size: 40px;
@@ -161,7 +159,7 @@
   }
 
   &--dragover {
-    border-color: var(--mat-sys-primary, #3f51b5);
+    border-color: rgba(255, 255, 255, 0.6);
     background-color: rgba(63, 81, 181, 0.06);
   }
 
@@ -181,14 +179,12 @@ button mat-progress-spinner {
 
 @media (prefers-color-scheme: dark) {
   .profile-page__loading,
-  .form-array-section__empty,
-  .cv-import__hint,f
-  .cv-dropzone {
+  .form-array-section__empty {
     color: rgba(24, 22, 22, 0.6);
   }
 
   .cv-dropzone {
-    border-color: rgba(16, 15, 15, 0.25);
+    border-color: rgba(255, 255, 255, 0.6);
   }
 
   .cv-dropzone__filename {
