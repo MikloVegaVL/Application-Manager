@@ -1,7 +1,41 @@
 """Pydantic-Schemas für das Bewerber-Stammprofil (`MasterProfile`)."""
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+# KTD3: Skill-Kompetenzgrad als 4-stufige Skala (deutschsprachige Konvention,
+# die bereits im übrigen UI dieser App verwendet wird) - bewusst kein
+# bespoke-Design, sondern ein fixer, geschlossener Wertebereich.
+SkillLevel = Literal["Grundkenntnisse", "Gut", "Sehr gut", "Experte"]
+
+# KTD3: Sprachkenntnisse nutzen den bestehenden externen CEFR-Standard
+# (A1-C2), kein bespoke-Design nötig.
+LanguageLevel = Literal["A1", "A2", "B1", "B2", "C1", "C2"]
+
+
+class SkillEntry(BaseModel):
+    """Ein Skill mit Kompetenzgrad (siehe KTD3)."""
+
+    name: str = Field(..., max_length=255)
+    level: SkillLevel
+
+
+class LanguageEntry(BaseModel):
+    """Eine Sprachkenntnis mit CEFR-Niveau (siehe KTD3)."""
+
+    name: str = Field(..., max_length=255)
+    level: LanguageLevel
+
+
+class ProjectEntry(BaseModel):
+    """Ein Projekt im CV-Builder - mindestens Titel und Beschreibung (R3)."""
+
+    title: str = Field(..., max_length=255)
+    description: str
+    start_date: str | None = Field(default=None, description="z. B. '2020-01' oder '2020'")
+    end_date: str | None = Field(default=None, description="leer/None = laufend")
+    link: str | None = None
 
 
 class ExperienceEntry(BaseModel):
@@ -34,7 +68,11 @@ class MasterProfileBase(BaseModel):
     summary: str | None = None
     experiences_json: list[ExperienceEntry] = Field(default_factory=list)
     education_json: list[EducationEntry] = Field(default_factory=list)
-    skills_json: list[str] = Field(default_factory=list)
+    skills_json: list[SkillEntry] = Field(default_factory=list)
+    languages_json: list[LanguageEntry] = Field(default_factory=list)
+    projects_json: list[ProjectEntry] = Field(default_factory=list)
+    photo_filename: str | None = None
+    template_id: str | None = None
 
 
 class MasterProfileCreate(MasterProfileBase):
@@ -52,7 +90,11 @@ class MasterProfileUpdate(BaseModel):
     summary: str | None = None
     experiences_json: list[ExperienceEntry] | None = None
     education_json: list[EducationEntry] | None = None
-    skills_json: list[str] | None = None
+    skills_json: list[SkillEntry] | None = None
+    languages_json: list[LanguageEntry] | None = None
+    projects_json: list[ProjectEntry] | None = None
+    photo_filename: str | None = None
+    template_id: str | None = None
 
 
 class ProfileAttachmentRead(BaseModel):
