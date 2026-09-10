@@ -43,6 +43,13 @@ def _attachment_file_path_for(profile_id: int, attachment_id: int) -> Path:
     return Path(settings.PROFILE_FILES_DIR) / f"attachment_{profile_id}_{attachment_id}.pdf"
 
 
+def _photo_path_for(profile_id: int, ext: str) -> Path:
+    # Mirrors `_cv_file_path_for` exakt (KTD4) - die Dateiendung ist Teil des
+    # Dateinamens, damit ein Formatwechsel (z. B. JPEG -> PNG) unter einem
+    # anderen Pfad landet und `upload_photo` die alte Datei erkennen kann.
+    return Path(settings.PROFILE_FILES_DIR) / f"photo_{profile_id}.{ext}"
+
+
 def _require_pdf(file: UploadFile) -> bytes:
     """Gemeinsame Validierung für alle PDF-Uploads dieses Routers: nur PDF,
     nicht leer. Wirft `HTTPException` bei Verstoß, sonst die gelesenen Bytes."""
@@ -60,6 +67,54 @@ def _require_pdf(file: UploadFile) -> bytes:
             detail="Die hochgeladene Datei ist leer.",
         )
     return file_bytes
+
+
+# Erlaubte Profilfoto-Formate (KTD4): Content-Type -> (Magic-Bytes-Präfix,
+# Dateiendung). Die Magic-Bytes werden zusätzlich zum Content-Type-Header
+# geprüft, da der Header allein vom Client frei gesetzt wird und damit eine
+# z. B. als "image/png" deklarierte, tatsächlich andersartige Datei
+# durchrutschen könnte.
+_IMAGE_FORMATS: dict[str, tuple[bytes, str]] = {
+    "image/jpeg": (b"\xff\xd8\xff", "jpg"),
+    "image/png": (b"\x89PNG", "png"),
+}
+_IMAGE_MEDIA_TYPES: dict[str, str] = {ext: content_type for content_type, (_, ext) in _IMAGE_FORMATS.items()}
+
+# 5 MB Obergrenze für Profilfoto-Uploads (KTD4).
+MAX_PHOTO_SIZE_BYTES = 5 * 1024 * 1024
+
+
+def _require_image(file: UploadFile) -> tuple[bytes, str]:
+    """Validierung für Profilfoto-Uploads (siehe `_require_pdf` oben für das
+    analoge PDF-Pendant): nur JPEG/PNG, per Magic-Bytes gegen den
+    Client-Content-Type abgesichert, nicht leer, max. 5 MB (KTD4). Wirft
+    `HTTPException` (422) bei Verstoß, sonst (gelesene Bytes, Dateiendung)."""
+    image_format = _IMAGE_FORMATS.get(file.content_type or "")
+    if image_format is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Nur JPEG- oder PNG-Bilder werden unterstützt.",
+        )
+    magic_bytes, ext = image_format
+
+    file_bytes = file.file.read()
+    if not file_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Die hochgeladene Datei ist leer.",
+        )
+    if len(file_bytes) > MAX_PHOTO_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Die Datei ist zu groß (maximal 5 MB).",
+        )
+    if not file_bytes.startswith(magic_bytes):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Der Dateiinhalt entspricht nicht dem angegebenen Bildformat.",
+        )
+
+    return file_bytes, ext
 
 
 def _iter_file(path: Path, chunk_size: int = 65_536):
@@ -264,6 +319,99 @@ def delete_cv_file(db: Session = Depends(get_db)) -> MasterProfile:
 
     profile.cv_file_path = None
     profile.cv_filename = None
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+# --- Profilfoto (JPEG/PNG, siehe KTD4) -----------------------------------
+#
+# Mirrors `cv-file` oben exakt, nur mit Bild- statt PDF-Validierung
+# (`_require_image` statt `_require_pdf`) und dateiendungsabhängigem
+# Speicherpfad, da JPEG/PNG anders als das feste PDF-Format zwei mögliche
+# Endungen zulässt.
+
+
+@router.post("/photo", response_model=MasterProfileRead)
+def upload_photo(
+    file: UploadFile = File(..., description="Profilfoto als JPEG- oder PNG-Datei"),
+    db: Session = Depends(get_db),
+) -> MasterProfile:
+    """Speichert ein Profilfoto fürs Stammprofil (CV-Builder, R3).
+
+    Ein bereits existierendes Profil ist Voraussetzung, da die Datei am
+    Profil hängt. Wechselt das Bildformat gegenüber einem bereits
+    vorhandenen Foto (z. B. JPEG -> PNG), wird die alte Datei zuerst entfernt,
+    damit keine verwaiste Datei unter der alten Endung zurückbleibt; ein
+    Re-Upload im selben Format überschreibt die vorhandene Datei einfach
+    (wie bei `cv-file`).
+    """
+    profile = db.query(MasterProfile).first()
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
+        )
+
+    file_bytes, ext = _require_image(file)
+    photo_path = _photo_path_for(profile.id, ext)
+
+    if profile.photo_path:
+        old_path = Path(profile.photo_path)
+        if old_path != photo_path and old_path.exists():
+            old_path.unlink()
+
+    photo_path.parent.mkdir(parents=True, exist_ok=True)
+    photo_path.write_bytes(file_bytes)
+
+    profile.photo_path = str(photo_path)
+    profile.photo_filename = file.filename or f"foto.{ext}"
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+@router.get("/photo")
+def download_photo(db: Session = Depends(get_db)) -> StreamingResponse:
+    """Liefert das hochgeladene Profilfoto zurück (z. B. für die Vorschau im
+    CV-Builder)."""
+    profile = db.query(MasterProfile).first()
+    if profile is None or not profile.photo_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Es wurde noch kein Profilfoto hochgeladen.",
+        )
+
+    photo_path = Path(profile.photo_path)
+    if not photo_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profilfoto-Datei wurde nicht gefunden.")
+
+    media_type = _IMAGE_MEDIA_TYPES.get(photo_path.suffix.lstrip("."), "application/octet-stream")
+    filename = profile.photo_filename or photo_path.name
+    return StreamingResponse(
+        _iter_file(photo_path),
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.delete("/photo", response_model=MasterProfileRead)
+def delete_photo(db: Session = Depends(get_db)) -> MasterProfile:
+    """Entfernt das hochgeladene Profilfoto wieder (z. B. um es durch ein
+    anderes zu ersetzen)."""
+    profile = db.query(MasterProfile).first()
+    if profile is None or not profile.photo_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Es wurde noch kein Profilfoto hochgeladen.",
+        )
+
+    photo_path = Path(profile.photo_path)
+    if photo_path.exists():
+        photo_path.unlink()
+
+    profile.photo_path = None
+    profile.photo_filename = None
     db.commit()
     db.refresh(profile)
     return profile

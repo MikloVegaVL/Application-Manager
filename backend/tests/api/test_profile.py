@@ -311,3 +311,200 @@ def test_download_attachment_returns_404_when_missing(client, tmp_path, monkeypa
     response = test_client.get("/api/profile/attachments/999")
 
     assert response.status_code == 404
+
+
+# --- POST/GET/DELETE /profile/photo -------------------------------------
+#
+# Profilfoto für den CV-Builder (R3, KTD4) - mirrors `cv-file` oben, nur mit
+# Bild- statt PDF-Validierung inkl. Magic-Byte-Prüfung.
+
+_JPEG_BYTES = b"\xff\xd8\xff\xe0" + b"\x00" * 20  # gültiger JPEG-Header
+_PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20  # gültiger PNG-Header
+
+
+def test_upload_photo_valid_jpeg_stores_file(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    profile_dir = tmp_path / "profile"
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(profile_dir))
+    profile = _create_profile(session_local)
+
+    response = test_client.post(
+        "/api/profile/photo",
+        files={"file": ("foto.jpg", _JPEG_BYTES, "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["photo_filename"] == "foto.jpg"
+
+    expected_path = profile_dir / f"photo_{profile.id}.jpg"
+    assert expected_path.exists()
+    assert expected_path.read_bytes() == _JPEG_BYTES
+
+
+def test_upload_photo_valid_png_stores_file(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    profile_dir = tmp_path / "profile"
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(profile_dir))
+    profile = _create_profile(session_local)
+
+    response = test_client.post(
+        "/api/profile/photo",
+        files={"file": ("foto.png", _PNG_BYTES, "image/png")},
+    )
+
+    assert response.status_code == 200
+    expected_path = profile_dir / f"photo_{profile.id}.png"
+    assert expected_path.exists()
+    assert expected_path.read_bytes() == _PNG_BYTES
+
+
+def test_upload_photo_requires_existing_profile(client, tmp_path, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+
+    response = test_client.post(
+        "/api/profile/photo",
+        files={"file": ("foto.jpg", _JPEG_BYTES, "image/jpeg")},
+    )
+
+    assert response.status_code == 404
+
+
+def test_upload_photo_rejects_non_image_content_type(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    profile_dir = tmp_path / "profile"
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(profile_dir))
+    profile = _create_profile(session_local)
+
+    response = test_client.post(
+        "/api/profile/photo",
+        files={"file": ("foto.pdf", b"%PDF-1.4 fake", "application/pdf")},
+    )
+
+    assert response.status_code == 422
+    assert not (profile_dir / f"photo_{profile.id}.pdf").exists()
+
+
+def test_upload_photo_rejects_content_mismatching_declared_type(client, tmp_path, monkeypatch):
+    """A file whose bytes don't match its claimed Content-Type must be
+    rejected - the magic-byte check exists precisely so a mislabeled header
+    doesn't slip through (KTD4)."""
+    test_client, session_local = client
+    profile_dir = tmp_path / "profile"
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(profile_dir))
+    profile = _create_profile(session_local)
+
+    response = test_client.post(
+        "/api/profile/photo",
+        files={"file": ("foto.jpg", b"this is not actually a jpeg", "image/jpeg")},
+    )
+
+    assert response.status_code == 422
+    assert not (profile_dir / f"photo_{profile.id}.jpg").exists()
+    assert test_client.get("/api/profile").json()["photo_filename"] is None
+
+
+def test_upload_photo_rejects_oversized_file(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    profile_dir = tmp_path / "profile"
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(profile_dir))
+    _create_profile(session_local)
+
+    oversized = _JPEG_BYTES + b"\x00" * (5 * 1024 * 1024)  # > 5 MB
+
+    response = test_client.post(
+        "/api/profile/photo",
+        files={"file": ("foto.jpg", oversized, "image/jpeg")},
+    )
+
+    assert response.status_code == 422
+
+
+def test_upload_photo_reupload_in_different_format_removes_old_file(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    profile_dir = tmp_path / "profile"
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(profile_dir))
+    profile = _create_profile(session_local)
+
+    first = test_client.post(
+        "/api/profile/photo",
+        files={"file": ("foto.jpg", _JPEG_BYTES, "image/jpeg")},
+    )
+    assert first.status_code == 200
+    jpg_path = profile_dir / f"photo_{profile.id}.jpg"
+    assert jpg_path.exists()
+
+    second = test_client.post(
+        "/api/profile/photo",
+        files={"file": ("foto.png", _PNG_BYTES, "image/png")},
+    )
+    assert second.status_code == 200
+
+    png_path = profile_dir / f"photo_{profile.id}.png"
+    assert png_path.exists()
+    assert not jpg_path.exists()
+
+
+def test_download_photo_returns_404_when_none_uploaded(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.get("/api/profile/photo")
+
+    assert response.status_code == 404
+
+
+def test_download_photo_returns_stored_file(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+    test_client.post(
+        "/api/profile/photo",
+        files={"file": ("foto.jpg", _JPEG_BYTES, "image/jpeg")},
+    )
+
+    response = test_client.get("/api/profile/photo")
+
+    assert response.status_code == 200
+    assert response.content == _JPEG_BYTES
+    assert response.headers["content-type"] == "image/jpeg"
+    assert 'filename="foto.jpg"' in response.headers["content-disposition"]
+
+
+def test_delete_photo_clears_it(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    profile_dir = tmp_path / "profile"
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(profile_dir))
+    profile = _create_profile(session_local)
+    test_client.post(
+        "/api/profile/photo",
+        files={"file": ("foto.jpg", _JPEG_BYTES, "image/jpeg")},
+    )
+
+    response = test_client.delete("/api/profile/photo")
+
+    assert response.status_code == 200
+    assert response.json()["photo_filename"] is None
+    assert not (profile_dir / f"photo_{profile.id}.jpg").exists()
+    assert test_client.get("/api/profile/photo").status_code == 404
+
+
+def test_delete_photo_twice_matches_cv_file_delete_behavior(client, tmp_path, monkeypatch):
+    """A repeat DELETE with no photo present must behave exactly like the
+    existing `cv-file` DELETE endpoint's "already deleted" case (404, not a
+    silent no-op 200) - see KTD4."""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+    test_client.post(
+        "/api/profile/photo",
+        files={"file": ("foto.jpg", _JPEG_BYTES, "image/jpeg")},
+    )
+
+    first_delete = test_client.delete("/api/profile/photo")
+    second_delete = test_client.delete("/api/profile/photo")
+
+    assert first_delete.status_code == 200
+    assert second_delete.status_code == 404
