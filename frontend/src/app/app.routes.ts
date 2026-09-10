@@ -19,6 +19,12 @@ export const routes: Routes = [
     title: 'Profil',
   },
   {
+    path: 'cv-builder',
+    loadComponent: () =>
+      import('./pages/cv-builder/cv-builder.component').then((m) => m.CvBuilderComponent),
+    title: 'Lebenslauf',
+  },
+  {
     path: 'applications',
     loadComponent: () =>
       import('./pages/applications/applications.component').then(
