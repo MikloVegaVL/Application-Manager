@@ -12,7 +12,6 @@
 
     p {
       margin: 0;
-      color: rgba(0, 0, 0, 0.6);
     }
   }
 
@@ -181,7 +180,6 @@ button mat-progress-spinner {
 }
 
 @media (prefers-color-scheme: dark) {
-  .profile-page__intro p,
   .profile-page__loading,
   .form-array-section__empty,
   .cv-import__hint,f
