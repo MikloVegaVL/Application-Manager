@@ -42,6 +42,109 @@ def client():
         app.dependency_overrides.clear()
 
 
+# --- PATCH /profile -------------------------------------------------------
+#
+# CV-Builder-Save-Pfad (R2/R3/R4, KTD2): echtes partielles Update, beschränkt
+# auf Inhaltsfelder. Identitätsfelder bleiben `PUT /profile` vorbehalten.
+
+
+def test_patch_profile_updates_only_sent_content_fields(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch(
+        "/api/profile",
+        json={"summary": "Erfahrener Entwickler", "skills_json": [{"name": "Python", "level": "Experte"}]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summary"] == "Erfahrener Entwickler"
+    assert body["skills_json"] == [{"name": "Python", "level": "Experte"}]
+    # Identitätsfelder bleiben unangetastet.
+    assert body["full_name"] == "Max Mustermann"
+    assert body["email"] == "max@example.com"
+
+
+def test_patch_profile_rejects_non_null_full_name(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch("/api/profile", json={"full_name": "Neuer Name"})
+
+    assert response.status_code == 422
+
+
+def test_patch_profile_rejects_non_null_email(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch("/api/profile", json={"email": "neu@example.com"})
+
+    assert response.status_code == 422
+
+
+def test_patch_profile_requires_existing_profile(client, tmp_path, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+
+    response = test_client.patch("/api/profile", json={"summary": "Hallo"})
+
+    assert response.status_code == 404
+
+
+def test_patch_profile_partial_payload_leaves_other_fields_untouched(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    first = test_client.patch(
+        "/api/profile",
+        json={
+            "summary": "Ursprüngliche Zusammenfassung",
+            "experiences_json": [
+                {"company": "Acme", "role": "Entwickler", "start_date": "2020", "end_date": None}
+            ],
+            "education_json": [
+                {"institution": "TU", "degree": "B.Sc.", "field_of_study": "Informatik"}
+            ],
+            "languages_json": [{"name": "Deutsch", "level": "C2"}],
+            "projects_json": [{"title": "Projekt X", "description": "Beschreibung"}],
+            "photo_filename": "foto.jpg",
+            "template_id": "modern",
+        },
+    )
+    assert first.status_code == 200
+
+    response = test_client.patch("/api/profile", json={"skills_json": [{"name": "SQL", "level": "Gut"}]})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["skills_json"] == [{"name": "SQL", "level": "Gut"}]
+    assert body["summary"] == "Ursprüngliche Zusammenfassung"
+    assert body["experiences_json"] == [
+        {"company": "Acme", "role": "Entwickler", "start_date": "2020", "end_date": None, "description": None}
+    ]
+    assert body["education_json"] == [
+        {
+            "institution": "TU",
+            "degree": "B.Sc.",
+            "field_of_study": "Informatik",
+            "start_date": None,
+            "end_date": None,
+        }
+    ]
+    assert body["languages_json"] == [{"name": "Deutsch", "level": "C2"}]
+    assert body["projects_json"] == [
+        {"title": "Projekt X", "description": "Beschreibung", "start_date": None, "end_date": None, "link": None}
+    ]
+    assert body["photo_filename"] == "foto.jpg"
+    assert body["template_id"] == "modern"
+
+
 # --- POST/GET/DELETE /profile/cv-file -----------------------------------
 #
 # Die Lebenslauf-Anhang-Datei ist unabhängig vom KI-gestützten CV-Import

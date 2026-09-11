@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.db.database import get_db
 from app.models.master_profile import MasterProfile
 from app.models.profile_attachment import ProfileAttachment
-from app.schemas.master_profile import MasterProfileCreate, MasterProfileRead
+from app.schemas.master_profile import MasterProfileCreate, MasterProfileRead, MasterProfileUpdate
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
 
@@ -151,6 +151,56 @@ def upsert_profile(payload: MasterProfileCreate, db: Session = Depends(get_db)) 
     else:
         for field, value in data.items():
             setattr(profile, field, value)
+
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+# Identitätsfelder bleiben exklusiv `PUT /profile` vorbehalten (KTD2) - der
+# CV-Builder darf sie über `PATCH /profile` nicht mitändern, selbst wenn er
+# sie (versehentlich) im Payload mitschickt.
+_IDENTITY_FIELDS = {"full_name", "email", "phone", "address"}
+
+
+@router.patch("", response_model=MasterProfileRead)
+def update_profile_content(payload: MasterProfileUpdate, db: Session = Depends(get_db)) -> MasterProfile:
+    """Partielles Update der CV-Builder-Inhaltsfelder (R2/R3/R4, KTD2).
+
+    Anders als `PUT /profile` (Upsert, vollständiges Überschreiben) ist dies
+    ein echtes partielles Update: nur die im Payload tatsächlich gesetzten
+    Felder werden geändert (`exclude_unset`), fehlende Felder bleiben
+    unangetastet. Identitätsfelder (`full_name`, `email`, `phone`, `address`)
+    bleiben `PUT` vorbehalten und werden hier mit 422 abgelehnt, sofern sie
+    nicht-null im Payload stehen. `photo_path` ist in `MasterProfileUpdate`
+    gar nicht erst enthalten - das schreiben ausschließlich die
+    Foto-Endpunkte (`POST`/`DELETE /profile/photo`).
+
+    Setzt ein bereits existierendes Profil voraus (KTD9): der Builder legt
+    kein neues Profil an, das bleibt weiterhin `PUT /profile` vorbehalten.
+    """
+    data = payload.model_dump(exclude_unset=True)
+
+    identity_violations = [field for field in _IDENTITY_FIELDS if data.get(field) is not None]
+    if identity_violations:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Identitätsfelder (full_name, email, phone, address) können nicht über "
+                f"PATCH /profile geändert werden: {', '.join(sorted(identity_violations))}. "
+                "Bitte PUT /api/profile verwenden."
+            ),
+        )
+
+    profile = db.query(MasterProfile).first()
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
+        )
+
+    for field, value in data.items():
+        setattr(profile, field, value)
 
     db.commit()
     db.refresh(profile)
