@@ -42,6 +42,7 @@ import requests
 
 from app.core.config import settings
 from app.schemas.job_offer import JobOfferCreate, JobSearchResponse, SourceStatus
+from app.services.job_sources.adzuna import AdzunaJobsClient
 from app.services.job_sources.linkedin import LinkedInJobsClient
 from app.services.job_sources.shared import (
     DEFAULT_USER_AGENT,
@@ -362,6 +363,21 @@ class JobSearchService:
             registry.append(SourceRegistration(self._linkedin_client))
         if settings.JOB_SEARCH_XING_ENABLED:
             registry.append(SourceRegistration(self._xing_client))
+        if self._source_enabled["adzuna"]:
+            # Auch ohne Credentials registriert: `search()` wird vom Fan-out
+            # gar nicht erst aufgerufen (KTD9) - der Client meldet dann
+            # `is_configured() == False` und wird als "not-configured"
+            # gekennzeichnet, statt stillschweigend zu verschwinden (R9).
+            registry.append(
+                SourceRegistration(
+                    AdzunaJobsClient(
+                        app_id=self._adzuna_app_id,
+                        app_key=self._adzuna_app_key,
+                        # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
+                        timeout=max(1.0, self._deadline_seconds - 1.0),
+                    )
+                )
+            )
         return registry
 
     @staticmethod

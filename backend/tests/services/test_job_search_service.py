@@ -353,12 +353,13 @@ def test_empty_source_with_active_cooldown_is_labeled_rate_limited():
 
 def test_default_registry_is_built_from_settings_without_injection():
     """KTD11: ohne Injektion baut der Service die settings-abgeleitete
-    Registry (hier: die drei Primärquellen)."""
+    Registry (Primärquellen plus die per Flag aktivierten API-Quellen)."""
     service = JobSearchService(deadline_seconds=1.0)
 
     platforms = [reg.platform for reg in service._sources]  # noqa: SLF001 - white-box wiring check
     assert platforms[0] == "arbeitsagentur"
-    assert set(platforms) <= {"arbeitsagentur", "linkedin", "xing"}
+    assert set(platforms) <= {"arbeitsagentur", "linkedin", "xing", "adzuna"}
+    assert "adzuna" in platforms
     assert all(reg.enabled for reg in service._sources)  # noqa: SLF001
 
 
