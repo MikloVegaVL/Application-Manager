@@ -65,4 +65,28 @@ export class ProfileService {
   deleteAttachment(attachmentId: number): Observable<MasterProfileRead> {
     return this.http.delete<MasterProfileRead>(`${this.baseUrl}/attachments/${attachmentId}`);
   }
+
+  /**
+   * Lädt das Profilfoto hoch (JPEG/PNG, <= 5 MB serverseitig geprüft, siehe
+   * KTD4 / `backend/app/api/profile.py:upload_photo`) - ersetzt ein bereits
+   * vorhandenes Foto.
+   */
+  uploadPhoto(file: File): Observable<MasterProfileRead> {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    return this.http.post<MasterProfileRead>(`${this.baseUrl}/photo`, formData);
+  }
+
+  /**
+   * Lädt das aktuelle Profilfoto als Blob (für eine Bildvorschau im CV
+   * Builder). Löst mit HTTP 404, falls noch kein Foto hochgeladen wurde.
+   */
+  getPhoto(): Observable<Blob> {
+    return this.http.get(`${this.baseUrl}/photo`, { responseType: 'blob' });
+  }
+
+  /** Entfernt das hochgeladene Profilfoto wieder. */
+  deletePhoto(): Observable<MasterProfileRead> {
+    return this.http.delete<MasterProfileRead>(`${this.baseUrl}/photo`);
+  }
 }

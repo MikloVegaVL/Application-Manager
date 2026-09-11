@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { FormArray, FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { FormArray, FormBuilder, FormControl, FormGroup, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 import { MatButtonModule } from '@angular/material/button';
@@ -8,11 +8,22 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTabsModule } from '@angular/material/tabs';
 
-import { EducationEntry, ExperienceEntry, MasterProfileRead, SkillEntry } from '../../core/models/master-profile.model';
+import {
+  EducationEntry,
+  ExperienceEntry,
+  LanguageEntry,
+  MasterProfileRead,
+  ProjectEntry,
+  SkillEntry,
+} from '../../core/models/master-profile.model';
 import { ProfileService } from '../../core/services/profile.service';
 import { EducationSectionComponent } from './sections/education-section.component';
 import { ExperienceSectionComponent } from './sections/experience-section.component';
+import { LanguagesSectionComponent } from './sections/languages-section.component';
+import { PhotoSectionComponent } from './sections/photo-section.component';
+import { ProjectsSectionComponent } from './sections/projects-section.component';
 import { SkillsSectionComponent } from './sections/skills-section.component';
+import { SummarySectionComponent } from './sections/summary-section.component';
 
 type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
 
@@ -25,10 +36,14 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
  *
  * KTD10: die Editing-UI ist in eine Kind-Komponente pro CV-Sektion
  * aufgeteilt (`ExperienceSectionComponent`, `EducationSectionComponent`,
- * `SkillsSectionComponent`), jede mit eigenem FormArray, das hier gehalten
- * und per Input übergeben wird (siehe U7). Weitere Sektionen (Zusammen-
- * fassung, Sprachen, Projekte, Foto) sowie Import/Vorschau & Export bleiben
- * in dieser Unit Platzhalter und werden von nachfolgenden Units befüllt.
+ * `SkillsSectionComponent`, `SummarySectionComponent`,
+ * `LanguagesSectionComponent`, `ProjectsSectionComponent`,
+ * `PhotoSectionComponent`), jede mit eigenem FormArray/FormControl, das hier
+ * gehalten und per Input übergeben wird (siehe U7/U10) - `PhotoSectionComponent`
+ * ist die Ausnahme: sie schreibt direkt über eigene HTTP-Calls
+ * (`POST`/`DELETE /profile/photo`) statt über den `PUT /profile`-Payload
+ * dieser Elternform. Import/Vorschau & Export bleiben in dieser Unit
+ * Platzhalter und werden von nachfolgenden Units befüllt.
  */
 @Component({
   selector: 'app-cv-builder',
@@ -42,6 +57,10 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
     ExperienceSectionComponent,
     EducationSectionComponent,
     SkillsSectionComponent,
+    SummarySectionComponent,
+    LanguagesSectionComponent,
+    ProjectsSectionComponent,
+    PhotoSectionComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -82,7 +101,9 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
         @case ('ready') {
           <mat-tab-group animationDuration="150ms">
             <mat-tab label="Zusammenfassung">
-              <div class="tab-content"><p>Bald verfügbar.</p></div>
+              <div class="tab-content">
+                <app-summary-section [control]="summaryControl" />
+              </div>
             </mat-tab>
             <mat-tab label="Berufserfahrung">
               <div class="tab-content">
@@ -100,13 +121,19 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
               </div>
             </mat-tab>
             <mat-tab label="Sprachen">
-              <div class="tab-content"><p>Bald verfügbar.</p></div>
+              <div class="tab-content">
+                <app-languages-section [formArray]="languagesArray" />
+              </div>
             </mat-tab>
             <mat-tab label="Projekte">
-              <div class="tab-content"><p>Bald verfügbar.</p></div>
+              <div class="tab-content">
+                <app-projects-section [formArray]="projectsArray" />
+              </div>
             </mat-tab>
             <mat-tab label="Foto">
-              <div class="tab-content"><p>Bald verfügbar.</p></div>
+              <div class="tab-content">
+                <app-photo-section />
+              </div>
             </mat-tab>
             <mat-tab label="Import">
               <div class="tab-content"><p>Bald verfügbar.</p></div>
@@ -161,9 +188,12 @@ export class CvBuilderComponent implements OnInit {
 
   protected readonly state = signal<CvBuilderState>('loading');
 
+  protected readonly summaryControl: FormControl<string> = this.formBuilder.nonNullable.control('');
   protected readonly experiencesArray: FormArray<FormGroup> = this.formBuilder.array<FormGroup>([]);
   protected readonly educationArray: FormArray<FormGroup> = this.formBuilder.array<FormGroup>([]);
   protected readonly skillsArray: FormArray<FormGroup> = this.formBuilder.array<FormGroup>([]);
+  protected readonly languagesArray: FormArray<FormGroup> = this.formBuilder.array<FormGroup>([]);
+  protected readonly projectsArray: FormArray<FormGroup> = this.formBuilder.array<FormGroup>([]);
 
   ngOnInit(): void {
     this.loadProfile();
@@ -187,6 +217,8 @@ export class CvBuilderComponent implements OnInit {
   }
 
   private applyProfileToArrays(profile: MasterProfileRead): void {
+    this.summaryControl.setValue(profile.summary ?? '');
+
     this.experiencesArray.clear();
     profile.experiences_json.forEach((entry) => this.experiencesArray.push(this.createExperienceGroup(entry)));
 
@@ -195,6 +227,12 @@ export class CvBuilderComponent implements OnInit {
 
     this.skillsArray.clear();
     profile.skills_json.forEach((entry) => this.skillsArray.push(this.createSkillGroup(entry)));
+
+    this.languagesArray.clear();
+    profile.languages_json.forEach((entry) => this.languagesArray.push(this.createLanguageGroup(entry)));
+
+    this.projectsArray.clear();
+    profile.projects_json.forEach((entry) => this.projectsArray.push(this.createProjectGroup(entry)));
   }
 
   private createExperienceGroup(entry?: ExperienceEntry): FormGroup {
@@ -221,6 +259,23 @@ export class CvBuilderComponent implements OnInit {
     return this.formBuilder.nonNullable.group({
       name: [entry?.name ?? '', Validators.required],
       level: [entry?.level ?? 'Grundkenntnisse', Validators.required],
+    });
+  }
+
+  private createLanguageGroup(entry?: LanguageEntry): FormGroup {
+    return this.formBuilder.nonNullable.group({
+      name: [entry?.name ?? '', Validators.required],
+      level: [entry?.level ?? 'A1', Validators.required],
+    });
+  }
+
+  private createProjectGroup(entry?: ProjectEntry): FormGroup {
+    return this.formBuilder.nonNullable.group({
+      title: [entry?.title ?? '', Validators.required],
+      description: [entry?.description ?? '', Validators.required],
+      start_date: [entry?.start_date ?? ''],
+      end_date: [entry?.end_date ?? ''],
+      link: [entry?.link ?? ''],
     });
   }
 }

@@ -91,10 +91,25 @@ describe('CvBuilderComponent', () => {
       experiences_json: [],
       education_json: [],
       skills_json: [],
+      languages_json: [],
+      projects_json: [],
+      photo_filename: null,
+      template_id: null,
       cv_filename: null,
+      attachments: [],
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
+    fixture.detectChanges();
+
+    // `PhotoSectionComponent` lädt beim Erstellen selbstständig das aktuelle
+    // Foto (GET /profile/photo) - unabhängig vom hier getesteten
+    // Eltern-Profil-Request, siehe photo-section.component.spec.ts.
+    // `responseType: 'blob'` verlangt einen Blob-Body auch für den
+    // Error-Flush - TestRequest.flush konvertiert Objekte nicht automatisch.
+    httpMock
+      .expectOne((r) => r.url.endsWith('/profile/photo') && r.method === 'GET')
+      .flush(new Blob(), { status: 404, statusText: 'Not Found' });
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
