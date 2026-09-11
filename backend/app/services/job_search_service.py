@@ -301,6 +301,26 @@ class JobSearchService:
         self._xing_client = xing_client or XingJobScraper(
             inner_timeout=max(1.0, self._deadline_seconds - 1.0)
         )
+        # Neue Quellen (U3, KTD7/KTD9): Flags und Zugangsdaten einmalig aus
+        # den Settings einsammeln. U2 baut daraus die settings-abgeleitete
+        # Registry und reicht die Credentials als Konstruktor-Argumente an die
+        # API-Clients (Adzuna/Jooble, U4/U5) weiter; der Fan-out selbst wird
+        # erst dort umgebaut.
+        self._source_enabled: dict[str, bool] = {
+            "devjobs": settings.JOB_SEARCH_DEVJOBS_ENABLED,
+            "kimeta": settings.JOB_SEARCH_KIMETA_ENABLED,
+            "stepstone": settings.JOB_SEARCH_STEPSTONE_ENABLED,
+            "germantechjobs": settings.JOB_SEARCH_GERMANTECHJOBS_ENABLED,
+            "indeed": settings.JOB_SEARCH_INDEED_ENABLED,
+            "jobware": settings.JOB_SEARCH_JOBWARE_ENABLED,
+            "programmiererjobboerse": settings.JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED,
+            "it-entwickler-jobs": settings.JOB_SEARCH_IT_ENTWICKLER_JOBS_ENABLED,
+            "adzuna": settings.JOB_SEARCH_ADZUNA_ENABLED,
+            "jooble": settings.JOB_SEARCH_JOOBLE_ENABLED,
+        }
+        self._adzuna_app_id = settings.ADZUNA_APP_ID
+        self._adzuna_app_key = settings.ADZUNA_APP_KEY
+        self._jooble_api_key = settings.JOOBLE_API_KEY
 
     def search(
         self,

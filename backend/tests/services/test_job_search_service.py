@@ -7,7 +7,7 @@ import time
 
 from bs4 import BeautifulSoup
 
-from app.schemas.job_offer import JobOfferCreate
+from app.schemas.job_offer import JobOfferCreate, SourceStatus
 from app.services.job_search_service import ArbeitsagenturJobsClient, GenericJobScraper, JobSearchService
 
 
@@ -349,3 +349,61 @@ def test_enrich_description_is_a_no_op_for_unsupported_sources():
 
     assert service.enrich_description("linkedin", "https://linkedin.com/jobs/1") is None
     assert service.enrich_description("web-scraper", "https://example.com/jobs/1") is None
+
+
+# --- U3: per-source enable flags, credential settings, not-configured -------
+#
+# Siehe docs/plans/2026-09-11-001-feat-job-search-broader-source-coverage-plan.md
+# (U3, KTD5/KTD7/KTD9).
+
+_NEW_SOURCE_FLAGS = (
+    "JOB_SEARCH_DEVJOBS_ENABLED",
+    "JOB_SEARCH_KIMETA_ENABLED",
+    "JOB_SEARCH_STEPSTONE_ENABLED",
+    "JOB_SEARCH_GERMANTECHJOBS_ENABLED",
+    "JOB_SEARCH_INDEED_ENABLED",
+    "JOB_SEARCH_JOBWARE_ENABLED",
+    "JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED",
+    "JOB_SEARCH_IT_ENTWICKLER_JOBS_ENABLED",
+    "JOB_SEARCH_ADZUNA_ENABLED",
+    "JOB_SEARCH_JOOBLE_ENABLED",
+)
+
+
+def test_new_source_enable_flags_resolve_and_default_to_true(monkeypatch):
+    """U3 happy path: jede neue Quelle hat ein eigenes Enable-Flag, das aus
+    der Umgebung aufgelöst wird und standardmäßig aktiv ist (KTD7)."""
+    from app.core.config import Settings
+
+    for flag in _NEW_SOURCE_FLAGS:
+        monkeypatch.delenv(flag, raising=False)
+
+    fresh = Settings(_env_file=None)
+
+    for flag in _NEW_SOURCE_FLAGS:
+        assert getattr(fresh, flag) is True
+
+
+def test_api_credentials_default_to_empty_strings(monkeypatch):
+    """U3 edge: ungesetzte Zugangsdaten lösen zu einem leeren String auf -
+    die Grundlage dafür, dass Adzuna/Jooble `not-configured` melden, ohne
+    die Suche fehlschlagen zu lassen (R9/KD7)."""
+    from app.core.config import Settings
+
+    for var in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY", "JOOBLE_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    fresh = Settings(_env_file=None)
+
+    assert fresh.ADZUNA_APP_ID == ""
+    assert fresh.ADZUNA_APP_KEY == ""
+    assert fresh.JOOBLE_API_KEY == ""
+
+
+def test_source_status_accepts_not_configured_reason():
+    """U3: das Backend-Schema erlaubt den neuen, eigenständigen Reason, damit
+    die API-Clients aus U4/U5 ihn emittieren können (KTD5)."""
+    status = SourceStatus(platform="adzuna", status="unavailable", reason="not-configured")
+
+    assert status.reason == "not-configured"
+
