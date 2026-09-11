@@ -43,6 +43,7 @@ import requests
 from app.core.config import settings
 from app.schemas.job_offer import JobOfferCreate, JobSearchResponse, SourceStatus
 from app.services.job_sources.adzuna import AdzunaJobsClient
+from app.services.job_sources.jooble import JoobleJobsClient
 from app.services.job_sources.linkedin import LinkedInJobsClient
 from app.services.job_sources.shared import (
     DEFAULT_USER_AGENT,
@@ -373,6 +374,20 @@ class JobSearchService:
                     AdzunaJobsClient(
                         app_id=self._adzuna_app_id,
                         app_key=self._adzuna_app_key,
+                        # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
+                        timeout=max(1.0, self._deadline_seconds - 1.0),
+                    )
+                )
+            )
+        if self._source_enabled["jooble"]:
+            # Auch ohne API-Key registriert: der Fan-out ruft `search()` gar
+            # nicht erst auf (KTD9) - der Client meldet dann
+            # `is_configured() == False` und wird als "not-configured"
+            # gekennzeichnet, statt stillschweigend zu verschwinden (R9).
+            registry.append(
+                SourceRegistration(
+                    JoobleJobsClient(
+                        api_key=self._jooble_api_key,
                         # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
                         timeout=max(1.0, self._deadline_seconds - 1.0),
                     )

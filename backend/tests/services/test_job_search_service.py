@@ -358,8 +358,9 @@ def test_default_registry_is_built_from_settings_without_injection():
 
     platforms = [reg.platform for reg in service._sources]  # noqa: SLF001 - white-box wiring check
     assert platforms[0] == "arbeitsagentur"
-    assert set(platforms) <= {"arbeitsagentur", "linkedin", "xing", "adzuna"}
+    assert set(platforms) <= {"arbeitsagentur", "linkedin", "xing", "adzuna", "jooble"}
     assert "adzuna" in platforms
+    assert "jooble" in platforms
     assert all(reg.enabled for reg in service._sources)  # noqa: SLF001
 
 
