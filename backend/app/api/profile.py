@@ -17,8 +17,16 @@ from app.db.database import get_db
 from app.models.master_profile import MasterProfile
 from app.models.profile_attachment import ProfileAttachment
 from app.schemas.master_profile import MasterProfileCreate, MasterProfileRead, MasterProfileUpdate
+from app.services.file_validation import _iter_file, _require_pdf
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
+
+# Detail-Text für alle 404-Fälle "es existiert noch kein `MasterProfile`"
+# (siehe u. a. `get_profile`, `update_profile_content`, `upload_cv_file`,
+# `upload_photo`, `upload_attachment` unten sowie
+# `app.api.cv_builder._render_cv_for_current_profile`) - an einer Stelle
+# gepflegt statt als mehrfach dupliziertes String-Literal.
+_NO_PROFILE_DETAIL = "Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen."
 
 # Maximale Anzahl zusätzlicher PDF-Anhänge (siehe `ProfileAttachment`) - über
 # den Lebenslauf hinaus, der weiterhin separat über `cv-file` verwaltet wird.
@@ -48,25 +56,6 @@ def _photo_path_for(profile_id: int, ext: str) -> Path:
     # Dateinamens, damit ein Formatwechsel (z. B. JPEG -> PNG) unter einem
     # anderen Pfad landet und `upload_photo` die alte Datei erkennen kann.
     return Path(settings.PROFILE_FILES_DIR) / f"photo_{profile_id}.{ext}"
-
-
-def _require_pdf(file: UploadFile) -> bytes:
-    """Gemeinsame Validierung für alle PDF-Uploads dieses Routers: nur PDF,
-    nicht leer. Wirft `HTTPException` bei Verstoß, sonst die gelesenen Bytes."""
-    is_pdf = file.content_type == "application/pdf" or (file.filename or "").lower().endswith(".pdf")
-    if not is_pdf:
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Nur PDF-Dateien werden unterstützt.",
-        )
-
-    file_bytes = file.file.read()
-    if not file_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Die hochgeladene Datei ist leer.",
-        )
-    return file_bytes
 
 
 # Erlaubte Profilfoto-Formate (KTD4): Content-Type -> (Magic-Bytes-Präfix,
@@ -117,14 +106,6 @@ def _require_image(file: UploadFile) -> tuple[bytes, str]:
     return file_bytes, ext
 
 
-def _iter_file(path: Path, chunk_size: int = 65_536):
-    """Streamt eine Datei chunkweise (gemeinsam genutzt von den
-    `cv-file`- und `attachments`-Download-Routen)."""
-    with path.open("rb") as f:
-        while chunk := f.read(chunk_size):
-            yield chunk
-
-
 @router.get("", response_model=MasterProfileRead)
 def get_profile(db: Session = Depends(get_db)) -> MasterProfile:
     """Liefert das Master-Profil. Die Anwendung ist für den persönlichen
@@ -133,7 +114,7 @@ def get_profile(db: Session = Depends(get_db)) -> MasterProfile:
     if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
+            detail=_NO_PROFILE_DETAIL,
         )
     return profile
 
@@ -196,7 +177,7 @@ def update_profile_content(payload: MasterProfileUpdate, db: Session = Depends(g
     if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
+            detail=_NO_PROFILE_DETAIL,
         )
 
     for field, value in data.items():
@@ -225,7 +206,7 @@ def upload_cv_file(
     if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
+            detail=_NO_PROFILE_DETAIL,
         )
 
     file_bytes = _require_pdf(file)
@@ -312,7 +293,7 @@ def upload_photo(
     if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
+            detail=_NO_PROFILE_DETAIL,
         )
 
     file_bytes, ext = _require_image(file)
@@ -399,7 +380,7 @@ def upload_attachment(
     if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
+            detail=_NO_PROFILE_DETAIL,
         )
 
     if len(profile.attachments) >= MAX_PROFILE_ATTACHMENTS:

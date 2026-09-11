@@ -91,18 +91,6 @@ export interface MasterProfileRead extends MasterProfile {
 }
 
 /**
- * Entspricht `CvUploadResponse`: Antwort von `POST /profile/upload-cv`.
- * `upload_cv` übernimmt ein Feld nur, wenn die KI dafür etwas gefunden hat -
- * `warnings` benennt jedes Feld, das deshalb NICHT übernommen wurde, damit
- * ein unvollständiger CV-Import nicht als unbedingter Erfolg erscheint
- * (siehe ce-debug-Untersuchung, 2026-08-18).
- */
-export interface CvUploadResponse {
-  profile: MasterProfileRead;
-  warnings: string[];
-}
-
-/**
  * Entspricht `ParsedCvProfile`: Ergebnis von `POST /cv-builder/parse`.
  * `full_name`/`email`/`phone`/`address` sind reine Anzeigefelder für den
  * CV-Builder-Import (KTD1) - werden im Formular nur read-only dargestellt

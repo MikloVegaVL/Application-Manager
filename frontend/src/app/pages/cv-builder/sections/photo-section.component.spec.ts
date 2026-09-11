@@ -75,10 +75,11 @@ describe('PhotoSectionComponent', () => {
     const uploadReq = httpMock.expectOne((r) => r.url.endsWith('/profile/photo') && r.method === 'POST');
     expect(uploadReq.request.body instanceof FormData).toBeTrue();
     uploadReq.flush(baseProfileResponse);
-
-    const getReq = httpMock.expectOne((r) => r.url.endsWith('/profile/photo') && r.method === 'GET');
-    getReq.flush(new Blob(['fake-image-bytes'], { type: 'image/png' }));
     fixture.detectChanges();
+
+    // Kein erneuter GET /profile/photo nach erfolgreichem Upload - die
+    // Vorschau wird direkt aus der lokalen `File` gebaut.
+    httpMock.expectNone((r) => r.url.endsWith('/profile/photo') && r.method === 'GET');
 
     expect(component['photoUrl']()).toMatch(/^blob:/);
     const img = (fixture.nativeElement as HTMLElement).querySelector('img');
@@ -97,8 +98,9 @@ describe('PhotoSectionComponent', () => {
     const uploadReq = httpMock.expectOne((r) => r.url.endsWith('/profile/photo') && r.method === 'POST');
     uploadReq.flush(baseProfileResponse);
 
-    const getReq = httpMock.expectOne((r) => r.url.endsWith('/profile/photo') && r.method === 'GET');
-    getReq.flush(new Blob(['fake-image-bytes'], { type: 'image/png' }));
+    // Kein erneuter GET /profile/photo nach erfolgreichem Upload - die
+    // Vorschau wird direkt aus der lokalen `File` gebaut.
+    httpMock.expectNone((r) => r.url.endsWith('/profile/photo') && r.method === 'GET');
 
     expect(component['photoUrl']()).toMatch(/^blob:/);
     expect(component['isDragOver']()).toBeFalse();

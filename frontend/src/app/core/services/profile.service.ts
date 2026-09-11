@@ -7,7 +7,6 @@ import {
   CvParseResponse,
   CvRenderPayload,
   CvTemplate,
-  CvUploadResponse,
   MasterProfile,
   MasterProfileRead,
   ProfileContentUpdate,
@@ -15,7 +14,7 @@ import {
 
 /**
  * Kommuniziert mit den Profil-Endpunkten des Backends
- * (`/api/profile`, `/api/profile/upload-cv`, siehe `backend/app/api/profile.py`)
+ * (`/api/profile`, siehe `backend/app/api/profile.py`)
  * sowie mit dem CV-Builder-Parse-Endpunkt (`/api/cv-builder/parse`, siehe
  * `backend/app/api/cv_builder.py`).
  */
@@ -55,17 +54,6 @@ export class ProfileService {
     const formData = new FormData();
     formData.append('file', file, file.name);
     return this.http.post<CvParseResponse>(`${this.cvBuilderBaseUrl}/parse`, formData);
-  }
-
-  /**
-   * Lädt eine Lebenslauf-PDF hoch und lässt sie serverseitig per KI analysieren.
-   * `warnings` in der Antwort benennt Felder, die die KI nicht fand und die
-   * deshalb NICHT übernommen wurden (siehe CvUploadResponse).
-   */
-  uploadCv(file: File): Observable<CvUploadResponse> {
-    const formData = new FormData();
-    formData.append('file', file, file.name);
-    return this.http.post<CvUploadResponse>(`${this.baseUrl}/upload-cv`, formData);
   }
 
   /**

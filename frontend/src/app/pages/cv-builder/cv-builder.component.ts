@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, HostListener, OnInit, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { FormArray, FormBuilder, FormControl, FormGroup, Validators } from '@angular/forms';
+import { FormArray, FormBuilder, FormControl, FormGroup } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 import { MatButtonModule } from '@angular/material/button';
@@ -18,6 +18,13 @@ import {
   SkillEntry,
 } from '../../core/models/master-profile.model';
 import { ProfileService } from '../../core/services/profile.service';
+import {
+  createEducationGroup,
+  createExperienceGroup,
+  createLanguageGroup,
+  createProjectGroup,
+  createSkillGroup,
+} from './cv-section-forms.util';
 import { sectionsEqual } from './cv-section-diff.util';
 import { CvPreviewExportComponent } from './export/cv-preview-export.component';
 import { CvImportComponent } from './import/cv-import.component';
@@ -363,62 +370,20 @@ export class CvBuilderComponent implements OnInit {
     this.templateIdControl.setValue(profile.template_id);
 
     this.experiencesArray.clear();
-    profile.experiences_json.forEach((entry) => this.experiencesArray.push(this.createExperienceGroup(entry)));
+    profile.experiences_json.forEach((entry) =>
+      this.experiencesArray.push(createExperienceGroup(this.formBuilder, entry)),
+    );
 
     this.educationArray.clear();
-    profile.education_json.forEach((entry) => this.educationArray.push(this.createEducationGroup(entry)));
+    profile.education_json.forEach((entry) => this.educationArray.push(createEducationGroup(this.formBuilder, entry)));
 
     this.skillsArray.clear();
-    profile.skills_json.forEach((entry) => this.skillsArray.push(this.createSkillGroup(entry)));
+    profile.skills_json.forEach((entry) => this.skillsArray.push(createSkillGroup(this.formBuilder, entry)));
 
     this.languagesArray.clear();
-    profile.languages_json.forEach((entry) => this.languagesArray.push(this.createLanguageGroup(entry)));
+    profile.languages_json.forEach((entry) => this.languagesArray.push(createLanguageGroup(this.formBuilder, entry)));
 
     this.projectsArray.clear();
-    profile.projects_json.forEach((entry) => this.projectsArray.push(this.createProjectGroup(entry)));
-  }
-
-  private createExperienceGroup(entry?: ExperienceEntry): FormGroup {
-    return this.formBuilder.nonNullable.group({
-      company: [entry?.company ?? '', Validators.required],
-      role: [entry?.role ?? '', Validators.required],
-      start_date: [entry?.start_date ?? ''],
-      end_date: [entry?.end_date ?? ''],
-      description: [entry?.description ?? ''],
-    });
-  }
-
-  private createEducationGroup(entry?: EducationEntry): FormGroup {
-    return this.formBuilder.nonNullable.group({
-      institution: [entry?.institution ?? '', Validators.required],
-      degree: [entry?.degree ?? '', Validators.required],
-      field_of_study: [entry?.field_of_study ?? ''],
-      start_date: [entry?.start_date ?? ''],
-      end_date: [entry?.end_date ?? ''],
-    });
-  }
-
-  private createSkillGroup(entry?: SkillEntry): FormGroup {
-    return this.formBuilder.nonNullable.group({
-      name: [entry?.name ?? '', Validators.required],
-      level: [entry?.level ?? 'Grundkenntnisse', Validators.required],
-    });
-  }
-
-  private createLanguageGroup(entry?: LanguageEntry): FormGroup {
-    return this.formBuilder.nonNullable.group({
-      name: [entry?.name ?? '', Validators.required],
-      level: [entry?.level ?? 'A1', Validators.required],
-    });
-  }
-
-  private createProjectGroup(entry?: ProjectEntry): FormGroup {
-    return this.formBuilder.nonNullable.group({
-      title: [entry?.title ?? '', Validators.required],
-      description: [entry?.description ?? '', Validators.required],
-      start_date: [entry?.start_date ?? ''],
-      end_date: [entry?.end_date ?? ''],
-      link: [entry?.link ?? ''],
-    });
+    profile.projects_json.forEach((entry) => this.projectsArray.push(createProjectGroup(this.formBuilder, entry)));
   }
 }

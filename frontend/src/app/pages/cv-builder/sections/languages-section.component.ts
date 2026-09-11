@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, inject } from '@angular/core';
-import { FormArray, FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormArray, FormBuilder, FormGroup, ReactiveFormsModule } from '@angular/forms';
 
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -8,6 +8,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 
 import { LanguageEntry, LanguageLevel } from '../../../core/models/master-profile.model';
+import { createLanguageGroup } from '../cv-section-forms.util';
 
 /**
  * KTD3: die sechs CEFR-Niveaustufen (A1-C2), identisch zu `LanguageLevel`
@@ -15,8 +16,6 @@ import { LanguageEntry, LanguageLevel } from '../../../core/models/master-profil
  * Standard, kein bespoke-Design nötig.
  */
 const LANGUAGE_LEVELS: LanguageLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
-
-const DEFAULT_LEVEL: LanguageLevel = 'A1';
 
 /**
  * Sprachen-Sektion des CV Builders (KTD10). FormArray von
@@ -140,10 +139,7 @@ export class LanguagesSectionComponent {
   @Input({ required: true }) formArray!: FormArray<FormGroup>;
 
   createGroup(entry?: LanguageEntry): FormGroup {
-    return this.formBuilder.nonNullable.group({
-      name: [entry?.name ?? '', Validators.required],
-      level: [entry?.level ?? DEFAULT_LEVEL, Validators.required],
-    });
+    return createLanguageGroup(this.formBuilder, entry);
   }
 
   add(): void {

@@ -217,7 +217,13 @@ export class PhotoSectionComponent implements OnInit, OnDestroy {
     this.profileService.uploadPhoto(file).subscribe({
       next: () => {
         this.uploading.set(false);
-        this.loadPhoto();
+        // Vorschau direkt aus der bereits im Browser vorhandenen Datei bauen,
+        // statt die soeben hochgeladenen Bytes per GET /profile/photo erneut
+        // herunterzuladen - `loadPhoto()`/GET bleibt ausschließlich dem
+        // initialen `ngOnInit()`-Laden vorbehalten, wo noch keine lokale
+        // Datei existiert.
+        this.revokeCurrentUrl();
+        this.photoUrl.set(URL.createObjectURL(file));
       },
       error: (error: HttpErrorResponse) => {
         this.uploading.set(false);

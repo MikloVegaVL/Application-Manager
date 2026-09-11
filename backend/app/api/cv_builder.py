@@ -21,7 +21,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.api.profile import _require_pdf
+from app.api.profile import _NO_PROFILE_DETAIL
 from app.db.database import get_db
 from app.models.master_profile import MasterProfile
 from app.schemas.master_profile import (
@@ -32,12 +32,11 @@ from app.schemas.master_profile import (
     ProjectEntry,
     SkillEntry,
 )
+from app.services.file_validation import _require_pdf
 from app.services.pdf_parser import CvAnalysisError, PdfParsingError, missing_field_warnings, parse_cv_pdf
 from app.services.pdf_service import CV_TEMPLATES, CvTemplateId, PdfRenderError, render_cv_pdf
 
 router = APIRouter(prefix="/cv-builder", tags=["CV Builder"])
-
-_NO_PROFILE_DETAIL = "Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen."
 
 
 class CvRenderRequest(BaseModel):

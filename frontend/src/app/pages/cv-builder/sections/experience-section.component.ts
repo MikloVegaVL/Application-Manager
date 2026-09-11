@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, inject } from '@angular/core';
-import { FormArray, FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormArray, FormBuilder, FormGroup, ReactiveFormsModule } from '@angular/forms';
 
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -8,6 +8,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 
 import { ExperienceEntry } from '../../../core/models/master-profile.model';
+import { createExperienceGroup } from '../cv-section-forms.util';
 
 /**
  * Berufserfahrung-Sektion des CV Builders (KTD10: eigene Kind-Komponente mit
@@ -132,13 +133,7 @@ export class ExperienceSectionComponent {
   @Input({ required: true }) formArray!: FormArray<FormGroup>;
 
   createGroup(entry?: ExperienceEntry): FormGroup {
-    return this.formBuilder.nonNullable.group({
-      company: [entry?.company ?? '', Validators.required],
-      role: [entry?.role ?? '', Validators.required],
-      start_date: [entry?.start_date ?? ''],
-      end_date: [entry?.end_date ?? ''],
-      description: [entry?.description ?? ''],
-    });
+    return createExperienceGroup(this.formBuilder, entry);
   }
 
   add(): void {

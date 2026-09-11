@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, inject } from '@angular/core';
-import { FormArray, FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormArray, FormBuilder, FormGroup, ReactiveFormsModule } from '@angular/forms';
 
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -8,6 +8,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 
 import { SkillEntry, SkillLevel } from '../../../core/models/master-profile.model';
+import { createSkillGroup } from '../cv-section-forms.util';
 
 /**
  * KTD3: die vier zulässigen Kompetenzgrade, identisch zu
@@ -157,10 +158,7 @@ export class SkillsSectionComponent {
   @Input({ required: true }) formArray!: FormArray<FormGroup>;
 
   createGroup(entry?: SkillEntry): FormGroup {
-    return this.formBuilder.nonNullable.group({
-      name: [entry?.name ?? '', Validators.required],
-      level: [entry?.level ?? MIGRATION_DEFAULT_LEVEL, Validators.required],
-    });
+    return createSkillGroup(this.formBuilder, entry);
   }
 
   add(): void {

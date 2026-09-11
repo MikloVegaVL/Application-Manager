@@ -18,11 +18,12 @@ function normalizeForComparison(value: unknown): unknown {
   }
 
   if (Array.isArray(value)) {
-    return value
-      .map((item) => normalizeForComparison(item))
-      .map((item) => JSON.stringify(item))
-      .sort()
-      .map((item) => JSON.parse(item) as unknown);
+    // Jedes Element normalisieren + stringifizieren, dann sortieren, damit
+    // die Array-Reihenfolge beim Vergleich egal ist (siehe Moduldokumentation
+    // oben). Die Strings bleiben Strings - `sectionsEqual` stringifiziert das
+    // Gesamtergebnis ohnehin noch einmal, ein Parse zurück in Objekte nur um
+    // sie gleich wieder zu stringifizieren wäre reine Verschwendung.
+    return value.map((item) => JSON.stringify(normalizeForComparison(item))).sort();
   }
 
   if (typeof value === 'object') {

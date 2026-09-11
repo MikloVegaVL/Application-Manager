@@ -1,20 +1,19 @@
 import { ChangeDetectionStrategy, Component, Input, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { FormArray, FormBuilder, FormControl, FormGroup, Validators } from '@angular/forms';
+import { FormArray, FormBuilder, FormControl, FormGroup } from '@angular/forms';
 
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
-import {
-  EducationEntry,
-  ExperienceEntry,
-  MasterProfileRead,
-  ParsedCvProfile,
-  ProjectEntry,
-  SkillEntry,
-} from '../../../core/models/master-profile.model';
+import { MasterProfileRead, ParsedCvProfile, SkillEntry } from '../../../core/models/master-profile.model';
 import { ProfileService } from '../../../core/services/profile.service';
+import {
+  createEducationGroup,
+  createExperienceGroup,
+  createProjectGroup,
+  createSkillGroup,
+} from '../cv-section-forms.util';
 import { sectionsEqual } from '../cv-section-diff.util';
 
 /** Die vier Sektionen, die ein CV-Import befüllt und die dem R13-
@@ -350,17 +349,21 @@ export class CvImportComponent {
 
   private applySections(parsed: ParsedCvProfile, keys: ImportSectionKey[]): void {
     if (keys.includes('experiences_json')) {
-      this.replaceArray(this.experiencesArray, parsed.experiences, (entry) => this.createExperienceGroup(entry));
+      this.replaceArray(this.experiencesArray, parsed.experiences, (entry) =>
+        createExperienceGroup(this.formBuilder, entry),
+      );
     }
     if (keys.includes('education_json')) {
-      this.replaceArray(this.educationArray, parsed.education, (entry) => this.createEducationGroup(entry));
+      this.replaceArray(this.educationArray, parsed.education, (entry) =>
+        createEducationGroup(this.formBuilder, entry),
+      );
     }
     if (keys.includes('skills_json')) {
       const skillEntries: SkillEntry[] = parsed.skills.map((name) => ({ name, level: IMPORTED_SKILL_LEVEL }));
-      this.replaceArray(this.skillsArray, skillEntries, (entry) => this.createSkillGroup(entry));
+      this.replaceArray(this.skillsArray, skillEntries, (entry) => createSkillGroup(this.formBuilder, entry));
     }
     if (keys.includes('projects_json')) {
-      this.replaceArray(this.projectsArray, parsed.projects, (entry) => this.createProjectGroup(entry));
+      this.replaceArray(this.projectsArray, parsed.projects, (entry) => createProjectGroup(this.formBuilder, entry));
     }
   }
 
@@ -384,43 +387,6 @@ export class CvImportComponent {
 
   private savedSectionValue(key: ImportSectionKey): unknown {
     return this.lastSavedProfile ? this.lastSavedProfile[key] : [];
-  }
-
-  private createExperienceGroup(entry?: ExperienceEntry): FormGroup {
-    return this.formBuilder.nonNullable.group({
-      company: [entry?.company ?? '', Validators.required],
-      role: [entry?.role ?? '', Validators.required],
-      start_date: [entry?.start_date ?? ''],
-      end_date: [entry?.end_date ?? ''],
-      description: [entry?.description ?? ''],
-    });
-  }
-
-  private createEducationGroup(entry?: EducationEntry): FormGroup {
-    return this.formBuilder.nonNullable.group({
-      institution: [entry?.institution ?? '', Validators.required],
-      degree: [entry?.degree ?? '', Validators.required],
-      field_of_study: [entry?.field_of_study ?? ''],
-      start_date: [entry?.start_date ?? ''],
-      end_date: [entry?.end_date ?? ''],
-    });
-  }
-
-  private createSkillGroup(entry?: SkillEntry): FormGroup {
-    return this.formBuilder.nonNullable.group({
-      name: [entry?.name ?? '', Validators.required],
-      level: [entry?.level ?? IMPORTED_SKILL_LEVEL, Validators.required],
-    });
-  }
-
-  private createProjectGroup(entry?: ProjectEntry): FormGroup {
-    return this.formBuilder.nonNullable.group({
-      title: [entry?.title ?? '', Validators.required],
-      description: [entry?.description ?? '', Validators.required],
-      start_date: [entry?.start_date ?? ''],
-      end_date: [entry?.end_date ?? ''],
-      link: [entry?.link ?? ''],
-    });
   }
 
   private resolveErrorMessage(error: HttpErrorResponse): string {
