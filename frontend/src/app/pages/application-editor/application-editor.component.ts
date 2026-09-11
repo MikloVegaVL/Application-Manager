@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
 import { catchError, filter, of, switchMap, take, takeUntil, timer } from 'rxjs';
 
 import { TextFieldModule } from '@angular/cdk/text-field';
@@ -68,6 +69,7 @@ export class ApplicationEditorComponent implements OnInit {
   private readonly snackBar = inject(MatSnackBar);
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
   protected readonly i18n = inject(TranslationService);
 
   /** Abstand zwischen zwei Status-Abfragen, während auf eine bereits
@@ -347,6 +349,9 @@ export class ApplicationEditorComponent implements OnInit {
             this.i18n.translate('common.ok'),
             { duration: 4000 },
           );
+          // Nach erfolgreichem Versand zurück zur Übersicht, damit der neue
+          // Status (Versendet + Empfängeradresse) direkt sichtbar ist.
+          void this.router.navigate(['/applications']);
         },
         error: (error: HttpErrorResponse) => {
           this.sending.set(false);

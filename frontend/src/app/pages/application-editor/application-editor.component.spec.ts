@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed, fakeAsync, flush, tick } from '@angular/core
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { Router, provideRouter } from '@angular/router';
 import { MatDialogRef } from '@angular/material/dialog';
 import { of } from 'rxjs';
 
@@ -84,7 +85,7 @@ describe('ApplicationEditorComponent', () => {
 
     await TestBed.configureTestingModule({
       imports: [ApplicationEditorComponent, NoopAnimationsModule],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ApplicationEditorComponent);
@@ -374,10 +375,12 @@ describe('ApplicationEditorComponent', () => {
       expect(data.subject).toBe('Bewerbung');
     });
 
-    it('sends with the dialog-confirmed values and shows a success message', () => {
+    it('sends with the dialog-confirmed values, shows a success message and redirects to the overview', () => {
       loadApplication(httpMock, {
         coverLetterText: 'Betreff: Bewerbung als Softwareentwickler\n\nSehr geehrte Damen und Herren,',
       });
+      const router = TestBed.inject(Router);
+      const navigateSpy = spyOn(router, 'navigate');
       const confirmedResult: SendApplicationDialogResult = {
         to_email: 'empfaenger@example.com',
         subject: 'Bewerbung als Softwareentwickler',
@@ -396,6 +399,27 @@ describe('ApplicationEditorComponent', () => {
       req.flush(buildApplication('Betreff: Bewerbung als Softwareentwickler\n\nSehr geehrte Damen und Herren,'));
 
       expect(component['application']()?.status).toBe('draft');
+      expect(navigateSpy).toHaveBeenCalledWith(['/applications']);
+    });
+
+    it('does not redirect when sending fails', () => {
+      loadApplication(httpMock, {
+        coverLetterText: 'Betreff: Bewerbung als Softwareentwickler\n\nSehr geehrte Damen und Herren,',
+      });
+      const router = TestBed.inject(Router);
+      const navigateSpy = spyOn(router, 'navigate');
+      spyOnDialogOpen(component, {
+        to_email: 'empfaenger@example.com',
+        subject: 'Bewerbung als Softwareentwickler',
+        message: 'Sehr geehrte Damen und Herren,',
+      });
+
+      component.onOpenSendDialog();
+
+      const req = httpMock.expectOne((r) => r.url.endsWith('/applications/1/send'));
+      req.flush('server error', { status: 500, statusText: 'Internal Server Error' });
+
+      expect(navigateSpy).not.toHaveBeenCalled();
     });
 
     it('Regression: opening the send dialog does not modify the saved Anschreiben text or coverLetterForm', () => {
