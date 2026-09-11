@@ -7,7 +7,15 @@ artifact_contract: ce-unified-plan/v1
 artifact_readiness: requirements-only
 product_contract_source: ce-brainstorm
 execution: code
+status: superseded
+superseded_by: docs/plans/2026-09-11-001-feat-job-search-broader-source-coverage-plan.md
 ---
+
+> **SUPERSEDED (2026-09-11):** This plan's 8-HTML-board scope was merged with the
+> separate DEVjobs.de/Adzuna/Jooble brainstorm into
+> `docs/plans/2026-09-11-001-feat-job-search-broader-source-coverage-plan.md`,
+> which covers all 13 sources and resolves the duplicated DEVjobs.de entry.
+> Kept for historical reference; do not execute this plan.
 
 # Job Search Broader German Job-Board Coverage - Plan
 
