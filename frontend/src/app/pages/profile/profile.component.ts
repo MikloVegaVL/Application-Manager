@@ -49,16 +49,6 @@ export class ProfileComponent implements OnInit {
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
 
-  /**
-   * Das zuletzt von `GET /profile` geladene (oder von `PUT /profile`
-   * zurückgegebene) vollständige Profil. `onSubmit()` startet den
-   * `PUT`-Payload hiervon, statt ihn nur aus dem (identitäts-only) Formular
-   * zu bauen - siehe KTD14: `PUT /profile` überschreibt alle Felder
-   * feldweise, ein Payload ohne die Builder-Felder würde sie sonst bei jedem
-   * Identitäts-Save stillschweigend auf leere Defaults zurücksetzen.
-   */
-  private lastLoadedProfile: MasterProfileRead | null = null;
-
   // --- Lebenslauf-Anhang (Tab 2) - wird unverändert als E-Mail-Anhang
   // genutzt, wenn eine Bewerbung versendet wird (siehe
   // `app.api.profile.upload_cv_file`). ---
@@ -116,13 +106,39 @@ export class ProfileComponent implements OnInit {
     }
 
     const raw = this.profileForm.getRawValue();
-    // KTD14: vom zuletzt geladenen Profil starten und NUR die Identitäts-
-    // felder überschreiben, statt einen Payload nur aus dem (identitäts-
-    // only) Formular zu bauen - sonst würden Builder-eigene Felder
-    // (experiences_json, education_json, skills_json, ...) bei jedem
-    // Identitäts-Save stillschweigend auf leere Defaults zurückgesetzt, weil
-    // `PUT /profile` alle Felder feldweise überschreibt.
-    const base = this.lastLoadedProfile;
+    this.saving.set(true);
+
+    // KTD14: NUR die Identitätsfelder überschreiben, alle Builder-eigenen
+    // Felder (experiences_json, education_json, skills_json, ...) unverändert
+    // zurückschicken, weil `PUT /profile` alle Felder feldweise überschreibt.
+    // Review-Fund (fix(review)): der Payload wird bewusst NICHT mehr aus
+    // `this.lastLoadedProfile` gebaut, einer beim Seitenaufruf einmalig
+    // geladenen Momentaufnahme, die von keiner anderen Quelle (z. B. einem
+    // zwischenzeitlichen Save im CV Builder in einem anderen Tab) aktualisiert
+    // wird - ein PUT mit dieser veralteten Momentaufnahme würde dort
+    // inzwischen gespeicherte Builder-Inhalte sonst stillschweigend
+    // zurücksetzen. Stattdessen wird das Profil unmittelbar vor dem PUT frisch
+    // geladen, damit der Payload garantiert den aktuellen Stand aller
+    // Builder-Felder enthält.
+    this.profileService.getProfile().subscribe({
+      next: (base) => this.submitWithBase(raw, base),
+      error: (error: HttpErrorResponse) => {
+        // 404 = es existiert noch kein Profil -> Neuanlage, kein Builder-
+        // Inhalt zu bewahren.
+        if (error.status === 404) {
+          this.submitWithBase(raw, null);
+          return;
+        }
+        this.saving.set(false);
+        this.snackBar.open('Profil konnte nicht gespeichert werden.', 'OK', { duration: 4000 });
+      },
+    });
+  }
+
+  private submitWithBase(
+    raw: { full_name: string; email: string; phone: string; address: string },
+    base: MasterProfileRead | null,
+  ): void {
     const payload: MasterProfile = {
       full_name: raw.full_name,
       email: raw.email,
@@ -138,7 +154,6 @@ export class ProfileComponent implements OnInit {
       template_id: base?.template_id ?? null,
     };
 
-    this.saving.set(true);
     this.profileService.saveProfile(payload).subscribe({
       next: (profile) => {
         this.saving.set(false);
@@ -153,7 +168,6 @@ export class ProfileComponent implements OnInit {
   }
 
   private applyProfileToForm(profile: MasterProfileRead): void {
-    this.lastLoadedProfile = profile;
     this.profileId.set(profile.id);
     this.cvFilename.set(profile.cv_filename);
     this.attachments.set(profile.attachments ?? []);

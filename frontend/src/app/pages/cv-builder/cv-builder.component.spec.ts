@@ -205,14 +205,24 @@ describe('CvBuilderComponent', () => {
     expect(Object.keys(req.request.body)).not.toContain('full_name');
     expect(Object.keys(req.request.body)).not.toContain('photo_path');
 
-    req.flush({ ...baseProfileResponse, summary: 'New summary' });
+    // fix(review) #4 fixture correction: the mock backend must echo back
+    // template_id: 'classic' too, matching what the PATCH body above actually
+    // sent (auto-selected by CvPreviewExportComponent since the profile had
+    // no saved template yet) - otherwise lastSavedProfile would disagree with
+    // templateIdControl for a reason unrelated to what this test checks.
+    req.flush({ ...baseProfileResponse, summary: 'New summary', template_id: 'classic' });
     fixture.detectChanges();
 
     expect(component.hasUnsavedChanges()).toBeFalse();
   });
 
   it('hasUnsavedChanges() treats a reordered-but-unchanged array as unchanged (KTD12)', () => {
+    // template_id pinned to a non-null value so CvPreviewExportComponent's
+    // KTD8 auto-select (which only fires when template_id is null) has
+    // nothing to do here - this test is about skills-array reordering, not
+    // template selection (see the fix(review) #4 test above for that).
     goToReady({
+      template_id: 'classic',
       skills_json: [
         { name: 'TypeScript', level: 'Gut' },
         { name: 'Angular', level: 'Experte' },
@@ -227,6 +237,18 @@ describe('CvBuilderComponent', () => {
     expect(component.hasUnsavedChanges()).toBeFalse();
 
     component['skillsArray'].at(0).get('level')?.setValue('Grundkenntnisse');
+    expect(component.hasUnsavedChanges()).toBeTrue();
+  });
+
+  it('fix(review) #4: hasUnsavedChanges() is true when only template_id changed', () => {
+    // save()'s PATCH payload includes template_id (asserted above), so a
+    // template-only change must trip the same guard as any other section.
+    goToReady({ template_id: 'classic' });
+
+    expect(component.hasUnsavedChanges()).toBeFalse();
+
+    component['templateIdControl'].setValue('modern');
+
     expect(component.hasUnsavedChanges()).toBeTrue();
   });
 
@@ -245,7 +267,9 @@ describe('CvBuilderComponent', () => {
   });
 
   it('onBeforeUnload does nothing when there are no unsaved changes', () => {
-    goToReady();
+    // template_id pinned to a non-null value, same reasoning as the KTD12
+    // reorder test above - this test isn't about template selection.
+    goToReady({ template_id: 'classic' });
 
     const event = { preventDefault: jasmine.createSpy('preventDefault') } as unknown as BeforeUnloadEvent;
     component.onBeforeUnload(event);

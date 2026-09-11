@@ -153,16 +153,20 @@ def update_profile_content(payload: MasterProfileUpdate, db: Session = Depends(g
     Felder werden geändert (`exclude_unset`), fehlende Felder bleiben
     unangetastet. Identitätsfelder (`full_name`, `email`, `phone`, `address`)
     bleiben `PUT` vorbehalten und werden hier mit 422 abgelehnt, sofern sie
-    nicht-null im Payload stehen. `photo_path` ist in `MasterProfileUpdate`
-    gar nicht erst enthalten - das schreiben ausschließlich die
-    Foto-Endpunkte (`POST`/`DELETE /profile/photo`).
+    überhaupt im Payload gesetzt sind - auch als explizites `null` (siehe
+    fix(review): `data.get(field) is not None` hätte ein absichtlich
+    gesendetes `{"email": null}` durchgelassen und wäre am NOT-NULL-
+    Constraint von `full_name`/`email` mit einem unbehandelten
+    IntegrityError statt der dokumentierten 422 gescheitert). `photo_path`
+    ist in `MasterProfileUpdate` gar nicht erst enthalten - das schreiben
+    ausschließlich die Foto-Endpunkte (`POST`/`DELETE /profile/photo`).
 
     Setzt ein bereits existierendes Profil voraus (KTD9): der Builder legt
     kein neues Profil an, das bleibt weiterhin `PUT /profile` vorbehalten.
     """
     data = payload.model_dump(exclude_unset=True)
 
-    identity_violations = [field for field in _IDENTITY_FIELDS if data.get(field) is not None]
+    identity_violations = [field for field in _IDENTITY_FIELDS if field in data]
     if identity_violations:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

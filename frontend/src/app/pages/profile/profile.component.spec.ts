@@ -260,6 +260,9 @@ describe('ProfileComponent - non-destructive identity save (KTD14)', () => {
 
     component.onSubmit();
 
+    const getReq = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'GET');
+    getReq.flush(loadedProfileFixture);
+
     const req = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'PUT');
     const body = req.request.body;
 
@@ -278,5 +281,46 @@ describe('ProfileComponent - non-destructive identity save (KTD14)', () => {
     expect(body.template_id).toBe(loadedProfileFixture.template_id);
 
     req.flush(loadedProfileFixture);
+  });
+
+  it('fix(review) #1: re-fetches the profile at submit time instead of reusing the initial-load snapshot, so a save in another tab is not reverted', () => {
+    // Simulates the cross-tab scenario the finding describes: another tab
+    // (e.g. the CV Builder) saved new content after this component's initial
+    // load. onSubmit() must reflect that fresh state, not the stale snapshot
+    // captured on ngOnInit.
+    const updatedElsewhere = {
+      ...loadedProfileFixture,
+      experiences_json: [
+        ...loadedProfileFixture.experiences_json,
+        { company: 'Other GmbH', role: 'Added in another tab', start_date: '2024', end_date: null, description: null },
+      ],
+      photo_filename: 'new-photo-from-other-tab.jpg',
+    };
+
+    component['profileForm'].patchValue({ full_name: 'Erika Musterfrau' });
+    component.onSubmit();
+
+    const getReq = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'GET');
+    getReq.flush(updatedElsewhere);
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'PUT');
+    expect(req.request.body.experiences_json).toEqual(updatedElsewhere.experiences_json);
+    expect(req.request.body.photo_filename).toBe('new-photo-from-other-tab.jpg');
+
+    req.flush(updatedElsewhere);
+  });
+
+  it('fix(review) #1: still saves identity-only changes when no profile exists yet (404 on the pre-submit fetch)', () => {
+    component['profileForm'].patchValue({ full_name: 'Neu Angelegt' });
+    component.onSubmit();
+
+    const getReq = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'GET');
+    getReq.flush({ detail: 'not found' }, { status: 404, statusText: 'Not Found' });
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'PUT');
+    expect(req.request.body.full_name).toBe('Neu Angelegt');
+    expect(req.request.body.experiences_json).toEqual([]);
+
+    req.flush({ ...loadedProfileFixture, full_name: 'Neu Angelegt' });
   });
 });

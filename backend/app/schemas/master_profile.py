@@ -81,7 +81,15 @@ class MasterProfileCreate(MasterProfileBase):
 
 
 class MasterProfileUpdate(BaseModel):
-    """Payload für ein partielles Update - alle Felder sind optional."""
+    """Payload für ein partielles Update - alle Felder sind optional.
+
+    `photo_filename` (wie `photo_path`) ist hier bewusst NICHT enthalten
+    (fix(review)): Foto-Metadaten dürfen ausschließlich über die dedizierten
+    `POST`/`DELETE /profile/photo`-Endpunkte geschrieben werden, sonst könnte
+    ein `PATCH /profile`-Payload `photo_filename` überschreiben, ohne dass
+    sich der tatsächliche `photo_path` (bzw. die Datei auf der Festplatte)
+    mitändert - die beiden liefen dann auseinander.
+    """
 
     full_name: str | None = Field(default=None, max_length=255)
     email: EmailStr | None = None
@@ -93,7 +101,6 @@ class MasterProfileUpdate(BaseModel):
     skills_json: list[SkillEntry] | None = None
     languages_json: list[LanguageEntry] | None = None
     projects_json: list[ProjectEntry] | None = None
-    photo_filename: str | None = None
     template_id: str | None = None
 
 

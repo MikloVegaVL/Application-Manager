@@ -337,7 +337,11 @@ export class CvBuilderComponent implements OnInit {
       !sectionsEqual(this.educationArray.getRawValue(), saved.education_json) ||
       !sectionsEqual(this.skillsArray.getRawValue(), saved.skills_json) ||
       !sectionsEqual(this.languagesArray.getRawValue(), saved.languages_json) ||
-      !sectionsEqual(this.projectsArray.getRawValue(), saved.projects_json)
+      !sectionsEqual(this.projectsArray.getRawValue(), saved.projects_json) ||
+      // fix(review) #4: template_id is part of save()'s PATCH payload just
+      // like the sections above, so switching templates and navigating away
+      // without saving must also trip the unsaved-changes guard.
+      !sectionsEqual(this.templateIdControl.value, saved.template_id)
     );
   }
 

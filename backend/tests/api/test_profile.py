@@ -87,6 +87,53 @@ def test_patch_profile_rejects_non_null_email(client, tmp_path, monkeypatch):
     assert response.status_code == 422
 
 
+def test_patch_profile_rejects_explicit_null_full_name(client, tmp_path, monkeypatch):
+    """fix(review) #2: `field in data` catches an explicit null, not just a
+    non-null value (`data.get(field) is not None` would have let this through
+    and crashed on the NOT-NULL `full_name` column instead of returning 422)."""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch("/api/profile", json={"full_name": None})
+
+    assert response.status_code == 422
+
+
+def test_patch_profile_rejects_explicit_null_email(client, tmp_path, monkeypatch):
+    """fix(review) #2, same as above for email."""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch("/api/profile", json={"email": None})
+
+    assert response.status_code == 422
+
+
+def test_patch_profile_ignores_photo_filename_field(client, tmp_path, monkeypatch):
+    """fix(review) #3: `photo_filename` is no longer a declared field on
+    `MasterProfileUpdate`, so Pydantic's default `extra='ignore'` drops it
+    from the payload entirely - it can no longer be written via PATCH and so
+    can no longer desync from `photo_path`, which only POST/DELETE
+    /profile/photo may write. (Not a 422: an undeclared field is silently
+    ignored, not rejected - this test proves it has zero effect, not that it
+    errors.)"""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch(
+        "/api/profile",
+        json={"summary": "Aktualisiert", "photo_filename": "sneaky.jpg"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summary"] == "Aktualisiert"
+    assert body["photo_filename"] is None
+
+
 def test_patch_profile_requires_existing_profile(client, tmp_path, monkeypatch):
     test_client, _ = client
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
@@ -113,7 +160,6 @@ def test_patch_profile_partial_payload_leaves_other_fields_untouched(client, tmp
             ],
             "languages_json": [{"name": "Deutsch", "level": "C2"}],
             "projects_json": [{"title": "Projekt X", "description": "Beschreibung"}],
-            "photo_filename": "foto.jpg",
             "template_id": "modern",
         },
     )
@@ -141,7 +187,6 @@ def test_patch_profile_partial_payload_leaves_other_fields_untouched(client, tmp
     assert body["projects_json"] == [
         {"title": "Projekt X", "description": "Beschreibung", "start_date": None, "end_date": None, "link": None}
     ]
-    assert body["photo_filename"] == "foto.jpg"
     assert body["template_id"] == "modern"
 
 
