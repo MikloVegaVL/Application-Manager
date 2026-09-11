@@ -35,15 +35,9 @@ import requests
 from bs4 import BeautifulSoup
 
 from app.schemas.job_offer import JobOfferCreate
+from app.services.job_sources.shared import DEFAULT_USER_AGENT
 
 logger = logging.getLogger(__name__)
-
-# Eigener User-Agent-Konstante statt Import aus job_search_service (KTD3:
-# job_sources/ importiert nie aus job_search_service.py).
-_DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (compatible; ApplicationManagerBot/1.0; "
-    "+https://github.com/application-manager)"
-)
 
 
 class LinkedInJobsClient:
@@ -81,7 +75,7 @@ class LinkedInJobsClient:
         self._cooldown_seconds = cooldown_seconds
         self._headers = {
             "Accept": "text/html",
-            "User-Agent": _DEFAULT_USER_AGENT,
+            "User-Agent": DEFAULT_USER_AGENT,
         }
 
     def search(

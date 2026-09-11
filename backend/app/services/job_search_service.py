@@ -29,31 +29,31 @@ befragt - dieser Pfad ist von der neuen Mehrquellen-Suche unberührt.
 from __future__ import annotations
 
 import base64
-import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from time import monotonic
 from typing import Any
-from urllib.parse import unquote, urljoin
+from urllib.parse import unquote
 
 import requests
-from bs4 import BeautifulSoup
 
 from app.core.config import settings
 from app.schemas.job_offer import JobOfferCreate, JobSearchResponse, SourceStatus
 from app.services.job_sources.linkedin import LinkedInJobsClient
+from app.services.job_sources.shared import (
+    DEFAULT_USER_AGENT,
+    MAX_HEURISTIC_RESULTS,
+    extract_heuristic_offers,
+    extract_json_ld_offers,
+    extract_offers,
+    fetch_html,
+    map_json_ld_offer,
+    strip_html,
+)
 from app.services.job_sources.xing import XingJobScraper
 
 logger = logging.getLogger(__name__)
-
-# Browser-artiger User-Agent, um von Zielseiten nicht pauschal als Bot
-# geblockt zu werden. Für produktive Nutzung sollte jede Quelle einzeln auf
-# robots.txt / Nutzungsbedingungen geprüft werden.
-_DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (compatible; ApplicationManagerBot/1.0; "
-    "+https://github.com/application-manager)"
-)
 
 
 class ArbeitsagenturJobsClient:
@@ -94,7 +94,7 @@ class ArbeitsagenturJobsClient:
         self._headers = {
             "X-API-Key": self.API_KEY,
             "Accept": "application/json",
-            "User-Agent": _DEFAULT_USER_AGENT,
+            "User-Agent": DEFAULT_USER_AGENT,
         }
 
     def search(
@@ -207,29 +207,23 @@ class ArbeitsagenturJobsClient:
         raw_description = payload.get("stellenangebotsBeschreibung") or payload.get("stellenbeschreibung") or ""
         if not raw_description:
             return None
-        return BeautifulSoup(raw_description, "html.parser").get_text(separator=" ", strip=True) or None
+        return strip_html(raw_description)
 
 
 class GenericJobScraper:
     """Generischer Fallback-Scraper für Stellenanzeigen-Webseiten ohne API.
 
-    Extrahiert Stellenanzeigen aus einer beliebigen Ergebnisseite in zwei
-    Stufen:
-
-    1. Bevorzugt über eingebettete `schema.org/JobPosting`-JSON-LD-Daten,
-       die die meisten seriösen Jobbörsen zu SEO-Zwecken einbetten - das
-       liefert sauber strukturierte, verlässliche Felder.
-    2. Fällt das aus, über eine heuristische Extraktion anhand verbreiteter
-       HTML-/CSS-Muster (Karten-/Listenelemente mit Job-typischen
-       Klassennamen).
-
-    Für Seiten, deren Inhalt erst per JavaScript nachgeladen wird, kann
-    `use_playwright=True` gesetzt werden, um die Seite vor der Extraktion
-    vollständig zu rendern.
+    Dünner Konsument der geteilten Extraktions-Helfer in
+    `app.services.job_sources.shared` (KTD2): die zweistufige Extraktion
+    (bevorzugt `schema.org/JobPosting`-JSON-LD, sonst heuristische Karten-
+    Erkennung) und die HTML-Beschaffung liegen dort und werden von allen
+    HTML-Quellen geteilt. `SOURCE_PLATFORM` bleibt "web-scraper", weil dieser
+    Pfad eine beliebige, unbenannte Fallback-URL lädt - benannte Boards nutzen
+    stattdessen ihren `BoardDescriptor`.
     """
 
     SOURCE_PLATFORM = "web-scraper"
-    _MAX_HEURISTIC_RESULTS = 25
+    _MAX_HEURISTIC_RESULTS = MAX_HEURISTIC_RESULTS
 
     def __init__(self, use_playwright: bool = False, timeout: float = 15.0) -> None:
         self._use_playwright = use_playwright
@@ -242,168 +236,34 @@ class GenericJobScraper:
         location: str | None = None,
     ) -> list[JobOfferCreate]:
         """Lädt `url` und extrahiert daraus strukturierte Stellenanzeigen."""
-        html = self._fetch_html(url)
+        html = fetch_html(url, use_playwright=self._use_playwright, timeout=self._timeout)
         if not html:
             return []
         return self._extract_offers(html, source_url=url)
 
-    # --- HTML-Beschaffung -------------------------------------------------
-
-    def _fetch_html(self, url: str) -> str | None:
-        if self._use_playwright:
-            return self._fetch_with_playwright(url)
-        return self._fetch_with_requests(url)
-
-    def _fetch_with_requests(self, url: str) -> str | None:
-        try:
-            response = requests.get(
-                url,
-                timeout=self._timeout,
-                headers={"User-Agent": _DEFAULT_USER_AGENT},
-            )
-            response.raise_for_status()
-            return response.text
-        except requests.RequestException as exc:
-            logger.warning("Fallback-Scraper: Abruf von %s fehlgeschlagen: %s", url, exc)
-            return None
-
-    def _fetch_with_playwright(self, url: str) -> str | None:
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError:
-            logger.warning("Playwright ist nicht installiert - Fallback auf requests.")
-            return self._fetch_with_requests(url)
-
-        try:
-            with sync_playwright() as playwright:
-                browser = playwright.chromium.launch(headless=True)
-                try:
-                    page = browser.new_page(user_agent=_DEFAULT_USER_AGENT)
-                    page.goto(url, timeout=self._timeout * 1000, wait_until="networkidle")
-                    return page.content()
-                finally:
-                    browser.close()
-        except Exception as exc:  # noqa: BLE001 - z. B. fehlende Browser-Binaries
-            logger.warning(
-                "Playwright-Rendering von %s fehlgeschlagen (%s). "
-                "Ist der Browser installiert? -> `playwright install chromium`",
-                url,
-                exc,
-            )
-            return None
-
-    # --- Extraktion ---------------------------------------------------
+    # --- Extraktion (dünne Delegationen auf die geteilte Schicht) --------
 
     def _extract_offers(self, html: str, source_url: str) -> list[JobOfferCreate]:
-        soup = BeautifulSoup(html, "html.parser")
-
-        offers = self._extract_json_ld_offers(soup, source_url)
-        if offers:
-            return offers
-
-        return self._extract_heuristic_offers(soup, source_url)
-
-    def _extract_json_ld_offers(self, soup: BeautifulSoup, source_url: str) -> list[JobOfferCreate]:
-        offers: list[JobOfferCreate] = []
-        for script in soup.find_all("script", type="application/ld+json"):
-            try:
-                data = json.loads(script.string or "")
-            except (json.JSONDecodeError, TypeError):
-                continue
-
-            for item in data if isinstance(data, list) else [data]:
-                if not isinstance(item, dict) or item.get("@type") != "JobPosting":
-                    continue
-                offer = self._map_json_ld_offer(item, source_url)
-                if offer is not None:
-                    offers.append(offer)
-        return offers
-
-    def _map_json_ld_offer(self, item: dict[str, Any], source_url: str) -> JobOfferCreate | None:
-        title = item.get("title")
-        if not title:
-            return None
-
-        organization = item.get("hiringOrganization")
-        if isinstance(organization, dict):
-            company = organization.get("name")
-        else:
-            company = organization
-        company = company or "Unbekanntes Unternehmen"
-
-        job_location = item.get("jobLocation")
-        if isinstance(job_location, list):
-            job_location = job_location[0] if job_location else {}
-        address = job_location.get("address") if isinstance(job_location, dict) else None
-        address = address if isinstance(address, dict) else {}
-        location = ", ".join(
-            filter(None, [address.get("addressLocality"), address.get("addressRegion")])
-        ) or None
-
-        raw_description = item.get("description") or ""
-        description_text = BeautifulSoup(raw_description, "html.parser").get_text(
-            separator=" ", strip=True
-        ) or None
-
-        return JobOfferCreate(
-            title=str(title).strip(),
-            company=str(company).strip(),
-            location=location,
-            source_url=item.get("url") or source_url,
-            description_text=description_text,
-            source_platform=self.SOURCE_PLATFORM,
+        return extract_offers(
+            html,
+            source_url,
+            self.SOURCE_PLATFORM,
+            max_results=self._MAX_HEURISTIC_RESULTS,
         )
 
-    def _extract_heuristic_offers(self, soup: BeautifulSoup, source_url: str) -> list[JobOfferCreate]:
-        job_class_pattern = re.compile(r"job|stelle|vacan", re.IGNORECASE)
-        company_pattern = re.compile(r"company|arbeitgeber|employer|firma", re.IGNORECASE)
-        location_pattern = re.compile(r"location|ort|city|standort", re.IGNORECASE)
+    def _extract_json_ld_offers(self, soup: Any, source_url: str) -> list[JobOfferCreate]:
+        return extract_json_ld_offers(soup, source_url, self.SOURCE_PLATFORM)
 
-        offers: list[JobOfferCreate] = []
-        seen_titles: set[str] = set()
+    def _map_json_ld_offer(self, item: dict[str, Any], source_url: str) -> JobOfferCreate | None:
+        return map_json_ld_offer(item, source_url, self.SOURCE_PLATFORM)
 
-        candidates = soup.find_all(class_=job_class_pattern) + soup.find_all("article")
-        for node in candidates:
-            # Erst nach einer echten Überschrift suchen, erst danach auf ein
-            # <a> zurückfallen: viele Kartenlayouts wickeln die ganze Karte
-            # in ein textloses Overlay-<a> (Linktext nur im aria-label), das
-            # im DOM vor der sichtbaren Überschrift steht - `find()` mit
-            # einer Tag-Liste matcht in Dokumentreihenfolge, nicht nach
-            # Priorität der Liste, und würde sonst immer das leere <a>
-            # statt der echten Überschrift treffen (siehe Xing-Scraper für
-            # ein konkretes Beispiel dieses Karten-Musters).
-            title_el = node.find(["h1", "h2", "h3"]) or node.find("a")
-            if title_el is None:
-                continue
-            title = title_el.get_text(strip=True)
-            if len(title) < 3 or title in seen_titles:
-                continue
-
-            link_el = node.find("a", href=True)
-            href = link_el["href"] if link_el else source_url
-            full_url = href if href.startswith("http") else urljoin(source_url, href)
-
-            company_el = node.find(class_=company_pattern)
-            company = company_el.get_text(strip=True) if company_el else "Unbekanntes Unternehmen"
-
-            location_el = node.find(class_=location_pattern)
-            location = location_el.get_text(strip=True) if location_el else None
-
-            seen_titles.add(title)
-            offers.append(
-                JobOfferCreate(
-                    title=title,
-                    company=company,
-                    location=location,
-                    source_url=full_url,
-                    description_text=None,
-                    source_platform=self.SOURCE_PLATFORM,
-                )
-            )
-            if len(offers) >= self._MAX_HEURISTIC_RESULTS:
-                break
-
-        return offers
+    def _extract_heuristic_offers(self, soup: Any, source_url: str) -> list[JobOfferCreate]:
+        return extract_heuristic_offers(
+            soup,
+            source_url,
+            self.SOURCE_PLATFORM,
+            max_results=self._MAX_HEURISTIC_RESULTS,
+        )
 
 
 class JobSearchService:

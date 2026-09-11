@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.services.job_sources import xing as xing_module
+from app.services.job_sources import shared as shared_module
 from app.services.job_sources.xing import XingJobScraper
 
 # Xings echte Karten-Struktur (siehe ce-debug-Untersuchung, 2026-08-18):
@@ -127,14 +127,14 @@ def _fake_sync_playwright_factory(html: str):
 def _restore_semaphore():
     """Jeder Test bekommt ein frisches Semaphore, damit Tests sich nicht
     gegenseitig über gehaltene Permits beeinflussen."""
-    original = xing_module._playwright_launch_semaphore
-    xing_module._playwright_launch_semaphore = threading.Semaphore(2)
+    original = shared_module.playwright_launch_semaphore
+    shared_module.playwright_launch_semaphore = threading.Semaphore(2)
     yield
-    xing_module._playwright_launch_semaphore = original
+    shared_module.playwright_launch_semaphore = original
 
 
 def test_happy_path_returns_mapped_offers(mocker):
-    mocker.patch.object(xing_module, "sync_playwright", _fake_sync_playwright_factory(TWO_CARDS_HTML))
+    mocker.patch.object(shared_module, "sync_playwright", _fake_sync_playwright_factory(TWO_CARDS_HTML))
 
     offers = XingJobScraper().search("Angular", "Berlin")
 
@@ -146,7 +146,7 @@ def test_happy_path_returns_mapped_offers(mocker):
 
 
 def test_zero_cards_returns_empty_list(mocker):
-    mocker.patch.object(xing_module, "sync_playwright", _fake_sync_playwright_factory(ZERO_CARDS_HTML))
+    mocker.patch.object(shared_module, "sync_playwright", _fake_sync_playwright_factory(ZERO_CARDS_HTML))
 
     offers = XingJobScraper().search("Nonexistent Role")
 
@@ -159,7 +159,7 @@ def test_one_malformed_card_does_not_discard_the_others(mocker):
     other, valid cards still come back, mirroring the per-record isolation
     ArbeitsagenturJobsClient/LinkedInJobsClient already use."""
     mocker.patch.object(
-        xing_module, "sync_playwright", _fake_sync_playwright_factory(ONE_BROKEN_ONE_VALID_HTML)
+        shared_module, "sync_playwright", _fake_sync_playwright_factory(ONE_BROKEN_ONE_VALID_HTML)
     )
 
     offers = XingJobScraper().search("Angular")
@@ -171,7 +171,7 @@ def test_one_malformed_card_does_not_discard_the_others(mocker):
 def test_source_url_is_xing_detail_link_not_search_page(mocker):
     """Covers AE2: der Link zeigt auf die echte Xing-Detailseite der
     Stellenanzeige, nicht auf die Suchergebnisseite."""
-    mocker.patch.object(xing_module, "sync_playwright", _fake_sync_playwright_factory(TWO_CARDS_HTML))
+    mocker.patch.object(shared_module, "sync_playwright", _fake_sync_playwright_factory(TWO_CARDS_HTML))
 
     offers = XingJobScraper().search("Angular")
 
@@ -188,7 +188,7 @@ def test_filters_out_known_non_german_locations(mocker):
     (unlisted cities still slip through - tracked as a follow-up), but it
     closes the gap for the common cases."""
     mocker.patch.object(
-        xing_module, "sync_playwright", _fake_sync_playwright_factory(ONE_GERMAN_ONE_AUSTRIAN_HTML)
+        shared_module, "sync_playwright", _fake_sync_playwright_factory(ONE_GERMAN_ONE_AUSTRIAN_HTML)
     )
 
     offers = XingJobScraper().search("Backend")
@@ -219,7 +219,7 @@ def test_non_german_cards_do_not_consume_the_max_results_cap(mocker):
         for i, location in enumerate(["Wien", "Zürich", "Berlin", "Hamburg"])
     )
     html = f"<html><body>{cards}</body></html>"
-    mocker.patch.object(xing_module, "sync_playwright", _fake_sync_playwright_factory(html))
+    mocker.patch.object(shared_module, "sync_playwright", _fake_sync_playwright_factory(html))
 
     offers = XingJobScraper().search("Backend")
 
@@ -288,7 +288,7 @@ def test_non_german_filter_does_not_false_positive_on_similar_german_names(mocke
       </article>
     </body></html>
     """
-    mocker.patch.object(xing_module, "sync_playwright", _fake_sync_playwright_factory(html))
+    mocker.patch.object(shared_module, "sync_playwright", _fake_sync_playwright_factory(html))
 
     offers = XingJobScraper().search("Backend")
 
@@ -302,7 +302,7 @@ def test_playwright_launch_failure_returns_empty_list_without_raising(mocker):
         raise RuntimeError("simulated launch/navigation failure (e.g. geo-block)")
         yield  # pragma: no cover - unreachable, satisfies generator shape
 
-    mocker.patch.object(xing_module, "sync_playwright", _raising_cm)
+    mocker.patch.object(shared_module, "sync_playwright", _raising_cm)
 
     offers = XingJobScraper().search("Angular")
 
@@ -325,7 +325,7 @@ def test_inner_timeout_treated_same_as_launch_failure(mocker):
     def _cm():
         yield playwright
 
-    mocker.patch.object(xing_module, "sync_playwright", _cm)
+    mocker.patch.object(shared_module, "sync_playwright", _cm)
 
     offers = XingJobScraper(inner_timeout=0.01).search("Angular")
 
@@ -350,7 +350,7 @@ DETAIL_PAGE_HTML = """
 
 
 def test_fetch_description_returns_the_detail_pages_visible_text(mocker):
-    mocker.patch.object(xing_module, "sync_playwright", _fake_sync_playwright_factory(DETAIL_PAGE_HTML))
+    mocker.patch.object(shared_module, "sync_playwright", _fake_sync_playwright_factory(DETAIL_PAGE_HTML))
 
     description = XingJobScraper().fetch_description("https://www.xing.com/stellenangebote/12345-angular-developer")
 
@@ -364,7 +364,7 @@ def test_fetch_description_returns_none_when_rendering_fails(mocker):
         raise RuntimeError("simulated launch/navigation failure")
         yield  # pragma: no cover - unreachable, satisfies generator shape
 
-    mocker.patch.object(xing_module, "sync_playwright", _raising_cm)
+    mocker.patch.object(shared_module, "sync_playwright", _raising_cm)
 
     description = XingJobScraper().fetch_description("https://www.xing.com/stellenangebote/12345")
 
@@ -375,7 +375,7 @@ def test_concurrent_searches_serialize_on_the_semaphore(mocker):
     """Zwei gleichzeitige `.search()`-Aufrufe dürfen nie gleichzeitig einen
     Browser starten - das Semaphore serialisiert den Start (KTD6), nicht
     die ganze Methode."""
-    xing_module._playwright_launch_semaphore = threading.Semaphore(1)
+    shared_module.playwright_launch_semaphore = threading.Semaphore(1)
 
     concurrent_launches = 0
     max_concurrent_launches = 0
@@ -398,7 +398,7 @@ def test_concurrent_searches_serialize_on_the_semaphore(mocker):
     # Jeder Aufruf von `sync_playwright()` liefert einen frischen Context
     # Manager (wie die echte API) - `_slow_cm` selbst ist das Callable,
     # nicht bereits ein aufgerufener Generator.
-    mocker.patch.object(xing_module, "sync_playwright", _slow_cm)
+    mocker.patch.object(shared_module, "sync_playwright", _slow_cm)
 
     threads = [
         threading.Thread(target=lambda: XingJobScraper().search("Angular"))
