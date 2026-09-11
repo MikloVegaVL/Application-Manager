@@ -24,7 +24,6 @@ wird von hier nur konsumiert.
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 
 import requests
@@ -32,9 +31,9 @@ import requests
 from app.schemas.job_offer import JobOfferCreate
 from app.services.job_sources.shared import (
     DEFAULT_USER_AGENT,
+    CooldownMixin,
     SourceNotConfiguredError,
     fold_salary_homeoffice,
-    redact_credentials,
     strip_html,
     validate_source_url,
 )
@@ -42,7 +41,7 @@ from app.services.job_sources.shared import (
 logger = logging.getLogger(__name__)
 
 
-class JoobleJobsClient:
+class JoobleJobsClient(CooldownMixin):
     """Client für Joobles credential-basierte Jobsuche-API (Deutschland)."""
 
     SOURCE_PLATFORM = "jooble"
@@ -55,11 +54,6 @@ class JoobleJobsClient:
     DEFAULT_LOCATION = "Germany"
     _DEFAULT_RESULT_CAP = 25
     _DEFAULT_COOLDOWN_SECONDS = 300.0
-
-    # Bewusst Klassen-Level-State (wie Adzuna/LinkedIn): der Client wird pro
-    # Request neu instanziiert, ein Instanzattribut würde den Rate-Limit-
-    # Cooldown also nie tatsächlich greifen lassen (KTD5).
-    _cooldown_until: float = 0.0
 
     def __init__(
         self,
@@ -110,10 +104,7 @@ class JoobleJobsClient:
         }
         # Nur die redigierte URL loggen - die rohe URL enthält den API-Key im
         # Pfad (R9).
-        logger.debug(
-            "Jooble-Anfrage: POST %s",
-            redact_credentials(self._redacted_endpoint()),
-        )
+        logger.debug("Jooble-Anfrage: POST %s", self._redacted_endpoint())
 
         try:
             response = requests.post(
@@ -180,20 +171,6 @@ class JoobleJobsClient:
     def _redacted_endpoint(self) -> str:
         """Die key-tragende URL mit maskiertem Pfad-Key (nur zum Loggen)."""
         return self.BASE_URL_TEMPLATE.format(api_key="***")
-
-    @classmethod
-    def is_cooldown_active(cls) -> bool:
-        """Öffentliche Abfrage für den Orchestrator, um eine leere
-        Ergebnisliste als "rate-limited" statt generisch "empty" zu
-        kennzeichnen (KTD3)."""
-        return cls._in_cooldown()
-
-    @classmethod
-    def _in_cooldown(cls) -> bool:
-        return time.monotonic() < cls._cooldown_until
-
-    def _set_cooldown(self) -> None:
-        JoobleJobsClient._cooldown_until = time.monotonic() + self._cooldown_seconds
 
     # --- Mapping --------------------------------------------------------
 

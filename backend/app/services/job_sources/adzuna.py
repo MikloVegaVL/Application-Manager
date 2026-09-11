@@ -19,7 +19,6 @@ Salary-Prosa, HTML-Stripping, Credential-Redaktion) liegt in
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 from urllib.parse import urlencode
 
@@ -28,6 +27,7 @@ import requests
 from app.schemas.job_offer import JobOfferCreate
 from app.services.job_sources.shared import (
     DEFAULT_USER_AGENT,
+    CooldownMixin,
     SourceNotConfiguredError,
     fold_salary_homeoffice,
     redact_credentials,
@@ -38,18 +38,13 @@ from app.services.job_sources.shared import (
 logger = logging.getLogger(__name__)
 
 
-class AdzunaJobsClient:
+class AdzunaJobsClient(CooldownMixin):
     """Client für Adzunas credential-basierte Jobsuche-API (Deutschland)."""
 
     SOURCE_PLATFORM = "adzuna"
     BASE_URL = "https://api.adzuna.com/v1/api/jobs/de/search/1"
     _DEFAULT_RESULT_CAP = 25
     _DEFAULT_COOLDOWN_SECONDS = 300.0
-
-    # Bewusst Klassen-Level-State (wie LinkedInJobsClient): der Client wird pro
-    # Request neu instanziiert, ein Instanzattribut würde den Rate-Limit-
-    # Cooldown also nie tatsächlich greifen lassen (KTD5).
-    _cooldown_until: float = 0.0
 
     def __init__(
         self,
@@ -80,11 +75,14 @@ class AdzunaJobsClient:
     ) -> list[JobOfferCreate]:
         """Sucht Stellenangebote über Adzunas deutsche Such-API.
 
-        Liefert bei den meisten Fehlerfällen eine leere Liste statt einer
-        Exception (Netzwerkfehler, Rate-Limit, Cooldown, ungültiges JSON) - der
-        Aufrufer entscheidet anhand des Ergebnisses über den Status. Fehlende
-        oder serverseitig abgelehnte Zugangsdaten werfen dagegen
-        `SourceNotConfiguredError` (KTD4/KTD9).
+        Fehlende oder serverseitig abgelehnte Zugangsdaten werfen
+        `SourceNotConfiguredError` (KTD4/KTD9); 429 aktiviert einen Cooldown
+        und liefert eine leere Liste (der Orchestrator kennzeichnet das als
+        "rate-limited"). Echte Fehler (Netzwerk, unerwarteter HTTP-Status,
+        ungültiges JSON) werden als key-freie Exception nach oben gereicht,
+        damit der Orchestrator sie als "error" kennzeichnet - die rohe
+        Exception kann die app_key-tragende URL enthalten und darf nie in
+        Fehlertexte gelangen.
         """
         if not self.is_configured():
             raise SourceNotConfiguredError("Adzuna: app_id/app_key fehlen.")
@@ -117,11 +115,10 @@ class AdzunaJobsClient:
                 timeout=self._timeout,
             )
         except requests.RequestException as exc:
-            # Rohe Exception enthält die volle URL inkl. app_key - redigieren.
-            logger.warning(
-                "Adzuna-API nicht erreichbar: %s", redact_credentials(str(exc))
-            )
-            return []
+            # `str(exc)` enthält die rohe URL inkl. app_key - nur den Typ
+            # loggen und eine key-freie Exception werfen.
+            logger.warning("Adzuna-API nicht erreichbar (%s).", type(exc).__name__)
+            raise RuntimeError("Adzuna-API nicht erreichbar.") from None
 
         if response.status_code in (401, 403, 410):
             logger.warning(
@@ -140,19 +137,19 @@ class AdzunaJobsClient:
             self._set_cooldown()
             return []
 
-        try:
-            response.raise_for_status()
-        except requests.RequestException as exc:
+        if response.status_code >= 400:
             logger.warning(
-                "Adzuna-API lieferte Fehlerstatus: %s", redact_credentials(str(exc))
+                "Adzuna-API lieferte Fehlerstatus (HTTP %s).", response.status_code
             )
-            return []
+            raise RuntimeError(
+                f"Adzuna-API lieferte Fehlerstatus (HTTP {response.status_code})."
+            )
 
         try:
             payload = response.json()
         except ValueError:
             logger.warning("Adzuna-API lieferte kein valides JSON zurück.")
-            return []
+            raise RuntimeError("Adzuna-API lieferte kein valides JSON zurück.") from None
 
         raw_results = payload.get("results") or []
         offers: list[JobOfferCreate] = []
@@ -165,22 +162,6 @@ class AdzunaJobsClient:
             if offer is not None:
                 offers.append(offer)
         return offers
-
-    # --- Cooldown-Verwaltung (Klassen-Level, siehe Moduldocstring) --------
-
-    @classmethod
-    def is_cooldown_active(cls) -> bool:
-        """Öffentliche Abfrage für den Orchestrator, um eine leere
-        Ergebnisliste als "rate-limited" statt generisch "empty" zu
-        kennzeichnen (KTD3)."""
-        return cls._in_cooldown()
-
-    @classmethod
-    def _in_cooldown(cls) -> bool:
-        return time.monotonic() < cls._cooldown_until
-
-    def _set_cooldown(self) -> None:
-        AdzunaJobsClient._cooldown_until = time.monotonic() + self._cooldown_seconds
 
     # --- Mapping ------------------------------------------------------
 

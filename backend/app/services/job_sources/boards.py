@@ -26,11 +26,8 @@ from app.schemas.job_offer import JobOfferCreate
 from app.services.job_sources.shared import (
     BoardDescriptor,
     BoardSourceAdapter,
-    extract_offers,
-    fetch_html,
     fold_salary_homeoffice,
     make_search_url_builder,
-    validate_source_url,
 )
 
 # Zusätzliche, quellen-spezifische Klassen-Muster, die für die generische
@@ -123,19 +120,6 @@ BOARD_DESCRIPTORS: tuple[BoardDescriptor, ...] = (
 )
 
 
-def _extract_salary_homeoffice(soup: BeautifulSoup) -> tuple[str | None, str | None]:
-    """Liest Gehalts-/Homeoffice-Prosa aus den Karten einer Börsenseite.
-
-    Rein additiv zur generischen Extraktion: fehlt beides, bleiben die
-    Angebote unverändert (R10/KD8).
-    """
-    salary_el = soup.find(class_=SALARY_CLASS_PATTERN)
-    homeoffice_el = soup.find(class_=HOMEOFFICE_CLASS_PATTERN)
-    salary = salary_el.get_text(" ", strip=True) if salary_el else None
-    homeoffice = homeoffice_el.get_text(" ", strip=True) if homeoffice_el else None
-    return salary or None, homeoffice or None
-
-
 class BoardSource(BoardSourceAdapter):
     """Board-Adapter mit URL-Validierung und Salary/Homeoffice-Prosa (R3/R10).
 
@@ -143,39 +127,19 @@ class BoardSource(BoardSourceAdapter):
     zusätzlich unsichere Ziel-URLs (kein `javascript:`/privater Host, KTD10)
     und faltet Gehalts-/Homeoffice-Angaben über den geteilten Helfer in
     `description_text` (KTD6/KD8) - kein neues strukturiertes Feld.
+
+    Gehalt/Homeoffice werden pro Karte gelesen (nicht einmal global aus dem
+    Soup), damit jede Anzeige nur ihre eigenen Angaben bekommt.
     """
 
-    def search(
-        self,
-        keywords: str,
-        location: str | None = None,
-    ) -> list[JobOfferCreate]:
-        url = self._descriptor.build_search_url(keywords, location)
-        html = fetch_html(
-            url,
-            use_playwright=self._descriptor.use_playwright,
-            timeout=self._timeout,
-        )
-        if not html:
-            return []
-
-        offers = extract_offers(
-            html,
-            url,
-            self._descriptor.source_platform,
-            max_results=self._descriptor.max_results,
-        )
-        # R3/KTD10: nur direkt verlinkbare, öffentliche http(s)-Ziele behalten.
-        valid_offers = [offer for offer in offers if validate_source_url(offer.source_url)]
-        if not valid_offers:
-            return []
-
-        salary, homeoffice = _extract_salary_homeoffice(BeautifulSoup(html, "html.parser"))
+    def _enrich_offer(self, offer: JobOfferCreate, node: BeautifulSoup) -> None:
+        salary_el = node.find(class_=SALARY_CLASS_PATTERN)
+        homeoffice_el = node.find(class_=HOMEOFFICE_CLASS_PATTERN)
+        salary = salary_el.get_text(" ", strip=True) if salary_el else None
+        homeoffice = homeoffice_el.get_text(" ", strip=True) if homeoffice_el else None
         if salary or homeoffice:
-            for offer in valid_offers:
-                offer.description_text = fold_salary_homeoffice(
-                    offer.description_text,
-                    salary=salary,
-                    homeoffice=homeoffice,
-                )
-        return valid_offers
+            offer.description_text = fold_salary_homeoffice(
+                offer.description_text,
+                salary=salary,
+                homeoffice=homeoffice,
+            )

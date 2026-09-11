@@ -51,11 +51,11 @@ from app.services.job_sources.shared import (
     MAX_HEURISTIC_RESULTS,
     SourceNotConfiguredError,
     extract_heuristic_offers,
-    extract_json_ld_offers,
     extract_offers,
     fetch_html,
-    map_json_ld_offer,
+    inner_timeout_for,
     strip_html,
+    validate_source_url,
 )
 from app.services.job_sources.xing import XingJobScraper
 
@@ -275,12 +275,6 @@ class GenericJobScraper:
             max_results=self._MAX_HEURISTIC_RESULTS,
         )
 
-    def _extract_json_ld_offers(self, soup: Any, source_url: str) -> list[JobOfferCreate]:
-        return extract_json_ld_offers(soup, source_url, self.SOURCE_PLATFORM)
-
-    def _map_json_ld_offer(self, item: dict[str, Any], source_url: str) -> JobOfferCreate | None:
-        return map_json_ld_offer(item, source_url, self.SOURCE_PLATFORM)
-
     def _extract_heuristic_offers(self, soup: Any, source_url: str) -> list[JobOfferCreate]:
         return extract_heuristic_offers(
             soup,
@@ -302,49 +296,23 @@ class JobSearchService:
 
     def __init__(
         self,
-        arbeitsagentur_client: ArbeitsagenturJobsClient | None = None,
         fallback_scraper: GenericJobScraper | None = None,
-        linkedin_client: LinkedInJobsClient | None = None,
-        xing_client: XingJobScraper | None = None,
         deadline_seconds: float | None = None,
         sources: Sequence[SourceRegistration] | None = None,
     ) -> None:
-        self._arbeitsagentur_client = arbeitsagentur_client or ArbeitsagenturJobsClient()
         self._fallback_scraper = fallback_scraper or GenericJobScraper()
-        self._linkedin_client = linkedin_client or LinkedInJobsClient(
-            result_cap=settings.JOB_SEARCH_LINKEDIN_RESULT_CAP,
-            cooldown_seconds=settings.JOB_SEARCH_LINKEDIN_COOLDOWN_SECONDS,
-        )
         self._deadline_seconds = (
             deadline_seconds if deadline_seconds is not None else settings.JOB_SEARCH_DEADLINE_SECONDS
         )
-        # Xings innerer Timeout darf laut KTD6 die äußere Such-Deadline nie
-        # überschreiten - sonst hält ein Xing-Render, das erst nach der
-        # Deadline abbricht, den Playwright-Semaphore länger als nötig,
-        # während der Rest der Antwort schon zurückgegeben wurde. Ein Sicherheits-
-        # abstand von 1s lässt Playwright selbst noch sauber abbrechen können.
-        self._xing_client = xing_client or XingJobScraper(
-            inner_timeout=max(1.0, self._deadline_seconds - 1.0)
+        self._arbeitsagentur_client = ArbeitsagenturJobsClient()
+        # Xings innerer Timeout darf laut KTD8 die äußere Such-Deadline nie
+        # erreichen - sonst hält ein Xing-Render, das erst nach der Deadline
+        # abbricht, den Playwright-Semaphore länger als nötig, während der Rest
+        # der Antwort schon zurückgegeben wurde. `inner_timeout_for` leitet ihn
+        # strikt unter der Deadline ab (auch bei sehr kleinen Deadlines).
+        self._xing_client = XingJobScraper(
+            inner_timeout=inner_timeout_for(self._deadline_seconds)
         )
-        # Neue Quellen (U3, KTD7/KTD9): Flags und Zugangsdaten einmalig aus
-        # den Settings einsammeln. U2 baut daraus die settings-abgeleitete
-        # Registry und reicht die Credentials als Konstruktor-Argumente an die
-        # API-Clients (Adzuna/Jooble, U4/U5) weiter.
-        self._source_enabled: dict[str, bool] = {
-            "devjobs": settings.JOB_SEARCH_DEVJOBS_ENABLED,
-            "kimeta": settings.JOB_SEARCH_KIMETA_ENABLED,
-            "stepstone": settings.JOB_SEARCH_STEPSTONE_ENABLED,
-            "germantechjobs": settings.JOB_SEARCH_GERMANTECHJOBS_ENABLED,
-            "indeed": settings.JOB_SEARCH_INDEED_ENABLED,
-            "jobware": settings.JOB_SEARCH_JOBWARE_ENABLED,
-            "programmiererjobboerse": settings.JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED,
-            "it-entwickler-jobs": settings.JOB_SEARCH_IT_ENTWICKLER_JOBS_ENABLED,
-            "adzuna": settings.JOB_SEARCH_ADZUNA_ENABLED,
-            "jooble": settings.JOB_SEARCH_JOOBLE_ENABLED,
-        }
-        self._adzuna_app_id = settings.ADZUNA_APP_ID
-        self._adzuna_app_key = settings.ADZUNA_APP_KEY
-        self._jooble_api_key = settings.JOOBLE_API_KEY
         # KTD11: Tests injizieren eine Registry, statt den gecachten
         # `settings`-Singleton zu verändern. Ohne Injektion wird die
         # settings-abgeleitete Default-Registry gebaut.
@@ -357,15 +325,41 @@ class JobSearchService:
 
         Basis sind die drei bestehenden Primärquellen, gated über ihre
         Enable-Flags. Die neuen HTML-/API-Quellen (U4/U5/U6) werden hier
-        anhand von `self._source_enabled` und den Credential-Attributen
-        ergänzt - der Fan-out selbst bleibt unverändert.
+        anhand der lokal eingesammelten Enable-Flags und Zugangsdaten ergänzt -
+        der Fan-out selbst bleibt unverändert.
         """
+        # Flags und Zugangsdaten einmalig aus den Settings einsammeln (U3,
+        # KTD7/KTD9); als Locals, damit der Service sie nicht dauerhaft cachen
+        # muss.
+        source_enabled: dict[str, bool] = {
+            "devjobs": settings.JOB_SEARCH_DEVJOBS_ENABLED,
+            "kimeta": settings.JOB_SEARCH_KIMETA_ENABLED,
+            "stepstone": settings.JOB_SEARCH_STEPSTONE_ENABLED,
+            "germantechjobs": settings.JOB_SEARCH_GERMANTECHJOBS_ENABLED,
+            "indeed": settings.JOB_SEARCH_INDEED_ENABLED,
+            "jobware": settings.JOB_SEARCH_JOBWARE_ENABLED,
+            "programmiererjobboerse": settings.JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED,
+            "it-entwickler-jobs": settings.JOB_SEARCH_IT_ENTWICKLER_JOBS_ENABLED,
+            "adzuna": settings.JOB_SEARCH_ADZUNA_ENABLED,
+            "jooble": settings.JOB_SEARCH_JOOBLE_ENABLED,
+        }
+        adzuna_app_id = settings.ADZUNA_APP_ID
+        adzuna_app_key = settings.ADZUNA_APP_KEY
+        jooble_api_key = settings.JOOBLE_API_KEY
+
         registry: list[SourceRegistration] = [SourceRegistration(self._arbeitsagentur_client)]
         if settings.JOB_SEARCH_LINKEDIN_ENABLED:
-            registry.append(SourceRegistration(self._linkedin_client))
+            registry.append(
+                SourceRegistration(
+                    LinkedInJobsClient(
+                        result_cap=settings.JOB_SEARCH_LINKEDIN_RESULT_CAP,
+                        cooldown_seconds=settings.JOB_SEARCH_LINKEDIN_COOLDOWN_SECONDS,
+                    )
+                )
+            )
         if settings.JOB_SEARCH_XING_ENABLED:
             registry.append(SourceRegistration(self._xing_client))
-        if self._source_enabled["adzuna"]:
+        if source_enabled["adzuna"]:
             # Auch ohne Credentials registriert: `search()` wird vom Fan-out
             # gar nicht erst aufgerufen (KTD9) - der Client meldet dann
             # `is_configured() == False` und wird als "not-configured"
@@ -373,14 +367,14 @@ class JobSearchService:
             registry.append(
                 SourceRegistration(
                     AdzunaJobsClient(
-                        app_id=self._adzuna_app_id,
-                        app_key=self._adzuna_app_key,
+                        app_id=adzuna_app_id,
+                        app_key=adzuna_app_key,
                         # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
-                        timeout=max(1.0, self._deadline_seconds - 1.0),
+                        timeout=inner_timeout_for(self._deadline_seconds),
                     )
                 )
             )
-        if self._source_enabled["jooble"]:
+        if source_enabled["jooble"]:
             # Auch ohne API-Key registriert: der Fan-out ruft `search()` gar
             # nicht erst auf (KTD9) - der Client meldet dann
             # `is_configured() == False` und wird als "not-configured"
@@ -388,9 +382,9 @@ class JobSearchService:
             registry.append(
                 SourceRegistration(
                     JoobleJobsClient(
-                        api_key=self._jooble_api_key,
+                        api_key=jooble_api_key,
                         # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
-                        timeout=max(1.0, self._deadline_seconds - 1.0),
+                        timeout=inner_timeout_for(self._deadline_seconds),
                     )
                 )
             )
@@ -400,14 +394,14 @@ class JobSearchService:
         # Board ohne lesbare Seite bleibt registriert und meldet `unavailable`,
         # statt stillschweigend zu verschwinden (R5).
         for descriptor in BOARD_DESCRIPTORS:
-            if not self._source_enabled.get(descriptor.source_platform):
+            if not source_enabled.get(descriptor.source_platform):
                 continue
             registry.append(
                 SourceRegistration(
                     BoardSource(
                         descriptor,
                         # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
-                        timeout=max(1.0, self._deadline_seconds - 1.0),
+                        timeout=inner_timeout_for(self._deadline_seconds),
                     )
                 )
             )
@@ -463,14 +457,18 @@ class JobSearchService:
             executor = ThreadPoolExecutor(max_workers=len(submittable))
             try:
                 deadline = monotonic() + self._deadline_seconds
-                futures = {
-                    registration.platform: (
-                        executor.submit(registration.client.search, keywords, location),
+                # Liste (nicht Dict) aus (registration, future): zwei
+                # Registrierungen mit demselben Plattform-Schlüssel dürfen
+                # sich nicht gegenseitig aus dem Mapping verdrängen.
+                futures = [
+                    (
                         registration,
+                        executor.submit(registration.client.search, keywords, location),
                     )
                     for registration in submittable
-                }
-                for platform, (future, registration) in futures.items():
+                ]
+                for registration, future in futures:
+                    platform = registration.platform
                     try:
                         offers = future.result(timeout=max(0.0, deadline - monotonic()))
                     except FuturesTimeoutError:
@@ -513,6 +511,19 @@ class JobSearchService:
                 executor.shutdown(wait=False)
 
         if not arbeitsagentur_results and fallback_url:
+            if not validate_source_url(fallback_url):
+                # R3/KTD10: eine unsichere (Loopback/private/metadata/nicht-
+                # http(s)) Fallback-URL darf nie serverseitig abgerufen werden.
+                logger.warning("Unsichere Fallback-URL abgelehnt - Fallback übersprungen.")
+                source_statuses.append(
+                    SourceStatus(
+                        platform=GenericJobScraper.SOURCE_PLATFORM,
+                        status="unavailable",
+                        reason="error",
+                    )
+                )
+                return JobSearchResponse(results=results, sources=source_statuses)
+
             logger.info("Keine Treffer über die Arbeitsagentur-API - nutze Fallback-Scraper (%s).", fallback_url)
             fallback_results = self._fallback_scraper.search(url=fallback_url, keywords=keywords, location=location)
             results.extend(fallback_results)
@@ -546,6 +557,11 @@ class JobSearchService:
         der generische Fallback-Scraper, der `description_text` bereits beim
         Scrapen füllt) ein No-Op.
         """
+        if not validate_source_url(source_url):
+            # R3/KTD10: kein serverseitiger Render/Detail-Abruf für eine
+            # unsichere (Loopback/private/metadata/nicht-http(s)) URL.
+            logger.warning("Unsichere source_url abgelehnt - kein Detail-Abruf.")
+            return None
         if source_platform == ArbeitsagenturJobsClient.SOURCE_PLATFORM:
             return self._arbeitsagentur_client.fetch_description(source_url)
         if source_platform == XingJobScraper.SOURCE_PLATFORM:

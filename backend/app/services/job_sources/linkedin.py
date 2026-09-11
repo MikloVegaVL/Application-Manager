@@ -27,7 +27,6 @@ und nie tatsächlich greifen.
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 from urllib.parse import urljoin
 
@@ -35,12 +34,12 @@ import requests
 from bs4 import BeautifulSoup
 
 from app.schemas.job_offer import JobOfferCreate
-from app.services.job_sources.shared import DEFAULT_USER_AGENT
+from app.services.job_sources.shared import DEFAULT_USER_AGENT, CooldownMixin
 
 logger = logging.getLogger(__name__)
 
 
-class LinkedInJobsClient:
+class LinkedInJobsClient(CooldownMixin):
     """Client für LinkedIns öffentlichen, nicht eingeloggten Guest-Suchendpunkt."""
 
     SOURCE_PLATFORM = "linkedin"
@@ -58,11 +57,6 @@ class LinkedInJobsClient:
     # einzige serverseitige, zuverlässige Hebel, der den Suchradius immer
     # auf Deutschland begrenzt, unabhängig davon, ob/wie `location` auflöst.
     GERMANY_GEO_ID = "101282230"
-
-    # Klassen-Level-State (siehe Moduldocstring): überlebt neue Instanzen,
-    # solange der Prozess läuft. Setzen erfolgt ausschließlich über
-    # `_set_cooldown`, das explizit auf der Klasse (nicht `self`) schreibt.
-    _cooldown_until: float = 0.0
 
     def __init__(
         self,
@@ -131,25 +125,6 @@ class LinkedInJobsClient:
             return []
 
         return self._parse_fragment(response.text)
-
-    # --- Cooldown-Verwaltung (Klassen-Level, siehe Moduldocstring) --------
-
-    @classmethod
-    def is_cooldown_active(cls) -> bool:
-        """Öffentliche Abfrage, ob der Client sich aktuell im Rate-Limit-
-        Cooldown befindet - genutzt vom Orchestrator (`JobSearchService`),
-        um eine leere Ergebnisliste als "rate-limited" statt generisch
-        "empty" zu kennzeichnen (KTD5)."""
-        return cls._in_cooldown()
-
-    @classmethod
-    def _in_cooldown(cls) -> bool:
-        return time.monotonic() < cls._cooldown_until
-
-    def _set_cooldown(self) -> None:
-        # Bewusst auf der Klasse geschrieben (nicht `self`), damit der
-        # Cooldown über neue Instanzen hinweg gilt.
-        LinkedInJobsClient._cooldown_until = time.monotonic() + self._cooldown_seconds
 
     # --- Parsing ------------------------------------------------------
 

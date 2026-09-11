@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import time
 
+import pytest
 from bs4 import BeautifulSoup
 
 from app.schemas.job_offer import JobOfferCreate, SourceStatus
@@ -230,6 +231,31 @@ def test_fallback_does_not_trigger_without_fallback_url():
     assert fallback.calls == []
 
 
+@pytest.mark.parametrize(
+    "unsafe_url",
+    [
+        "http://127.0.0.1/jobs",  # Loopback
+        "http://localhost:8000/jobs",  # Loopback
+        "http://192.168.1.5/jobs",  # privater Host
+        "http://10.0.0.7/jobs",  # privater Host
+        "http://169.254.169.254/latest/meta-data/",  # Cloud-Metadata (link-local)
+        "javascript:alert(1)",  # Nicht-http(s)
+        "ftp://example.com/jobs",  # Nicht-http(s)
+    ],
+)
+def test_unsafe_fallback_url_is_rejected_before_the_scraper_fetches(unsafe_url):
+    """R3/KTD10: eine unsichere `fallback_url` darf nie serverseitig
+    abgerufen werden."""
+    service, *_client, fallback = _service(aa_offers=[])
+
+    response = service.search("Angular", fallback_url=unsafe_url)
+
+    assert fallback.calls == []
+    fallback_status = next(s for s in response.sources if s.platform == "web-scraper")
+    assert fallback_status.status == "unavailable"
+    assert fallback_status.reason == "error"
+
+
 def test_fallback_does_not_trigger_when_arbeitsagentur_has_results():
     service, *_client, fallback = _service(
         aa_offers=[_offer("arbeitsagentur")],
@@ -317,6 +343,25 @@ def test_registry_error_isolation_one_source_raising_does_not_affect_others():
     assert {offer.source_platform for offer in response.results} == {"arbeitsagentur"}
 
 
+def test_two_registrations_with_the_same_platform_both_get_a_status():
+    """Zwei Registrierungen mit identischem Plattform-Schlüssel dürfen sich
+    nicht gegenseitig aus dem Futures-Mapping verdrängen - beide müssen einen
+    Status und ihre Treffer beitragen."""
+    first = _FakeClient(offers=[_offer("dup", "First")], platform="dup")
+    second = _FakeClient(offers=[_offer("dup", "Second")], platform="dup")
+    service = JobSearchService(
+        sources=[SourceRegistration(first), SourceRegistration(second)],
+        deadline_seconds=1.0,
+    )
+
+    response = service.search("Angular")
+
+    dup_statuses = [s for s in response.sources if s.platform == "dup"]
+    assert len(dup_statuses) == 2
+    assert {s.status for s in dup_statuses} == {"ok"}
+    assert {offer.title for offer in response.results} == {"First", "Second"}
+
+
 def test_registry_deadline_timeout_marks_source_and_returns_promptly():
     """Timeout: eine langsame Quelle wird `reason=timeout`, die Antwort kommt
     trotzdem zeitnah zurück (KTD8)."""
@@ -400,6 +445,19 @@ def test_default_xing_client_inner_timeout_never_exceeds_the_search_deadline():
 
     assert service._xing_client._inner_timeout < 12.0  # noqa: SLF001 - white-box wiring check
     assert service._xing_client._inner_timeout >= 1.0  # noqa: SLF001
+
+
+@pytest.mark.parametrize("deadline_seconds", [1.0, 0.5, 0.2])
+def test_inner_timeout_is_strictly_below_the_outer_deadline_for_small_deadlines(
+    deadline_seconds,
+):
+    """KTD8: auch bei einer sehr kleinen Deadline bleibt der innere Timeout
+    strikt unter der äußeren - die frühere `max(1.0, deadline - 1.0)`-Formel
+    konnte bei `deadline <= 1.0` genau der Deadline entsprechen (oder sie
+    überschreiten)."""
+    service = JobSearchService(deadline_seconds=deadline_seconds)
+
+    assert service._xing_client._inner_timeout < deadline_seconds  # noqa: SLF001
 
 
 # --- GenericJobScraper: heuristische Extraktion (kein JSON-LD) --------------
@@ -520,6 +578,31 @@ def test_enrich_description_dispatches_to_the_xing_client(mocker):
     result = service.enrich_description("xing", "https://xing.com/jobs/1")
 
     assert result == "Text"
+
+
+@pytest.mark.parametrize(
+    "unsafe_url",
+    [
+        "http://127.0.0.1/job/1",
+        "http://localhost:8000/job/1",
+        "http://192.168.1.5/job/1",
+        "http://169.254.169.254/latest/meta-data/",
+        "javascript:alert(1)",
+    ],
+)
+def test_enrich_description_rejects_unsafe_source_url_without_calling_client(
+    mocker, unsafe_url
+):
+    """R3/KTD10: eine unsicher gespeicherte `source_url` darf keinen
+    serverseitigen Render/Detail-Abruf auslösen."""
+    service = JobSearchService()
+    xing_spy = mocker.patch.object(service._xing_client, "fetch_description", return_value="Text")  # noqa: SLF001
+    aa_spy = mocker.patch.object(service._arbeitsagentur_client, "fetch_description", return_value="Text")  # noqa: SLF001
+
+    assert service.enrich_description("xing", unsafe_url) is None
+    assert service.enrich_description("arbeitsagentur", unsafe_url) is None
+    xing_spy.assert_not_called()
+    aa_spy.assert_not_called()
 
 
 def test_enrich_description_is_a_no_op_for_unsupported_sources():

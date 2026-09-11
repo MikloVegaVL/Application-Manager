@@ -58,11 +58,53 @@ JSON_LD_HTML = """
 HEURISTIC_HTML = """
 <html><body>
   <article class="job-card">
-    <h2>Angular Developer</h2>
+    <a href="https://devjobs.de/jobs/angular-developer"><h2>Angular Developer</h2></a>
     <span class="company">Acme GmbH</span>
     <span class="location">Berlin</span>
     <span class="salary">50.000 - 70.000 EUR</span>
     <span class="homeoffice">2 Tage/Woche</span>
+  </article>
+</body></html>
+"""
+
+# Zwei Karten mit unterschiedlichen Gehaltsangaben - beweist, dass jede Karte
+# NUR ihr eigenes Gehalt bekommt (nicht das der ganzen Seite).
+TWO_CARDS_SALARY_HTML = """
+<html><body>
+  <article class="job-card">
+    <a href="https://devjobs.de/jobs/angular-developer"><h2>Angular Developer</h2></a>
+    <span class="salary">50.000 EUR</span>
+  </article>
+  <article class="job-card">
+    <a href="https://devjobs.de/jobs/backend-engineer"><h2>Backend Engineer</h2></a>
+    <span class="salary">70.000 EUR</span>
+  </article>
+</body></html>
+"""
+
+# Eine Karte ohne echten Detail-Link (kein <a href>) darf nicht die
+# Suchseite als `source_url` persistieren.
+NO_LINK_CARD_HTML = """
+<html><body>
+  <article class="job-card">
+    <h2>No Link Job</h2>
+  </article>
+  <article class="job-card">
+    <a href="https://devjobs.de/jobs/safe-1"><h2>Safe Job</h2></a>
+  </article>
+</body></html>
+"""
+
+# Eine Karte mit einem Titel jenseits von JobOfferCreate.title's max_length=255
+# (Pydantic-ValidationError), gefolgt von einer gültigen Karte - beweist, dass
+# eine defekte Karte nicht das ganze Board verwirft.
+ONE_BROKEN_ONE_VALID_HTML = f"""
+<html><body>
+  <article class="job-card">
+    <a href="https://devjobs.de/jobs/broken"><h2>{"x" * 300}</h2></a>
+  </article>
+  <article class="job-card">
+    <a href="https://devjobs.de/jobs/safe-1"><h2>Safe Job</h2></a>
   </article>
 </body></html>
 """
@@ -169,6 +211,44 @@ def test_salary_homeoffice_prose_folds_into_description_text(requests_mock):
     assert "Homeoffice: 2 Tage/Woche" in offers[0].description_text
     assert "salary" not in JobOfferCreate.model_fields
     assert "homeoffice" not in JobOfferCreate.model_fields
+
+
+def test_salary_is_attributed_per_card(requests_mock):
+    """R10/KTD6: jede Karte bekommt nur ihr eigenes Gehalt - nicht das der
+    ganzen Seite (früher wurde einmal global aus dem Soup gelesen)."""
+    requests_mock.get(ANY, text=TWO_CARDS_SALARY_HTML)
+
+    offers = BoardSource(BOARD_DESCRIPTORS[0]).search("Angular")
+
+    by_title = {offer.title: offer for offer in offers}
+    assert "Gehalt: 50.000 EUR" in by_title["Angular Developer"].description_text
+    assert "Gehalt: 70.000 EUR" in by_title["Backend Engineer"].description_text
+    assert "70.000" not in by_title["Angular Developer"].description_text
+    assert "50.000" not in by_title["Backend Engineer"].description_text
+
+
+# --- Error: Karten ohne Detail-Link / defekte Karten -----------------------
+
+
+def test_card_without_a_detail_link_is_dropped(requests_mock):
+    """R3: eine Karte ohne echten `<a href>` darf nicht die Suchseite als
+    `source_url` persistieren."""
+    requests_mock.get(ANY, text=NO_LINK_CARD_HTML)
+
+    offers = BoardSource(BOARD_DESCRIPTORS[0]).search("Angular")
+
+    assert [offer.title for offer in offers] == ["Safe Job"]
+    assert offers[0].source_url == "https://devjobs.de/jobs/safe-1"
+
+
+def test_one_malformed_card_does_not_discard_the_whole_board(requests_mock):
+    """Error: eine defekte Karte (hier: zu langer Titel) darf die übrigen
+    Karten desselben Boards nicht verwerfen."""
+    requests_mock.get(ANY, text=ONE_BROKEN_ONE_VALID_HTML)
+
+    offers = BoardSource(BOARD_DESCRIPTORS[0]).search("Angular")
+
+    assert [offer.title for offer in offers] == ["Safe Job"]
 
 
 # --- Error-Isolation über den Orchestrator ---------------------------------

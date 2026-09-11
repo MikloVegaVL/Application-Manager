@@ -12,7 +12,7 @@ import requests
 
 from app.core.config import settings
 from app.schemas.job_offer import JobOfferCreate
-from app.services.job_search_service import JobSearchService
+from app.services.job_search_service import JobSearchService, SourceRegistration
 from app.services.job_sources.adzuna import AdzunaJobsClient
 from app.services.job_sources.shared import SourceNotConfiguredError
 
@@ -133,22 +133,50 @@ def test_unsafe_redirect_url_is_rejected(requests_mock, unsafe_url):
     assert [offer.title for offer in offers] == ["Survivor"]
 
 
-def test_invalid_json_returns_empty_list(requests_mock):
+def test_invalid_json_raises_a_key_free_error(requests_mock):
     requests_mock.get(AdzunaJobsClient.BASE_URL, text="<html>not json</html>")
 
-    assert _client().search("Angular") == []
+    with pytest.raises(RuntimeError) as excinfo:
+        _client(app_key="super-secret-key").search("Angular")
+
+    assert "super-secret-key" not in str(excinfo.value)
 
 
-def test_other_http_error_returns_empty_list(requests_mock):
-    requests_mock.get(AdzunaJobsClient.BASE_URL, status_code=500)
+@pytest.mark.parametrize("status_code", [400, 404, 500, 502, 503])
+def test_non_credential_http_error_raises_a_key_free_error(requests_mock, status_code):
+    requests_mock.get(AdzunaJobsClient.BASE_URL, status_code=status_code)
 
-    assert _client().search("Angular") == []
+    with pytest.raises(RuntimeError) as excinfo:
+        _client(app_key="super-secret-key").search("Angular")
+
+    assert "super-secret-key" not in str(excinfo.value)
 
 
-def test_request_exception_returns_empty_list_without_raising(requests_mock):
+def test_request_exception_raises_a_key_free_error(requests_mock):
     requests_mock.get(AdzunaJobsClient.BASE_URL, exc=requests.ConnectionError("boom"))
 
-    assert _client().search("Angular") == []
+    with pytest.raises(RuntimeError) as excinfo:
+        _client(app_key="super-secret-key").search("Angular")
+
+    assert "super-secret-key" not in str(excinfo.value)
+
+
+def test_http_error_maps_to_error_reason_in_the_orchestrator(requests_mock):
+    """Ein 5xx wird vom Orchestrator als `reason="error"` (nicht `empty`)
+    gekennzeichnet, weil `search()` jetzt eine Exception wirft."""
+    requests_mock.get(AdzunaJobsClient.BASE_URL, status_code=500)
+    client = _client()
+
+    service = JobSearchService(
+        sources=[SourceRegistration(client)],
+        deadline_seconds=1.0,
+    )
+
+    response = service.search("Angular")
+
+    status = next(s for s in response.sources if s.platform == "adzuna")
+    assert status.status == "unavailable"
+    assert status.reason == "error"
 
 
 # --- Error: credential handling --------------------------------------------
