@@ -31,7 +31,9 @@ from __future__ import annotations
 import base64
 import logging
 import re
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from dataclasses import dataclass
 from time import monotonic
 from typing import Any
 from urllib.parse import unquote
@@ -44,6 +46,7 @@ from app.services.job_sources.linkedin import LinkedInJobsClient
 from app.services.job_sources.shared import (
     DEFAULT_USER_AGENT,
     MAX_HEURISTIC_RESULTS,
+    SourceNotConfiguredError,
     extract_heuristic_offers,
     extract_json_ld_offers,
     extract_offers,
@@ -54,6 +57,24 @@ from app.services.job_sources.shared import (
 from app.services.job_sources.xing import XingJobScraper
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SourceRegistration:
+    """Eine im Fan-out registrierte Quelle (KTD3).
+
+    `client` erfüllt den Standard-Vertrag `SOURCE_PLATFORM` + `search(
+    keywords, location)`; `enabled=False` nimmt die Quelle aus der Suche,
+    ohne den Fan-out-Code zu ändern. Quellen mit `is_configured()` werden vor
+    dem Submit befragt (KTD9).
+    """
+
+    client: Any
+    enabled: bool = True
+
+    @property
+    def platform(self) -> str:
+        return self.client.SOURCE_PLATFORM
 
 
 class ArbeitsagenturJobsClient:
@@ -283,6 +304,7 @@ class JobSearchService:
         linkedin_client: LinkedInJobsClient | None = None,
         xing_client: XingJobScraper | None = None,
         deadline_seconds: float | None = None,
+        sources: Sequence[SourceRegistration] | None = None,
     ) -> None:
         self._arbeitsagentur_client = arbeitsagentur_client or ArbeitsagenturJobsClient()
         self._fallback_scraper = fallback_scraper or GenericJobScraper()
@@ -304,8 +326,7 @@ class JobSearchService:
         # Neue Quellen (U3, KTD7/KTD9): Flags und Zugangsdaten einmalig aus
         # den Settings einsammeln. U2 baut daraus die settings-abgeleitete
         # Registry und reicht die Credentials als Konstruktor-Argumente an die
-        # API-Clients (Adzuna/Jooble, U4/U5) weiter; der Fan-out selbst wird
-        # erst dort umgebaut.
+        # API-Clients (Adzuna/Jooble, U4/U5) weiter.
         self._source_enabled: dict[str, bool] = {
             "devjobs": settings.JOB_SEARCH_DEVJOBS_ENABLED,
             "kimeta": settings.JOB_SEARCH_KIMETA_ENABLED,
@@ -321,6 +342,38 @@ class JobSearchService:
         self._adzuna_app_id = settings.ADZUNA_APP_ID
         self._adzuna_app_key = settings.ADZUNA_APP_KEY
         self._jooble_api_key = settings.JOOBLE_API_KEY
+        # KTD11: Tests injizieren eine Registry, statt den gecachten
+        # `settings`-Singleton zu verändern. Ohne Injektion wird die
+        # settings-abgeleitete Default-Registry gebaut.
+        self._sources: list[SourceRegistration] = (
+            list(sources) if sources is not None else self._build_default_registry()
+        )
+
+    def _build_default_registry(self) -> list[SourceRegistration]:
+        """Baut die settings-abgeleitete Quellen-Registry (KTD3/KTD11).
+
+        Basis sind die drei bestehenden Primärquellen, gated über ihre
+        Enable-Flags. Die neuen HTML-/API-Quellen (U4/U5/U6) werden hier
+        anhand von `self._source_enabled` und den Credential-Attributen
+        ergänzt - der Fan-out selbst bleibt unverändert.
+        """
+        registry: list[SourceRegistration] = [SourceRegistration(self._arbeitsagentur_client)]
+        if settings.JOB_SEARCH_LINKEDIN_ENABLED:
+            registry.append(SourceRegistration(self._linkedin_client))
+        if settings.JOB_SEARCH_XING_ENABLED:
+            registry.append(SourceRegistration(self._xing_client))
+        return registry
+
+    @staticmethod
+    def _is_rate_limited(client: Any) -> bool:
+        """Ob eine Quelle mit leerem Ergebnis im Rate-Limit-Cooldown steht.
+
+        Verallgemeinert die frühere LinkedIn-Sonderbehandlung: jede Quelle,
+        die `is_cooldown_active()` anbietet, kann so als "rate-limited"
+        gekennzeichnet werden (KTD3).
+        """
+        checker = getattr(client, "is_cooldown_active", None)
+        return bool(checker()) if checker is not None else False
 
     def search(
         self,
@@ -328,58 +381,87 @@ class JobSearchService:
         location: str | None = None,
         fallback_url: str | None = None,
     ) -> JobSearchResponse:
-        """Fragt Arbeitsagentur, LinkedIn und Xing gleichzeitig ab und
-        liefert eine zusammengeführte `JobSearchResponse` (KTD1/KTD2)."""
-        primary_clients: dict[str, Any] = {
-            ArbeitsagenturJobsClient.SOURCE_PLATFORM: self._arbeitsagentur_client,
-        }
-        if settings.JOB_SEARCH_LINKEDIN_ENABLED:
-            primary_clients[LinkedInJobsClient.SOURCE_PLATFORM] = self._linkedin_client
-        if settings.JOB_SEARCH_XING_ENABLED:
-            primary_clients[XingJobScraper.SOURCE_PLATFORM] = self._xing_client
+        """Fragt alle registrierten Quellen gleichzeitig ab und liefert eine
+        zusammengeführte `JobSearchResponse` (KTD3/KTD8/KTD9)."""
+        # Nur aktivierte Quellen nehmen teil; unkonfigurierte Quellen werden
+        # VOR dem Submit aussortiert und ohne `search()`-Aufruf als
+        # "not-configured" markiert (KTD9).
+        submittable: list[SourceRegistration] = []
+        source_statuses: list[SourceStatus] = []
+        for registration in self._sources:
+            if not registration.enabled:
+                continue
+            is_configured = getattr(registration.client, "is_configured", None)
+            if is_configured is not None and not is_configured():
+                source_statuses.append(
+                    SourceStatus(
+                        platform=registration.platform,
+                        status="unavailable",
+                        reason="not-configured",
+                    )
+                )
+                continue
+            submittable.append(registration)
 
         results: list[JobOfferCreate] = []
-        sources: list[SourceStatus] = []
         arbeitsagentur_results: list[JobOfferCreate] = []
 
-        # NICHT `with ThreadPoolExecutor(...) as executor:` - dessen eigenes
-        # __exit__ ruft shutdown(wait=True) auf, was genau auf das
-        # ausgelaufene Future warten würde, das diese Deadline verhindern
-        # soll (KTD1).
-        executor = ThreadPoolExecutor(max_workers=len(primary_clients))
-        try:
-            deadline = monotonic() + self._deadline_seconds
-            futures = {
-                source_name: executor.submit(client.search, keywords, location)
-                for source_name, client in primary_clients.items()
-            }
-            for source_name, future in futures.items():
-                try:
-                    offers = future.result(timeout=max(0.0, deadline - monotonic()))
-                except FuturesTimeoutError:
-                    logger.warning("Quelle '%s' hat die Such-Deadline überschritten.", source_name)
-                    sources.append(SourceStatus(platform=source_name, status="unavailable", reason="timeout"))
-                    continue
-                except Exception:  # noqa: BLE001 - eine fehlschlagende Quelle darf die anderen nicht stoppen
-                    logger.exception("Quelle '%s' ist mit einem Fehler fehlgeschlagen.", source_name)
-                    sources.append(SourceStatus(platform=source_name, status="unavailable", reason="error"))
-                    continue
+        if submittable:
+            # NICHT `with ThreadPoolExecutor(...) as executor:` - dessen eigenes
+            # __exit__ ruft shutdown(wait=True) auf, was genau auf das
+            # ausgelaufene Future warten würde, das diese Deadline verhindern
+            # soll (KTD1).
+            executor = ThreadPoolExecutor(max_workers=len(submittable))
+            try:
+                deadline = monotonic() + self._deadline_seconds
+                futures = {
+                    registration.platform: (
+                        executor.submit(registration.client.search, keywords, location),
+                        registration,
+                    )
+                    for registration in submittable
+                }
+                for platform, (future, registration) in futures.items():
+                    try:
+                        offers = future.result(timeout=max(0.0, deadline - monotonic()))
+                    except FuturesTimeoutError:
+                        logger.warning("Quelle '%s' hat die Such-Deadline überschritten.", platform)
+                        source_statuses.append(
+                            SourceStatus(platform=platform, status="unavailable", reason="timeout")
+                        )
+                        continue
+                    except SourceNotConfiguredError:
+                        logger.warning("Quelle '%s' ist nicht konfiguriert.", platform)
+                        source_statuses.append(
+                            SourceStatus(
+                                platform=platform,
+                                status="unavailable",
+                                reason="not-configured",
+                            )
+                        )
+                        continue
+                    except Exception:  # noqa: BLE001 - eine fehlschlagende Quelle darf die anderen nicht stoppen
+                        logger.exception("Quelle '%s' ist mit einem Fehler fehlgeschlagen.", platform)
+                        source_statuses.append(
+                            SourceStatus(platform=platform, status="unavailable", reason="error")
+                        )
+                        continue
 
-                if source_name == ArbeitsagenturJobsClient.SOURCE_PLATFORM:
-                    arbeitsagentur_results = offers
+                    if platform == ArbeitsagenturJobsClient.SOURCE_PLATFORM:
+                        arbeitsagentur_results = offers
 
-                if offers:
-                    results.extend(offers)
-                    sources.append(SourceStatus(platform=source_name, status="ok"))
-                else:
-                    reason = "empty"
-                    if source_name == LinkedInJobsClient.SOURCE_PLATFORM and LinkedInJobsClient.is_cooldown_active():
-                        reason = "rate-limited"
-                    sources.append(SourceStatus(platform=source_name, status="unavailable", reason=reason))
-        finally:
-            # wait=False: ein bereits als "timeout" markiertes Future darf im
-            # Hintergrund zu Ende laufen, ohne die Antwort zu blockieren (KTD1).
-            executor.shutdown(wait=False)
+                    if offers:
+                        results.extend(offers)
+                        source_statuses.append(SourceStatus(platform=platform, status="ok"))
+                    else:
+                        reason = "rate-limited" if self._is_rate_limited(registration.client) else "empty"
+                        source_statuses.append(
+                            SourceStatus(platform=platform, status="unavailable", reason=reason)
+                        )
+            finally:
+                # wait=False: ein bereits als "timeout" markiertes Future darf im
+                # Hintergrund zu Ende laufen, ohne die Antwort zu blockieren (KTD1).
+                executor.shutdown(wait=False)
 
         if not arbeitsagentur_results and fallback_url:
             logger.info("Keine Treffer über die Arbeitsagentur-API - nutze Fallback-Scraper (%s).", fallback_url)
@@ -391,7 +473,7 @@ class JobSearchService:
             # Frontend-Statusleiste sonst alle drei Primärquellen als
             # "unavailable" zeigen, obwohl der Fallback Treffer geliefert hat).
             fallback_status = "ok" if fallback_results else "unavailable"
-            sources.append(
+            source_statuses.append(
                 SourceStatus(
                     platform=GenericJobScraper.SOURCE_PLATFORM,
                     status=fallback_status,
@@ -399,7 +481,7 @@ class JobSearchService:
                 )
             )
 
-        return JobSearchResponse(results=results, sources=sources)
+        return JobSearchResponse(results=results, sources=source_statuses)
 
     def enrich_description(self, source_platform: str, source_url: str) -> str | None:
         """Lädt nachträglich den vollen Anzeigetext für ein einzelnes,

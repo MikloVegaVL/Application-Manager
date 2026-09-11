@@ -8,7 +8,13 @@ import time
 from bs4 import BeautifulSoup
 
 from app.schemas.job_offer import JobOfferCreate, SourceStatus
-from app.services.job_search_service import ArbeitsagenturJobsClient, GenericJobScraper, JobSearchService
+from app.services.job_search_service import (
+    ArbeitsagenturJobsClient,
+    GenericJobScraper,
+    JobSearchService,
+    SourceRegistration,
+)
+from app.services.job_sources.shared import SourceNotConfiguredError
 
 
 class _FakeClient:
@@ -17,11 +23,30 @@ class _FakeClient:
 
     SOURCE_PLATFORM = "fake"
 
-    def __init__(self, offers=None, exc: Exception | None = None, delay: float = 0.0):
+    def __init__(
+        self,
+        offers=None,
+        exc: Exception | None = None,
+        delay: float = 0.0,
+        platform: str = "fake",
+        configured: bool = True,
+        cooldown_active: bool = False,
+    ):
+        self.SOURCE_PLATFORM = platform
         self._offers = offers or []
         self._exc = exc
         self._delay = delay
+        self._configured = configured
+        self._cooldown_active = cooldown_active
         self.calls: list[tuple] = []
+        self.is_configured_calls = 0
+
+    def is_configured(self) -> bool:
+        self.is_configured_calls += 1
+        return self._configured
+
+    def is_cooldown_active(self) -> bool:
+        return self._cooldown_active
 
     def search(self, keywords, location=None):
         self.calls.append((keywords, location))
@@ -67,18 +92,22 @@ def _service(
     fallback_offers=None,
     deadline_seconds=5.0,
 ):
-    aa_client = _FakeClient(offers=aa_offers, exc=aa_exc)
-    li_client = _FakeClient(offers=li_offers, exc=li_exc, delay=li_delay)
-    xi_client = _FakeClient(offers=xi_offers, exc=xi_exc, delay=xi_delay)
+    aa_client = _FakeClient(offers=aa_offers, exc=aa_exc, platform="arbeitsagentur")
+    li_client = _FakeClient(offers=li_offers, exc=li_exc, delay=li_delay, platform="linkedin")
+    xi_client = _FakeClient(offers=xi_offers, exc=xi_exc, delay=xi_delay, platform="xing")
     fallback = _NoOpFallback(offers=fallback_offers)
+
+    sources = [
+        SourceRegistration(aa_client),
+        SourceRegistration(li_client),
+        SourceRegistration(xi_client),
+    ]
 
     return (
         JobSearchService(
-            arbeitsagentur_client=aa_client,
             fallback_scraper=fallback,
-            linkedin_client=li_client,
-            xing_client=xi_client,
             deadline_seconds=deadline_seconds,
+            sources=sources,
         ),
         aa_client,
         li_client,
@@ -209,6 +238,128 @@ def test_fallback_does_not_trigger_when_arbeitsagentur_has_results():
     service.search("Angular", fallback_url="https://example.com/jobs")
 
     assert fallback.calls == []
+
+
+# --- U2: injectable source registry ----------------------------------------
+#
+# Siehe docs/plans/2026-09-11-001-feat-job-search-broader-source-coverage-plan.md
+# (U2, KTD3/KTD9/KTD11). Tests injizieren die Registry statt den gecachten
+# `settings`-Singleton zu verändern.
+
+
+def test_registry_skips_disabled_source_and_never_calls_it():
+    """Edge: `enabled=False` nimmt eine Quelle aus Registry und Antwort, ohne
+    dass `search()` aufgerufen wird."""
+    disabled = _FakeClient(offers=[_offer("disabled")], platform="disabled")
+    enabled = _FakeClient(offers=[_offer("enabled")], platform="enabled")
+    service = JobSearchService(
+        sources=[SourceRegistration(disabled, enabled=False), SourceRegistration(enabled)],
+        deadline_seconds=1.0,
+    )
+
+    response = service.search("Angular")
+
+    assert disabled.calls == []
+    assert {s.platform for s in response.sources} == {"enabled"}
+    assert {offer.source_platform for offer in response.results} == {"enabled"}
+
+
+def test_unconfigured_source_yields_not_configured_without_a_search_call():
+    """KTD9: `is_configured()` wird vor dem Submit befragt; bei `False` wird
+    die Quelle übersprungen und als `not-configured` markiert."""
+    unconfigured = _FakeClient(offers=[_offer("adzuna")], platform="adzuna", configured=False)
+    configured = _FakeClient(offers=[_offer("arbeitsagentur")], platform="arbeitsagentur")
+    service = JobSearchService(
+        sources=[SourceRegistration(unconfigured), SourceRegistration(configured)],
+        deadline_seconds=1.0,
+    )
+
+    response = service.search("Angular")
+
+    assert unconfigured.calls == []
+    assert unconfigured.is_configured_calls == 1
+    status = next(s for s in response.sources if s.platform == "adzuna")
+    assert status.status == "unavailable"
+    assert status.reason == "not-configured"
+
+
+def test_source_not_configured_error_maps_to_not_configured_reason():
+    """KTD9: eine mitten im Request abgelehnte Zugangsberechtigung
+    (`SourceNotConfiguredError`) wird auf denselben Reason gemappt."""
+    raising = _FakeClient(exc=SourceNotConfiguredError("credential rejected"), platform="jooble")
+    service = JobSearchService(
+        sources=[SourceRegistration(raising)],
+        deadline_seconds=1.0,
+    )
+
+    response = service.search("Angular")
+
+    assert raising.calls == [("Angular", None)]
+    status = next(s for s in response.sources if s.platform == "jooble")
+    assert status.status == "unavailable"
+    assert status.reason == "not-configured"
+
+
+def test_registry_error_isolation_one_source_raising_does_not_affect_others():
+    """Error: eine werfende Quelle bekommt `reason=error`, die übrigen
+    liefern weiterhin Treffer."""
+    failing = _FakeClient(exc=RuntimeError("simulated unexpected failure"), platform="linkedin")
+    healthy = _FakeClient(offers=[_offer("arbeitsagentur")], platform="arbeitsagentur")
+    service = JobSearchService(
+        sources=[SourceRegistration(failing), SourceRegistration(healthy)],
+        deadline_seconds=1.0,
+    )
+
+    response = service.search("Angular")
+
+    assert next(s for s in response.sources if s.platform == "linkedin").reason == "error"
+    assert next(s for s in response.sources if s.platform == "arbeitsagentur").status == "ok"
+    assert {offer.source_platform for offer in response.results} == {"arbeitsagentur"}
+
+
+def test_registry_deadline_timeout_marks_source_and_returns_promptly():
+    """Timeout: eine langsame Quelle wird `reason=timeout`, die Antwort kommt
+    trotzdem zeitnah zurück (KTD8)."""
+    slow = _FakeClient(offers=[_offer("slow")], platform="slow", delay=2.0)
+    healthy = _FakeClient(offers=[_offer("arbeitsagentur")], platform="arbeitsagentur")
+    service = JobSearchService(
+        sources=[SourceRegistration(slow), SourceRegistration(healthy)],
+        deadline_seconds=0.2,
+    )
+
+    started = time.monotonic()
+    response = service.search("Angular")
+    elapsed = time.monotonic() - started
+
+    assert next(s for s in response.sources if s.platform == "slow").reason == "timeout"
+    assert elapsed < 1.0
+
+
+def test_empty_source_with_active_cooldown_is_labeled_rate_limited():
+    """Die frühere LinkedIn-Sonderbehandlung ist jetzt generisch: jede Quelle
+    mit `is_cooldown_active()` und leerem Ergebnis wird `rate-limited`."""
+    limited = _FakeClient(offers=[], platform="linkedin", cooldown_active=True)
+    service = JobSearchService(
+        sources=[SourceRegistration(limited)],
+        deadline_seconds=1.0,
+    )
+
+    response = service.search("Angular")
+
+    status = next(s for s in response.sources if s.platform == "linkedin")
+    assert status.status == "unavailable"
+    assert status.reason == "rate-limited"
+
+
+def test_default_registry_is_built_from_settings_without_injection():
+    """KTD11: ohne Injektion baut der Service die settings-abgeleitete
+    Registry (hier: die drei Primärquellen)."""
+    service = JobSearchService(deadline_seconds=1.0)
+
+    platforms = [reg.platform for reg in service._sources]  # noqa: SLF001 - white-box wiring check
+    assert platforms[0] == "arbeitsagentur"
+    assert set(platforms) <= {"arbeitsagentur", "linkedin", "xing"}
+    assert all(reg.enabled for reg in service._sources)  # noqa: SLF001
 
 
 def test_default_xing_client_inner_timeout_never_exceeds_the_search_deadline():

@@ -34,6 +34,18 @@ from app.schemas.job_offer import JobOfferCreate
 
 logger = logging.getLogger(__name__)
 
+
+class SourceNotConfiguredError(Exception):
+    """Eine Quelle hat keine gültigen Zugangsdaten (KTD9).
+
+    API-Clients werfen diese Exception, wenn eine Zugangsberechtigung
+    serverseitig abgelehnt wird (z. B. HTTP 401/403/410). Der Orchestrator
+    mappt sie auf `status="unavailable", reason="not-configured"` - dieselbe
+    Kennzeichnung wie für Quellen, deren `is_configured()` vorab `False`
+    meldet.
+    """
+
+
 # Browser-artiger User-Agent, um von Zielseiten nicht pauschal als Bot
 # geblockt zu werden. Für produktive Nutzung sollte jede Quelle einzeln auf
 # robots.txt / Nutzungsbedingungen geprüft werden.
