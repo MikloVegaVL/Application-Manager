@@ -66,7 +66,7 @@
             <mat-icon matChipAvatar>{{ source.status === 'ok' ? 'check_circle' : 'error_outline' }}</mat-icon>
             {{ sourceLabel(source.platform) }}
             @if (source.status === 'unavailable') {
-              · {{ 'jobSearch.unavailable' | translate: i18n.language() }}
+              · {{ (source.reason === 'not-configured' ? 'jobSearch.notConfigured' : 'jobSearch.unavailable') | translate: i18n.language() }}
             }
           </mat-chip>
         }

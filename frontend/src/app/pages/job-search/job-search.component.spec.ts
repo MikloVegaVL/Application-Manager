@@ -6,6 +6,7 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 
 import { JobSearchComponent } from './job-search.component';
 import { JobSearchResponse } from '../../core/models/job-offer.model';
+import { TranslationService } from '../../core/services/translation.service';
 import { environment } from '../../../environments/environment';
 
 describe('JobSearchComponent', () => {
@@ -295,6 +296,78 @@ describe('JobSearchComponent', () => {
 
       expect(secondComponent['results']().length).toBe(1);
       expect(secondComponent['searchForm'].getRawValue().keywords).toBe('Angular');
+    });
+  });
+
+  describe('U7: source status labels', () => {
+    beforeEach(() => {
+      localStorage.clear();
+    });
+
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    it('renders the distinct "not configured" label for reason="not-configured"', () => {
+      triggerSearch();
+      flushSearch({
+        results: [],
+        sources: [{ platform: 'adzuna', status: 'unavailable', reason: 'not-configured' }],
+      });
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('Adzuna');
+      expect(text).toContain('nicht konfiguriert');
+      expect(text).not.toContain('nicht verfügbar');
+    });
+
+    it('keeps the generic unavailable label for existing reasons', () => {
+      triggerSearch();
+      flushSearch({
+        results: [],
+        sources: [
+          { platform: 'linkedin', status: 'unavailable', reason: 'timeout' },
+          { platform: 'xing', status: 'unavailable', reason: 'error' },
+          { platform: 'arbeitsagentur', status: 'unavailable', reason: 'empty' },
+          { platform: 'jooble', status: 'unavailable', reason: 'rate-limited' },
+        ],
+      });
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('nicht verfügbar');
+      expect(text).not.toContain('nicht konfiguriert');
+    });
+
+    it('falls back to the raw platform key for an unknown platform', () => {
+      triggerSearch();
+      flushSearch({
+        results: [],
+        sources: [{ platform: 'unknown-board', status: 'unavailable', reason: 'error' }],
+      });
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('unknown-board');
+    });
+
+    it('renders the friendly name and not-configured label in both languages', () => {
+      const i18n = TestBed.inject(TranslationService);
+      i18n.setLanguage('en');
+
+      triggerSearch();
+      flushSearch({
+        results: [],
+        sources: [{ platform: 'germantechjobs', status: 'unavailable', reason: 'not-configured' }],
+      });
+
+      let text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('GermanTechJobs');
+      expect(text).toContain('not configured');
+
+      i18n.setLanguage('de');
+      fixture.detectChanges();
+      text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('GermanTechJobs');
+      expect(text).toContain('nicht konfiguriert');
     });
   });
 });

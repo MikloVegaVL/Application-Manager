@@ -34,6 +34,7 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'jobSearch.clearResults': 'Ergebnisse löschen',
     'jobSearch.loading': 'Stellenangebote werden geladen ...',
     'jobSearch.unavailable': 'nicht verfügbar',
+    'jobSearch.notConfigured': 'nicht konfiguriert',
     'jobSearch.allSourcesUnavailable':
       'Alle Quellen waren gerade nicht erreichbar. Bitte versuche es in ein paar Minuten erneut.',
     'jobSearch.noResults':
@@ -219,6 +220,7 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'jobSearch.clearResults': 'Clear results',
     'jobSearch.loading': 'Loading job offers ...',
     'jobSearch.unavailable': 'unavailable',
+    'jobSearch.notConfigured': 'not configured',
     'jobSearch.allSourcesUnavailable':
       'All sources were unreachable just now. Please try again in a few minutes.',
     'jobSearch.noResults': 'No job offers found. Try a different search term or location.',

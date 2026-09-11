@@ -37,12 +37,14 @@ export interface JobSaveConflictDetail {
  * das Backend-Schema `SourceStatus` (siehe `backend/app/schemas/job_offer.py`).
  * `status: 'unavailable'` deckt laut Anforderung R5 sowohl echte Fehler/
  * Timeouts als auch eine leere Trefferliste ab; `reason` unterscheidet den
- * Fall näher (z. B. "timeout", "rate-limited", "error", "empty").
+ * Fall näher (z. B. "timeout", "rate-limited", "error", "empty"). Der Grund
+ * "not-configured" markiert Quellen, deren Zugangsdaten fehlen - sie werden
+ * bewusst nicht abgefragt (siehe R9/KTD5).
  */
 export interface SourceStatus {
   platform: string;
   status: 'ok' | 'unavailable';
-  reason: 'timeout' | 'rate-limited' | 'error' | 'empty' | null;
+  reason: 'timeout' | 'rate-limited' | 'error' | 'empty' | 'not-configured' | null;
 }
 
 /**
