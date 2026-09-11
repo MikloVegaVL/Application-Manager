@@ -358,9 +358,37 @@ def test_default_registry_is_built_from_settings_without_injection():
 
     platforms = [reg.platform for reg in service._sources]  # noqa: SLF001 - white-box wiring check
     assert platforms[0] == "arbeitsagentur"
-    assert set(platforms) <= {"arbeitsagentur", "linkedin", "xing", "adzuna", "jooble"}
+    assert set(platforms) <= {
+        "arbeitsagentur",
+        "linkedin",
+        "xing",
+        "adzuna",
+        "jooble",
+        "devjobs",
+        "kimeta",
+        "stepstone",
+        "germantechjobs",
+        "indeed",
+        "jobware",
+        "programmiererjobboerse",
+        "it-entwickler-jobs",
+    }
     assert "adzuna" in platforms
     assert "jooble" in platforms
+    # U6: alle acht HTML-Boards sind standardmäßig registriert und tragen je
+    # einen eigenen Plattform-Schlüssel - keiner ist "web-scraper" (R4/R6).
+    for board in (
+        "devjobs",
+        "kimeta",
+        "stepstone",
+        "germantechjobs",
+        "indeed",
+        "jobware",
+        "programmiererjobboerse",
+        "it-entwickler-jobs",
+    ):
+        assert board in platforms
+    assert "web-scraper" not in platforms
     assert all(reg.enabled for reg in service._sources)  # noqa: SLF001
 
 

@@ -43,6 +43,7 @@ import requests
 from app.core.config import settings
 from app.schemas.job_offer import JobOfferCreate, JobSearchResponse, SourceStatus
 from app.services.job_sources.adzuna import AdzunaJobsClient
+from app.services.job_sources.boards import BOARD_DESCRIPTORS, BoardSource
 from app.services.job_sources.jooble import JoobleJobsClient
 from app.services.job_sources.linkedin import LinkedInJobsClient
 from app.services.job_sources.shared import (
@@ -388,6 +389,23 @@ class JobSearchService:
                 SourceRegistration(
                     JoobleJobsClient(
                         api_key=self._jooble_api_key,
+                        # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
+                        timeout=max(1.0, self._deadline_seconds - 1.0),
+                    )
+                )
+            )
+        # U6: die acht benannten HTML-Boards laufen alle über den geteilten
+        # generischen Extraktionspfad (KD4/KTD2) - je Board ein eigener
+        # Deskriptor/Plattform-Schlüssel, kein "web-scraper" (R4/R6). Auch ein
+        # Board ohne lesbare Seite bleibt registriert und meldet `unavailable`,
+        # statt stillschweigend zu verschwinden (R5).
+        for descriptor in BOARD_DESCRIPTORS:
+            if not self._source_enabled.get(descriptor.source_platform):
+                continue
+            registry.append(
+                SourceRegistration(
+                    BoardSource(
+                        descriptor,
                         # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
                         timeout=max(1.0, self._deadline_seconds - 1.0),
                     )
