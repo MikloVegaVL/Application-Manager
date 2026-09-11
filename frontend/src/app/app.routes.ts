@@ -1,5 +1,7 @@
 import { Routes } from '@angular/router';
 
+import { cvBuilderCanDeactivateGuard } from './pages/cv-builder/cv-builder.guard';
+
 export const routes: Routes = [
   {
     path: '',
@@ -17,6 +19,13 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./pages/profile/profile.component').then((m) => m.ProfileComponent),
     title: 'Profil',
+  },
+  {
+    path: 'cv-builder',
+    loadComponent: () =>
+      import('./pages/cv-builder/cv-builder.component').then((m) => m.CvBuilderComponent),
+    canDeactivate: [cvBuilderCanDeactivateGuard],
+    title: 'Lebenslauf',
   },
   {
     path: 'applications',

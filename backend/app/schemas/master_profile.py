@@ -1,7 +1,41 @@
 """Pydantic-Schemas für das Bewerber-Stammprofil (`MasterProfile`)."""
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+# KTD3: Skill-Kompetenzgrad als 4-stufige Skala (deutschsprachige Konvention,
+# die bereits im übrigen UI dieser App verwendet wird) - bewusst kein
+# bespoke-Design, sondern ein fixer, geschlossener Wertebereich.
+SkillLevel = Literal["Grundkenntnisse", "Gut", "Sehr gut", "Experte"]
+
+# KTD3: Sprachkenntnisse nutzen den bestehenden externen CEFR-Standard
+# (A1-C2), kein bespoke-Design nötig.
+LanguageLevel = Literal["A1", "A2", "B1", "B2", "C1", "C2"]
+
+
+class SkillEntry(BaseModel):
+    """Ein Skill mit Kompetenzgrad (siehe KTD3)."""
+
+    name: str = Field(..., max_length=255)
+    level: SkillLevel
+
+
+class LanguageEntry(BaseModel):
+    """Eine Sprachkenntnis mit CEFR-Niveau (siehe KTD3)."""
+
+    name: str = Field(..., max_length=255)
+    level: LanguageLevel
+
+
+class ProjectEntry(BaseModel):
+    """Ein Projekt im CV-Builder - mindestens Titel und Beschreibung (R3)."""
+
+    title: str = Field(..., max_length=255)
+    description: str
+    start_date: str | None = Field(default=None, description="z. B. '2020-01' oder '2020'")
+    end_date: str | None = Field(default=None, description="leer/None = laufend")
+    link: str | None = None
 
 
 class ExperienceEntry(BaseModel):
@@ -34,7 +68,11 @@ class MasterProfileBase(BaseModel):
     summary: str | None = None
     experiences_json: list[ExperienceEntry] = Field(default_factory=list)
     education_json: list[EducationEntry] = Field(default_factory=list)
-    skills_json: list[str] = Field(default_factory=list)
+    skills_json: list[SkillEntry] = Field(default_factory=list)
+    languages_json: list[LanguageEntry] = Field(default_factory=list)
+    projects_json: list[ProjectEntry] = Field(default_factory=list)
+    photo_filename: str | None = None
+    template_id: str | None = None
 
 
 class MasterProfileCreate(MasterProfileBase):
@@ -43,7 +81,15 @@ class MasterProfileCreate(MasterProfileBase):
 
 
 class MasterProfileUpdate(BaseModel):
-    """Payload für ein partielles Update - alle Felder sind optional."""
+    """Payload für ein partielles Update - alle Felder sind optional.
+
+    `photo_filename` (wie `photo_path`) ist hier bewusst NICHT enthalten
+    (fix(review)): Foto-Metadaten dürfen ausschließlich über die dedizierten
+    `POST`/`DELETE /profile/photo`-Endpunkte geschrieben werden, sonst könnte
+    ein `PATCH /profile`-Payload `photo_filename` überschreiben, ohne dass
+    sich der tatsächliche `photo_path` (bzw. die Datei auf der Festplatte)
+    mitändert - die beiden liefen dann auseinander.
+    """
 
     full_name: str | None = Field(default=None, max_length=255)
     email: EmailStr | None = None
@@ -52,7 +98,10 @@ class MasterProfileUpdate(BaseModel):
     summary: str | None = None
     experiences_json: list[ExperienceEntry] | None = None
     education_json: list[EducationEntry] | None = None
-    skills_json: list[str] | None = None
+    skills_json: list[SkillEntry] | None = None
+    languages_json: list[LanguageEntry] | None = None
+    projects_json: list[ProjectEntry] | None = None
+    template_id: str | None = None
 
 
 class ProfileAttachmentRead(BaseModel):
@@ -87,32 +136,18 @@ class MasterProfileRead(MasterProfileBase):
     updated_at: datetime
 
 
-class CvUploadResponse(BaseModel):
-    """Antwort von `POST /profile/upload-cv`.
-
-    `upload_cv` übernimmt Felder aus dem CV nur, wenn die KI dafür tatsächlich
-    etwas gefunden hat (siehe `app.api.profile.upload_cv`) - ein unvollständig
-    gelesener CV darf ein bereits gepflegtes Profil nicht mit leeren Werten
-    überschreiben. Das schützt gute Daten, verschluckt aber ohne `warnings`
-    stillschweigend, dass z. B. gar keine Berufserfahrung erkannt wurde -
-    siehe ce-debug-Untersuchung, 2026-08-18 (ein Nutzer bemerkte erst beim
-    manuellen Nachsehen, dass sein Profil trotz "erfolgreichem" Import keine
-    Berufserfahrung/Ausbildung enthielt). `warnings` benennt jedes Feld, das
-    die KI leer zurückgab und das deshalb NICHT übernommen wurde, damit das
-    Frontend das transparent anzeigen kann statt einen unbedingten Erfolg zu
-    melden.
-    """
-
-    profile: MasterProfileRead
-    warnings: list[str] = Field(default_factory=list)
-
-
 class ParsedCvProfile(BaseModel):
     """Ergebnis der KI-gestützten CV-Analyse (siehe `app.services.pdf_parser`).
 
     Bewusst von `MasterProfileBase` getrennt: Ein Lebenslauf liefert nicht
     zwingend alle Felder (z. B. keine erkennbare E-Mail-Adresse), daher sind
     hier - anders als beim Stammprofil selbst - alle Felder optional.
+
+    `full_name`/`email`/`phone`/`address` sind reine Anzeigefelder für den
+    CV-Builder (R5): Sie werden im Import-Vorschau-Formular nur read-only
+    dargestellt und fließen NIE in den Save-Payload des Builders ein (KTD1) -
+    `POST /cv-builder/parse` schreibt ohnehin grundsätzlich nichts in die
+    Datenbank (R6).
     """
 
     full_name: str | None = None
@@ -123,3 +158,17 @@ class ParsedCvProfile(BaseModel):
     experiences: list[ExperienceEntry] = Field(default_factory=list)
     education: list[EducationEntry] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
+    projects: list[ProjectEntry] = Field(default_factory=list)
+
+
+class CvParseResponse(BaseModel):
+    """Antwort von `POST /cv-builder/parse` (R5/R6): liefert das rohe, per KI
+    geparste Profil unverändert zurück - dieser Endpunkt schreibt NICHTS in
+    die Datenbank, das übernimmt ausschließlich ein späterer, expliziter
+    Save-Aufruf des Nutzers im Builder-Formular. `warnings` benennt jedes
+    Feld, für das die KI nichts gefunden hat (siehe
+    `app.services.pdf_parser.missing_field_warnings`), damit das Frontend das
+    transparent anzeigen kann statt einen unbedingten Erfolg zu melden."""
+
+    parsed: ParsedCvProfile
+    warnings: list[str] = Field(default_factory=list)

@@ -39,7 +39,23 @@ class MasterProfile(Base):
     education_json: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON, nullable=False, default=list
     )
-    skills_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    # `skills_json`-Einträge tragen seit dem CV-Builder (siehe
+    # `app.schemas.master_profile.SkillEntry`) je einen Kompetenzgrad
+    # (`{"name": ..., "level": ...}`) statt reiner Namens-Strings - Migration
+    # `17c15ce91b4e` überführt bestehende Zeilen entsprechend (KTD5).
+    skills_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    # Sprachkenntnisse (CEFR-Niveau je Sprache) und Projekte - beides analog
+    # zu `skills_json`/`experiences_json` als JSON-Liste strukturierter
+    # Einträge (siehe `app.schemas.master_profile.LanguageEntry`,
+    # `ProjectEntry`).
+    languages_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    projects_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
 
     # Vom Nutzer hochgeladene Lebenslauf-Datei (unverändert, kein KI-Rendering
     # mehr) - wird beim Versand einer Bewerbung als E-Mail-Anhang verwendet
@@ -48,6 +64,18 @@ class MasterProfile(Base):
     # ursprüngliche Dateiname (für Content-Disposition/E-Mail-Anhang).
     cv_file_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     cv_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Profilfoto für den CV-Builder - mirrors the `cv_file_path`/`cv_filename`
+    # convention exactly (KTD4): `photo_path` ist der Pfad auf der Festplatte
+    # (`photo_{profile_id}.{ext}` unter `settings.PROFILE_FILES_DIR`),
+    # `photo_filename` der ursprüngliche Dateiname. Die Upload-/Download-
+    # Endpunkte folgen in einer späteren Unit.
+    photo_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    photo_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Gewähltes CV-Vorlagen-Template für Vorschau/Export (spätere Unit) -
+    # `None` bedeutet "noch keine Vorlage gewählt".
+    template_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Bis zu drei zusätzliche PDF-Anhänge (z. B. Zeugnisse, Zertifikate),
     # die beim Versand einer Bewerbung neben dem Lebenslauf mitgeschickt

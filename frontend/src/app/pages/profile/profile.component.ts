@@ -1,16 +1,10 @@
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { FormArray, FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 
-import { LiveAnnouncer } from '@angular/cdk/a11y';
-import { COMMA, ENTER } from '@angular/cdk/keycodes';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
-import {
-  MatChipEditedEvent,
-  MatChipInputEvent,
-  MatChipsModule,
-} from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -18,23 +12,24 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatTabsModule } from '@angular/material/tabs';
 
-import {
-  EducationEntry,
-  ExperienceEntry,
-  MasterProfile,
-  MasterProfileRead,
-  ProfileAttachment,
-} from '../../core/models/master-profile.model';
+import { MasterProfile, MasterProfileRead, ProfileAttachment } from '../../core/models/master-profile.model';
 import { ProfileService } from '../../core/services/profile.service';
 
+/**
+ * Profil-Seite: nur noch Identitätsfelder (Name, E-Mail, Telefon, Adresse)
+ * plus die datei-basierten Tabs (Lebenslauf-Anhang, Weitere Anhänge). Die
+ * inhaltliche CV-Pflege (Berufserfahrung, Ausbildung, Skills, Zusammen-
+ * fassung) und der KI-gestützte CV-Import sind in den CV Builder
+ * (`cv-builder.component.ts`) umgezogen - siehe R2/R3 in U7.
+ */
 @Component({
   selector: 'app-profile',
   standalone: true,
   imports: [
     ReactiveFormsModule,
+    RouterLink,
     MatButtonModule,
     MatCardModule,
-    MatChipsModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
@@ -49,30 +44,21 @@ export class ProfileComponent implements OnInit {
   private readonly formBuilder = inject(FormBuilder);
   private readonly profileService = inject(ProfileService);
   private readonly snackBar = inject(MatSnackBar);
-  private readonly announcer = inject(LiveAnnouncer);
-
-  protected readonly separatorKeysCodes = [ENTER, COMMA] as const;
 
   protected readonly profileId = signal<number | null>(null);
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
-  protected readonly skills = signal<string[]>([]);
 
-  // --- CV-Import (Tab 4) ---
-  protected readonly selectedFile = signal<File | null>(null);
-  protected readonly isDragOver = signal(false);
-  protected readonly uploading = signal(false);
-
-  // --- Lebenslauf-Anhang (Tab 5) - unverändert als E-Mail-Anhang genutzt,
-  // im Unterschied zu Tab 4's KI-gestütztem Profil-Import (siehe
-  // `app.api.profile.upload_cv_file` vs. `upload_cv`). ---
+  // --- Lebenslauf-Anhang (Tab 2) - wird unverändert als E-Mail-Anhang
+  // genutzt, wenn eine Bewerbung versendet wird (siehe
+  // `app.api.profile.upload_cv_file`). ---
   protected readonly cvFilename = signal<string | null>(null);
   protected readonly selectedCvFile = signal<File | null>(null);
   protected readonly isCvFileDragOver = signal(false);
   protected readonly uploadingCvFile = signal(false);
   protected readonly deletingCvFile = signal(false);
 
-  // --- Weitere Anhänge (Tab 6) - bis zu MAX_ATTACHMENTS zusätzliche PDFs,
+  // --- Weitere Anhänge (Tab 3) - bis zu MAX_ATTACHMENTS zusätzliche PDFs,
   // die beim Versand ZUSÄTZLICH zum Lebenslauf mitgeschickt werden (siehe
   // `app.api.profile`, `app.api.applications.send_application`). ---
   protected readonly MAX_ATTACHMENTS = 3;
@@ -87,24 +73,13 @@ export class ProfileComponent implements OnInit {
     email: ['', [Validators.required, Validators.email]],
     phone: [''],
     address: [''],
-    summary: [''],
-    experiences: this.formBuilder.array<FormGroup>([]),
-    education: this.formBuilder.array<FormGroup>([]),
   });
 
   ngOnInit(): void {
     this.loadProfile();
   }
 
-  protected get experiencesArray(): FormArray<FormGroup> {
-    return this.profileForm.get('experiences') as FormArray<FormGroup>;
-  }
-
-  protected get educationArray(): FormArray<FormGroup> {
-    return this.profileForm.get('education') as FormArray<FormGroup>;
-  }
-
-  // --- Tab 1+2: Laden & Speichern ---------------------------------------
+  // --- Tab 1: Laden & Speichern -------------------------------------------
 
   private loadProfile(): void {
     this.loading.set(true);
@@ -131,18 +106,54 @@ export class ProfileComponent implements OnInit {
     }
 
     const raw = this.profileForm.getRawValue();
+    this.saving.set(true);
+
+    // KTD14: NUR die Identitätsfelder überschreiben, alle Builder-eigenen
+    // Felder (experiences_json, education_json, skills_json, ...) unverändert
+    // zurückschicken, weil `PUT /profile` alle Felder feldweise überschreibt.
+    // Review-Fund (fix(review)): der Payload wird bewusst NICHT mehr aus
+    // `this.lastLoadedProfile` gebaut, einer beim Seitenaufruf einmalig
+    // geladenen Momentaufnahme, die von keiner anderen Quelle (z. B. einem
+    // zwischenzeitlichen Save im CV Builder in einem anderen Tab) aktualisiert
+    // wird - ein PUT mit dieser veralteten Momentaufnahme würde dort
+    // inzwischen gespeicherte Builder-Inhalte sonst stillschweigend
+    // zurücksetzen. Stattdessen wird das Profil unmittelbar vor dem PUT frisch
+    // geladen, damit der Payload garantiert den aktuellen Stand aller
+    // Builder-Felder enthält.
+    this.profileService.getProfile().subscribe({
+      next: (base) => this.submitWithBase(raw, base),
+      error: (error: HttpErrorResponse) => {
+        // 404 = es existiert noch kein Profil -> Neuanlage, kein Builder-
+        // Inhalt zu bewahren.
+        if (error.status === 404) {
+          this.submitWithBase(raw, null);
+          return;
+        }
+        this.saving.set(false);
+        this.snackBar.open('Profil konnte nicht gespeichert werden.', 'OK', { duration: 4000 });
+      },
+    });
+  }
+
+  private submitWithBase(
+    raw: { full_name: string; email: string; phone: string; address: string },
+    base: MasterProfileRead | null,
+  ): void {
     const payload: MasterProfile = {
       full_name: raw.full_name,
       email: raw.email,
       phone: raw.phone || null,
       address: raw.address || null,
-      summary: raw.summary || null,
-      experiences_json: raw.experiences as ExperienceEntry[],
-      education_json: raw.education as EducationEntry[],
-      skills_json: this.skills(),
+      summary: base?.summary ?? null,
+      experiences_json: base?.experiences_json ?? [],
+      education_json: base?.education_json ?? [],
+      skills_json: base?.skills_json ?? [],
+      languages_json: base?.languages_json ?? [],
+      projects_json: base?.projects_json ?? [],
+      photo_filename: base?.photo_filename ?? null,
+      template_id: base?.template_id ?? null,
     };
 
-    this.saving.set(true);
     this.profileService.saveProfile(payload).subscribe({
       next: (profile) => {
         this.saving.set(false);
@@ -165,170 +176,10 @@ export class ProfileComponent implements OnInit {
       email: profile.email,
       phone: profile.phone ?? '',
       address: profile.address ?? '',
-      summary: profile.summary ?? '',
-    });
-
-    this.experiencesArray.clear();
-    profile.experiences_json.forEach((entry) => this.experiencesArray.push(this.createExperienceGroup(entry)));
-
-    this.educationArray.clear();
-    profile.education_json.forEach((entry) => this.educationArray.push(this.createEducationGroup(entry)));
-
-    this.skills.set([...profile.skills_json]);
-  }
-
-  // --- Tab 2: Berufserfahrung & Ausbildung (dynamische FormArrays) ------
-
-  private createExperienceGroup(entry?: ExperienceEntry): FormGroup {
-    return this.formBuilder.nonNullable.group({
-      company: [entry?.company ?? '', Validators.required],
-      role: [entry?.role ?? '', Validators.required],
-      start_date: [entry?.start_date ?? ''],
-      end_date: [entry?.end_date ?? ''],
-      description: [entry?.description ?? ''],
     });
   }
 
-  private createEducationGroup(entry?: EducationEntry): FormGroup {
-    return this.formBuilder.nonNullable.group({
-      institution: [entry?.institution ?? '', Validators.required],
-      degree: [entry?.degree ?? '', Validators.required],
-      field_of_study: [entry?.field_of_study ?? ''],
-      start_date: [entry?.start_date ?? ''],
-      end_date: [entry?.end_date ?? ''],
-    });
-  }
-
-  addExperience(): void {
-    this.experiencesArray.push(this.createExperienceGroup());
-  }
-
-  removeExperience(index: number): void {
-    this.experiencesArray.removeAt(index);
-  }
-
-  addEducation(): void {
-    this.educationArray.push(this.createEducationGroup());
-  }
-
-  removeEducation(index: number): void {
-    this.educationArray.removeAt(index);
-  }
-
-  // --- Tab 3: Skills & Zertifikate (mat-chip-grid) -----------------------
-
-  addSkill(event: MatChipInputEvent): void {
-    const value = (event.value || '').trim();
-    if (value) {
-      this.skills.update((skills) => (skills.includes(value) ? skills : [...skills, value]));
-    }
-    event.chipInput.clear();
-  }
-
-  removeSkill(skill: string): void {
-    this.skills.update((skills) => skills.filter((s) => s !== skill));
-    this.announcer.announce(`${skill} entfernt`);
-  }
-
-  editSkill(skill: string, event: MatChipEditedEvent): void {
-    const value = event.value.trim();
-    if (!value) {
-      this.removeSkill(skill);
-      return;
-    }
-    this.skills.update((skills) => {
-      const index = skills.indexOf(skill);
-      if (index < 0) {
-        return skills;
-      }
-      const copy = [...skills];
-      copy[index] = value;
-      return copy;
-    });
-  }
-
-  // --- Tab 4: CV-Import (Dropzone) ---------------------------------------
-
-  onDragOver(event: DragEvent): void {
-    event.preventDefault();
-    this.isDragOver.set(true);
-  }
-
-  onDragLeave(event: DragEvent): void {
-    event.preventDefault();
-    this.isDragOver.set(false);
-  }
-
-  onDrop(event: DragEvent): void {
-    event.preventDefault();
-    this.isDragOver.set(false);
-    const file = event.dataTransfer?.files?.[0];
-    if (file) {
-      this.setSelectedFile(file);
-    }
-  }
-
-  onFileSelected(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (file) {
-      this.setSelectedFile(file);
-    }
-    input.value = '';
-  }
-
-  private setSelectedFile(file: File): void {
-    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-    if (!isPdf) {
-      this.snackBar.open('Bitte eine PDF-Datei auswählen.', 'OK', { duration: 3000 });
-      return;
-    }
-    this.selectedFile.set(file);
-  }
-
-  clearSelectedFile(): void {
-    this.selectedFile.set(null);
-  }
-
-  uploadCv(): void {
-    const file = this.selectedFile();
-    if (!file || this.uploading()) {
-      return;
-    }
-
-    this.uploading.set(true);
-    this.profileService.uploadCv(file).subscribe({
-      next: ({ profile, warnings }) => {
-        this.uploading.set(false);
-        this.selectedFile.set(null);
-        this.applyProfileToForm(profile);
-        // `warnings` benennt Felder, die die KI nicht im CV fand und die
-        // deshalb NICHT übernommen wurden (bestehende Daten bleiben
-        // unverändert) - ohne diese Meldung wirkte ein unvollständiger
-        // Import wie ein unbedingter Erfolg (siehe ce-debug-Untersuchung,
-        // 2026-08-18).
-        if (warnings.length > 0) {
-          this.snackBar.open(
-            `Profil teilweise befüllt - bitte manuell prüfen: ${warnings.join(' ')}`,
-            'OK',
-            { duration: 10000 },
-          );
-        } else {
-          this.snackBar.open('Profil wurde aus dem Lebenslauf befüllt. Bitte prüfen und speichern.', 'OK', {
-            duration: 5000,
-          });
-        }
-      },
-      error: (error: HttpErrorResponse) => {
-        this.uploading.set(false);
-        const message =
-          (error.error?.detail as string | undefined) ?? 'CV-Analyse fehlgeschlagen. Bitte erneut versuchen.';
-        this.snackBar.open(message, 'OK', { duration: 6000 });
-      },
-    });
-  }
-
-  // --- Tab 5: Lebenslauf-Anhang (Dropzone) --------------------------------
+  // --- Tab 2: Lebenslauf-Anhang (Dropzone) --------------------------------
 
   onCvFileDragOver(event: DragEvent): void {
     event.preventDefault();
@@ -413,7 +264,7 @@ export class ProfileComponent implements OnInit {
     });
   }
 
-  // --- Tab 6: Weitere Anhänge (Dropzone, bis zu MAX_ATTACHMENTS) ---------
+  // --- Tab 3: Weitere Anhänge (Dropzone, bis zu MAX_ATTACHMENTS) ---------
 
   onAttachmentDragOver(event: DragEvent): void {
     event.preventDefault();
