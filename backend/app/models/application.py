@@ -3,7 +3,7 @@ import enum
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Text, func
+from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -45,6 +45,10 @@ class Application(Base):
     )
 
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Empfängeradresse des tatsächlichen Mailversands - wird erst beim Versand
+    # gesetzt (siehe `send_application`) und in der Bewerbungsübersicht
+    # angezeigt, damit nachvollziehbar ist, wohin die Bewerbung ging.
+    sent_to_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

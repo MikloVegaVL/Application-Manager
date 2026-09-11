@@ -65,6 +65,7 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'applications.filter.all': 'Alle',
     'applications.filter.outcome': 'Ergebnis',
     'applications.outcomeLabel': 'Ergebnis',
+    'applications.sentTo': 'Gesendet an',
     'applications.noFilterMatch': 'Keine Bewerbungen mit diesem Status.',
     'applications.error':
       'Die Bewerbungen konnten nicht geladen werden. Bitte versuche es später erneut.',
@@ -248,6 +249,7 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'applications.filter.all': 'All',
     'applications.filter.outcome': 'Outcome',
     'applications.outcomeLabel': 'Outcome',
+    'applications.sentTo': 'Sent to',
     'applications.noFilterMatch': 'No applications with this status.',
     'applications.error': 'The applications could not be loaded. Please try again later.',
     'applications.confirmDelete':

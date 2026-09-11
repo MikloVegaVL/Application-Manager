@@ -33,6 +33,7 @@ function buildApplication(coverLetterText: string | null): Application {
     cover_letter_text: coverLetterText,
     status: 'draft',
     sent_at: null,
+    sent_to_email: null,
     created_at: '2026-08-11T00:00:00',
     job_offer: defaultJobOffer,
   };

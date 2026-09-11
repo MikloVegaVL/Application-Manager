@@ -41,6 +41,7 @@ describe('ApplicationsComponent', () => {
     cover_letter_text: 'Sehr geehrte Damen und Herren...',
     status: 'draft',
     sent_at: null,
+    sent_to_email: null,
     created_at: new Date().toISOString(),
     job_offer: {
       id: 42,
@@ -68,6 +69,7 @@ describe('ApplicationsComponent', () => {
         cover_letter_text: 'Sehr geehrte Damen und Herren...',
         status: 'draft',
         sent_at: null,
+        sent_to_email: null,
         created_at: new Date().toISOString(),
         job_offer: {
           id: 42,
@@ -185,5 +187,26 @@ describe('ApplicationsComponent', () => {
 
     component.onFilterChange('all');
     expect(component['filteredApplications']().length).toBe(2);
+  });
+
+  it('shows the recipient email on the card once the application was sent', () => {
+    const sentApplication: Application = {
+      ...sampleApplication,
+      status: 'sent',
+      sent_at: new Date().toISOString(),
+      sent_to_email: 'recruiter@example.com',
+    };
+    flushList([sentApplication]);
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Gesendet an');
+    expect(text).toContain('recruiter@example.com');
+  });
+
+  it('does not show a recipient row before the application was sent', () => {
+    flushList([sampleApplication]);
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).not.toContain('Gesendet an');
   });
 });

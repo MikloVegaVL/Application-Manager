@@ -56,6 +56,7 @@ class ApplicationRead(ApplicationBase):
 
     id: int
     sent_at: datetime | None = None
+    sent_to_email: str | None = None
     created_at: datetime
     job_offer: JobOfferRead
 

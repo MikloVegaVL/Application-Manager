@@ -109,6 +109,18 @@
                   <mat-progress-spinner mode="indeterminate" diameter="16" />
                 }
               </div>
+
+              @if (application.sent_to_email) {
+                <div class="application-card__sent-to">
+                  <mat-icon>mail_outline</mat-icon>
+                  <span>
+                    <span class="application-card__sent-to-label">
+                      {{ 'applications.sentTo' | translate: i18n.language() }}:
+                    </span>
+                    {{ application.sent_to_email }}
+                  </span>
+                </div>
+              }
             </div>
           </mat-card-content>
 

@@ -548,6 +548,7 @@ def test_send_application_marks_application_as_sent(
     body = response.json()
     assert body["status"] == "sent"
     assert body["sent_at"] is not None
+    assert body["sent_to_email"] == "recruiter@example.com"
 
 
 def test_send_application_includes_profile_attachments_alongside_cv(
