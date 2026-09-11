@@ -58,14 +58,22 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'applications.open': 'Bewerbung öffnen',
     'applications.status.draft': 'Entwurf',
     'applications.status.sent': 'Versendet',
-    'applications.status.rejected': 'Abgelehnt',
+    'applications.status.rejected': 'Absage',
+    'applications.status.accepted': 'Zusage',
     'applications.status.interview': 'Vorstellungsgespräch',
+    'applications.filterLabel': 'Nach Status filtern',
+    'applications.filter.all': 'Alle',
+    'applications.filter.outcome': 'Ergebnis',
+    'applications.outcomeLabel': 'Ergebnis',
+    'applications.noFilterMatch': 'Keine Bewerbungen mit diesem Status.',
     'applications.error':
       'Die Bewerbungen konnten nicht geladen werden. Bitte versuche es später erneut.',
     'applications.confirmDelete':
       'Bewerbung "{title}" bei {company} unwiderruflich löschen?',
     'applications.snackbar.deleted': 'Bewerbung wurde gelöscht.',
     'applications.snackbar.deleteFailed': 'Bewerbung konnte nicht gelöscht werden.',
+    'applications.snackbar.statusUpdated': 'Status wurde aktualisiert.',
+    'applications.snackbar.statusUpdateFailed': 'Status konnte nicht aktualisiert werden.',
 
     'profile.title': 'Profil',
     'profile.intro':
@@ -233,13 +241,21 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'applications.open': 'Open application',
     'applications.status.draft': 'Draft',
     'applications.status.sent': 'Sent',
-    'applications.status.rejected': 'Rejected',
+    'applications.status.rejected': 'Rejection',
+    'applications.status.accepted': 'Offer',
     'applications.status.interview': 'Interview',
+    'applications.filterLabel': 'Filter by status',
+    'applications.filter.all': 'All',
+    'applications.filter.outcome': 'Outcome',
+    'applications.outcomeLabel': 'Outcome',
+    'applications.noFilterMatch': 'No applications with this status.',
     'applications.error': 'The applications could not be loaded. Please try again later.',
     'applications.confirmDelete':
       'Permanently delete application "{title}" at {company}?',
     'applications.snackbar.deleted': 'Application was deleted.',
     'applications.snackbar.deleteFailed': 'The application could not be deleted.',
+    'applications.snackbar.statusUpdated': 'Status was updated.',
+    'applications.snackbar.statusUpdateFailed': 'The status could not be updated.',
 
     'profile.title': 'Profile',
     'profile.intro':

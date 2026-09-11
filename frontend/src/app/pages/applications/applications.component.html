@@ -15,13 +15,52 @@
     <p class="applications__error">{{ errorMessage() }}</p>
   }
 
+  @if (!loading() && !errorMessage() && applications().length > 0) {
+    <mat-radio-group
+      class="applications__filter"
+      [value]="filter()"
+      (change)="onFilterChange($event.value)"
+      [attr.aria-label]="'applications.filterLabel' | translate: i18n.language()"
+    >
+      <span class="applications__filter-title">
+        {{ 'applications.filterLabel' | translate: i18n.language() }}
+      </span>
+
+      <mat-radio-button value="all">
+        {{ 'applications.filter.all' | translate: i18n.language() }}
+      </mat-radio-button>
+      <mat-radio-button value="sent">
+        {{ 'applications.status.sent' | translate: i18n.language() }}
+      </mat-radio-button>
+      <mat-radio-button value="draft">
+        {{ 'applications.status.draft' | translate: i18n.language() }}
+      </mat-radio-button>
+
+      <div class="applications__filter-group">
+        <span class="applications__filter-group-title">
+          {{ 'applications.filter.outcome' | translate: i18n.language() }}
+        </span>
+        <mat-radio-button value="accepted">
+          {{ 'applications.status.accepted' | translate: i18n.language() }}
+        </mat-radio-button>
+        <mat-radio-button value="rejected">
+          {{ 'applications.status.rejected' | translate: i18n.language() }}
+        </mat-radio-button>
+      </div>
+    </mat-radio-group>
+  }
+
   @if (!loading() && !errorMessage() && applications().length === 0) {
     <p class="applications__empty">{{ 'applications.empty' | translate: i18n.language() }}</p>
   }
 
-  @if (!loading() && applications().length > 0) {
+  @if (!loading() && !errorMessage() && applications().length > 0 && filteredApplications().length === 0) {
+    <p class="applications__empty">{{ 'applications.noFilterMatch' | translate: i18n.language() }}</p>
+  }
+
+  @if (!loading() && filteredApplications().length > 0) {
     <div class="applications__results">
-      @for (application of applications(); track application.id) {
+      @for (application of filteredApplications(); track application.id) {
         <mat-card class="application-card" appearance="outlined">
           <mat-card-header>
             <mat-card-title>{{ application.job_offer.title }}</mat-card-title>
@@ -33,15 +72,47 @@
             </mat-card-subtitle>
           </mat-card-header>
 
-          <mat-card-content>
-            <mat-chip-set>
-              <mat-chip [class.application-card__status--sent]="application.status === 'sent'">
-                {{ statusLabel(application.status) }}
-              </mat-chip>
-            </mat-chip-set>
+          <mat-card-content class="application-card__content">
+            <div class="application-card__meta">
+              <mat-chip-set>
+                <mat-chip
+                  [class.application-card__status--sent]="application.status === 'sent'"
+                  [class.application-card__status--accepted]="application.status === 'accepted'"
+                  [class.application-card__status--rejected]="application.status === 'rejected'"
+                >
+                  {{ statusLabel(application.status) }}
+                </mat-chip>
+              </mat-chip-set>
+
+              <div class="application-card__outcome">
+                <span class="application-card__outcome-label">
+                  {{ 'applications.outcomeLabel' | translate: i18n.language() }}
+                </span>
+                <mat-button-toggle-group
+                  class="application-card__outcome-options"
+                  [value]="application.status"
+                  [disabled]="isUpdatingStatus(application)"
+                  [hideSingleSelectionIndicator]="true"
+                  (change)="onStatusChange(application, $event.value)"
+                  [attr.aria-label]="'applications.outcomeLabel' | translate: i18n.language()"
+                >
+                  <mat-button-toggle value="accepted" class="application-card__outcome-accept">
+                    <mat-icon>check</mat-icon>
+                    {{ 'applications.status.accepted' | translate: i18n.language() }}
+                  </mat-button-toggle>
+                  <mat-button-toggle value="rejected" class="application-card__outcome-reject">
+                    <mat-icon>close</mat-icon>
+                    {{ 'applications.status.rejected' | translate: i18n.language() }}
+                  </mat-button-toggle>
+                </mat-button-toggle-group>
+                @if (isUpdatingStatus(application)) {
+                  <mat-progress-spinner mode="indeterminate" diameter="16" />
+                }
+              </div>
+            </div>
           </mat-card-content>
 
-          <mat-card-actions align="end">
+          <mat-card-actions class="application-card__actions">
             <button
               mat-button
               color="warn"
@@ -57,7 +128,7 @@
               {{ 'applications.delete' | translate: i18n.language() }}
             </button>
 
-            <a mat-button [routerLink]="['/editor', application.job_offer.id]">
+            <a mat-stroked-button color="primary" [routerLink]="['/editor', application.job_offer.id]">
               <mat-icon>open_in_new</mat-icon>
               {{ 'applications.open' | translate: i18n.language() }}
             </a>

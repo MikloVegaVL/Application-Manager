@@ -7,7 +7,8 @@ from app.models.application import ApplicationStatus
 from app.schemas.job_offer import JobOfferRead
 
 # Enum aus dem ORM-Modell wiederverwendet, damit API und DB immer denselben
-# Satz gültiger Status-Werte kennen ('draft', 'sent', 'rejected', 'interview').
+# Satz gültiger Status-Werte kennen
+# ('draft', 'sent', 'rejected', 'accepted', 'interview').
 __all__ = [
     "ApplicationStatus",
     "ApplicationBase",

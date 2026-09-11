@@ -273,6 +273,29 @@ def test_update_application_updates_cover_letter_text_without_ai_call(
     assert body["cover_letter_text"] == "Betreff: Neue Position\n\nSehr geehrte Damen und Herren,..."
 
 
+def test_update_application_accepts_the_accepted_status(
+    client: TestClient, db_session_local
+) -> None:
+    """Die Bewerbungsübersicht setzt Zusage/Absage über `PUT /applications/{id}` -
+    der Status `accepted` muss dafür als gültiger Enum-Wert akzeptiert werden."""
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/2"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+    finally:
+        session.close()
+
+    response = client.put(
+        f"/api/applications/{application_id}",
+        json={"status": "accepted"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "accepted"
+
+
 def test_generate_application_returns_409_for_an_overlapping_request_on_the_same_job_offer(
     client: TestClient, db_session_local, monkeypatch
 ) -> None:

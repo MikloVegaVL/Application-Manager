@@ -1,7 +1,7 @@
 import { JobOfferRead } from './job-offer.model';
 
 /** Spiegelt `backend/app/models/application.py::ApplicationStatus` wider. */
-export type ApplicationStatus = 'draft' | 'sent' | 'rejected' | 'interview';
+export type ApplicationStatus = 'draft' | 'sent' | 'rejected' | 'accepted' | 'interview';
 
 /** Entspricht `ApplicationRead`. */
 export interface Application {
@@ -18,6 +18,7 @@ export interface Application {
 /** Payload für `PUT /api/applications/{id}` (Editor-Änderungen). */
 export interface ApplicationUpdatePayload {
   cover_letter_text?: string;
+  status?: ApplicationStatus;
 }
 
 /** Payload für `POST /api/applications/{id}/send`. */

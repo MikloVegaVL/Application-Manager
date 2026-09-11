@@ -18,6 +18,7 @@ class ApplicationStatus(str, enum.Enum):
     DRAFT = "draft"
     SENT = "sent"
     REJECTED = "rejected"
+    ACCEPTED = "accepted"
     INTERVIEW = "interview"
 
 

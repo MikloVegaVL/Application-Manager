@@ -34,6 +34,33 @@
     color: var(--app-muted-text);
   }
 
+  &__filter {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    border: 1px solid var(--app-border, rgba(0, 0, 0, 0.12));
+    border-radius: 8px;
+  }
+
+  &__filter-title {
+    font-weight: 600;
+  }
+
+  &__filter-group {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding-left: 16px;
+    border-left: 1px solid var(--app-border, rgba(0, 0, 0, 0.12));
+  }
+
+  &__filter-group-title {
+    color: var(--app-muted-text);
+    font-size: 0.875rem;
+  }
+
   &__results {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -45,17 +72,80 @@
   display: flex;
   flex-direction: column;
 
-  &__status--sent {
+  &__status--sent,
+  &__status--accepted {
     background-color: var(--app-success);
     color: var(--app-on-success);
   }
 
-  mat-card-content {
-    flex: 1;
+  &__status--rejected {
+    background-color: var(--app-error);
+    color: var(--app-on-error);
   }
 
-  mat-card-actions {
+  &__meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  &__outcome {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  &__outcome-label {
+    color: var(--app-muted-text);
+    font-size: 0.8125rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  &__outcome-options {
+    // Kompaktere Segmented-Control für die Ergebnis-Auswahl (Zusage/Absage).
+    --mat-standard-button-toggle-height: 32px;
+    --mat-standard-button-toggle-label-text-size: 0.8125rem;
+    --mat-standard-button-toggle-label-text-line-height: 1rem;
+    --mat-standard-button-toggle-shape: 16px;
+
+    ::ng-deep .mat-button-toggle-label-content {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 10px;
+    }
+
+    mat-icon {
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+    }
+  }
+
+  &__outcome-accept.mat-button-toggle-checked {
+    --mat-standard-button-toggle-selected-state-background-color: var(--app-success);
+    --mat-standard-button-toggle-selected-state-text-color: var(--app-on-success);
+  }
+
+  &__outcome-reject.mat-button-toggle-checked {
+    --mat-standard-button-toggle-selected-state-background-color: var(--app-error);
+    --mat-standard-button-toggle-selected-state-text-color: var(--app-on-error);
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
     margin-top: auto;
+  }
+
+  mat-card-content {
+    flex: 1;
   }
 }
 

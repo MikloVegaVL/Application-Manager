@@ -146,4 +146,44 @@ describe('ApplicationsComponent', () => {
     expect(component['applications']().length).toBe(1);
     expect(component['deletingId']()).toBeNull();
   });
+
+  it('updates the status via PUT when Zusage/Absage is selected', () => {
+    flushList([sampleApplication]);
+
+    component.onStatusChange(sampleApplication, 'accepted');
+
+    const updateReq = httpMock.expectOne(
+      (request) => request.url === `${environment.apiBaseUrl}/applications/1` && request.method === 'PUT',
+    );
+    expect(updateReq.request.body).toEqual({ status: 'accepted' });
+    updateReq.flush({ ...sampleApplication, status: 'accepted' });
+
+    expect(component['applications']()[0].status).toBe('accepted');
+    expect(component['updatingStatusId']()).toBeNull();
+  });
+
+  it('ignores deselecting the outcome toggle (undefined status)', () => {
+    flushList([sampleApplication]);
+
+    component.onStatusChange(sampleApplication, undefined);
+
+    httpMock.expectNone((request) => request.method === 'PUT');
+    expect(component['updatingStatusId']()).toBeNull();
+  });
+
+  it('filters the rendered applications by the selected radio status', () => {
+    const acceptedApplication: Application = { ...sampleApplication, id: 2, status: 'accepted' };
+    flushList([sampleApplication, acceptedApplication]);
+
+    component.onFilterChange('accepted');
+    expect(component['filteredApplications']().length).toBe(1);
+    expect(component['filteredApplications']()[0].id).toBe(2);
+
+    component.onFilterChange('draft');
+    expect(component['filteredApplications']().length).toBe(1);
+    expect(component['filteredApplications']()[0].id).toBe(1);
+
+    component.onFilterChange('all');
+    expect(component['filteredApplications']().length).toBe(2);
+  });
 });

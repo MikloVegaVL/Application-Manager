@@ -18,6 +18,7 @@
   --app-success: #81c784;
   --app-on-success: rgba(0, 0, 0, 0.87);
   --app-error: #ff9e93;
+  --app-on-error: rgba(0, 0, 0, 0.87);
 }
 
 html[data-theme-tone='light'] {
@@ -30,6 +31,7 @@ html[data-theme-tone='light'] {
   --app-success: #2e7d32;
   --app-on-success: #ffffff;
   --app-error: #b3261e;
+  --app-on-error: #ffffff;
 }
 
 html, body { height: 100%; }
