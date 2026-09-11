@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, HostListener, OnInit, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormArray, FormBuilder, FormControl, FormGroup, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -13,10 +13,13 @@ import {
   ExperienceEntry,
   LanguageEntry,
   MasterProfileRead,
+  ProfileContentUpdate,
   ProjectEntry,
   SkillEntry,
 } from '../../core/models/master-profile.model';
 import { ProfileService } from '../../core/services/profile.service';
+import { sectionsEqual } from './cv-section-diff.util';
+import { CvImportComponent } from './import/cv-import.component';
 import { EducationSectionComponent } from './sections/education-section.component';
 import { ExperienceSectionComponent } from './sections/experience-section.component';
 import { LanguagesSectionComponent } from './sections/languages-section.component';
@@ -42,8 +45,16 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
  * gehalten und per Input übergeben wird (siehe U7/U10) - `PhotoSectionComponent`
  * ist die Ausnahme: sie schreibt direkt über eigene HTTP-Calls
  * (`POST`/`DELETE /profile/photo`) statt über den `PUT /profile`-Payload
- * dieser Elternform. Import/Vorschau & Export bleiben in dieser Unit
- * Platzhalter und werden von nachfolgenden Units befüllt.
+ * dieser Elternform. Vorschau & Export bleibt in dieser Unit Platzhalter und
+ * wird von einer nachfolgenden Unit befüllt (U9).
+ *
+ * R14/KTD13: `hasUnsavedChanges()` vergleicht das gesamte Formular
+ * strukturell (KTD12, siehe `cv-section-diff.util.ts`) gegen `lastSavedProfile`
+ * - genutzt sowohl vom `CanDeactivate`-Guard (`cv-builder.guard.ts`) als auch
+ * vom `beforeunload`-Listener unten. `lastSavedProfile` ist die
+ * Vergleichsbasis, die nach jedem erfolgreichen Laden/Speichern aktualisiert
+ * wird - sie ist zugleich die Grundlage für den Re-Import-Konfliktcheck
+ * (R13) in `CvImportComponent`.
  */
 @Component({
   selector: 'app-cv-builder',
@@ -61,6 +72,7 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
     LanguagesSectionComponent,
     ProjectsSectionComponent,
     PhotoSectionComponent,
+    CvImportComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -99,6 +111,19 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
           </div>
         }
         @case ('ready') {
+          <div class="cv-builder-page__save-bar">
+            <button mat-flat-button color="primary" type="button" [disabled]="saving()" (click)="save()">
+              @if (saving()) {
+                <mat-progress-spinner mode="indeterminate" diameter="18" />
+              } @else {
+                <mat-icon>save</mat-icon>
+              }
+              Speichern
+            </button>
+            @if (saveError(); as message) {
+              <p class="cv-builder-page__save-error">{{ message }}</p>
+            }
+          </div>
           <mat-tab-group animationDuration="150ms">
             <mat-tab label="Zusammenfassung">
               <div class="tab-content">
@@ -136,7 +161,16 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
               </div>
             </mat-tab>
             <mat-tab label="Import">
-              <div class="tab-content"><p>Bald verfügbar.</p></div>
+              <div class="tab-content">
+                <app-cv-import
+                  [summaryControl]="summaryControl"
+                  [experiencesArray]="experiencesArray"
+                  [educationArray]="educationArray"
+                  [skillsArray]="skillsArray"
+                  [projectsArray]="projectsArray"
+                  [lastSavedProfile]="lastSavedProfile()"
+                />
+              </div>
             </mat-tab>
             <mat-tab label="Vorschau & Export">
               <div class="tab-content"><p>Bald verfügbar.</p></div>
@@ -180,6 +214,23 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
     .tab-content {
       padding: 24px 0;
     }
+
+    .cv-builder-page__save-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+
+      mat-progress-spinner {
+        display: inline-block;
+        margin-right: 4px;
+      }
+    }
+
+    .cv-builder-page__save-error {
+      color: #b3261e;
+      margin: 0;
+    }
   `,
 })
 export class CvBuilderComponent implements OnInit {
@@ -187,6 +238,14 @@ export class CvBuilderComponent implements OnInit {
   private readonly formBuilder = inject(FormBuilder);
 
   protected readonly state = signal<CvBuilderState>('loading');
+  protected readonly saving = signal(false);
+  protected readonly saveError = signal<string | null>(null);
+
+  /** R14/KTD13/R13: Vergleichsbasis für `hasUnsavedChanges()` und den
+   * Re-Import-Konfliktcheck in `CvImportComponent` - der zuletzt vom Server
+   * bestätigte Profilstand (nach initialem Laden bzw. nach einem
+   * erfolgreichen `save()`). */
+  protected readonly lastSavedProfile = signal<MasterProfileRead | null>(null);
 
   protected readonly summaryControl: FormControl<string> = this.formBuilder.nonNullable.control('');
   protected readonly experiencesArray: FormArray<FormGroup> = this.formBuilder.array<FormGroup>([]);
@@ -203,11 +262,76 @@ export class CvBuilderComponent implements OnInit {
     this.loadProfile();
   }
 
+  /** Speichert die aktuellen Inhaltsfelder per `PATCH /profile` (R2-R4, KTD2)
+   * - bewusst nur die Felder, die dieses Formular besitzt: keine
+   * Identitätsfelder, kein Foto (siehe `ProfileContentUpdate`). Aktualisiert
+   * bei Erfolg `lastSavedProfile`, wodurch der Guard/Re-Import-Konfliktcheck
+   * wieder als "sauber" gilt (KTD12). */
+  protected save(): void {
+    if (this.saving()) {
+      return;
+    }
+
+    this.saving.set(true);
+    this.saveError.set(null);
+
+    const payload: ProfileContentUpdate = {
+      summary: this.summaryControl.value,
+      experiences_json: this.experiencesArray.getRawValue() as ExperienceEntry[],
+      education_json: this.educationArray.getRawValue() as EducationEntry[],
+      skills_json: this.skillsArray.getRawValue() as SkillEntry[],
+      languages_json: this.languagesArray.getRawValue() as LanguageEntry[],
+      projects_json: this.projectsArray.getRawValue() as ProjectEntry[],
+    };
+
+    this.profileService.patchProfile(payload).subscribe({
+      next: (profile) => {
+        this.saving.set(false);
+        this.lastSavedProfile.set(profile);
+      },
+      error: () => {
+        this.saving.set(false);
+        this.saveError.set('Speichern fehlgeschlagen. Bitte erneut versuchen.');
+      },
+    });
+  }
+
+  /** R14/KTD12: strukturliche Ganz-Formular-Prüfung gegen `lastSavedProfile`
+   * - genutzt vom `CanDeactivate`-Guard (`cv-builder.guard.ts`) und vom
+   * `beforeunload`-Listener unten. Öffentlich, da der Guard sie von außen
+   * aufruft. */
+  hasUnsavedChanges(): boolean {
+    const saved = this.lastSavedProfile();
+    if (!saved) {
+      return false;
+    }
+
+    return (
+      !sectionsEqual(this.summaryControl.value, saved.summary) ||
+      !sectionsEqual(this.experiencesArray.getRawValue(), saved.experiences_json) ||
+      !sectionsEqual(this.educationArray.getRawValue(), saved.education_json) ||
+      !sectionsEqual(this.skillsArray.getRawValue(), saved.skills_json) ||
+      !sectionsEqual(this.languagesArray.getRawValue(), saved.languages_json) ||
+      !sectionsEqual(this.projectsArray.getRawValue(), saved.projects_json)
+    );
+  }
+
+  /** KTD13: Tab-Schließen/Reload-Schutz - der `CanDeactivate`-Guard deckt nur
+   * Router-Navigation ab, nicht `beforeunload`. */
+  @HostListener('window:beforeunload', ['$event'])
+  onBeforeUnload(event: BeforeUnloadEvent): void {
+    if (this.hasUnsavedChanges()) {
+      event.preventDefault();
+      event.returnValue = '';
+    }
+  }
+
   private loadProfile(): void {
     this.state.set('loading');
     this.profileService.getProfile().subscribe({
       next: (profile) => {
         this.applyProfileToArrays(profile);
+        this.lastSavedProfile.set(profile);
         this.state.set('ready');
       },
       error: (error: HttpErrorResponse) => {

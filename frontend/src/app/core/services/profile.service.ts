@@ -3,16 +3,25 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
-import { CvUploadResponse, MasterProfile, MasterProfileRead } from '../models/master-profile.model';
+import {
+  CvParseResponse,
+  CvUploadResponse,
+  MasterProfile,
+  MasterProfileRead,
+  ProfileContentUpdate,
+} from '../models/master-profile.model';
 
 /**
  * Kommuniziert mit den Profil-Endpunkten des Backends
- * (`/api/profile`, `/api/profile/upload-cv`, siehe `backend/app/api/profile.py`).
+ * (`/api/profile`, `/api/profile/upload-cv`, siehe `backend/app/api/profile.py`)
+ * sowie mit dem CV-Builder-Parse-Endpunkt (`/api/cv-builder/parse`, siehe
+ * `backend/app/api/cv_builder.py`).
  */
 @Injectable({ providedIn: 'root' })
 export class ProfileService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = `${environment.apiBaseUrl}/profile`;
+  private readonly cvBuilderBaseUrl = `${environment.apiBaseUrl}/cv-builder`;
 
   /** Lädt das Master-Profil. Löst mit HTTP 404, falls noch keines angelegt wurde. */
   getProfile(): Observable<MasterProfileRead> {
@@ -22,6 +31,28 @@ export class ProfileService {
   /** Legt das Profil an (Erstaufruf) oder überschreibt es vollständig (Upsert). */
   saveProfile(profile: MasterProfile): Observable<MasterProfileRead> {
     return this.http.put<MasterProfileRead>(this.baseUrl, profile);
+  }
+
+  /**
+   * Partielles Update der CV-Builder-Inhaltsfelder (R2-R4, KTD2). Schreibt
+   * NIE Identitätsfelder oder das Foto - siehe `ProfileContentUpdate`. Löst
+   * mit HTTP 422, falls doch ein nicht-null Identitätsfeld mitgeschickt
+   * wird, bzw. HTTP 404, falls noch kein Profil existiert (KTD9).
+   */
+  patchProfile(payload: ProfileContentUpdate): Observable<MasterProfileRead> {
+    return this.http.patch<MasterProfileRead>(this.baseUrl, payload);
+  }
+
+  /**
+   * Lädt eine Lebenslauf-PDF hoch und lässt sie serverseitig per KI in eine
+   * reine Vorschau strukturieren (`POST /cv-builder/parse`, R5/R6). Schreibt
+   * NICHTS in die Datenbank - das Ergebnis befüllt im CV-Builder-Formular
+   * nur die Formularfelder, bis der Nutzer explizit speichert (KTD1).
+   */
+  parseCv(file: File): Observable<CvParseResponse> {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    return this.http.post<CvParseResponse>(`${this.cvBuilderBaseUrl}/parse`, formData);
   }
 
   /**

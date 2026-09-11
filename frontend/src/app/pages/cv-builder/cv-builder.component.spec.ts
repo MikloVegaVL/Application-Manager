@@ -1,10 +1,31 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
+import { FormBuilder } from '@angular/forms';
 import { provideRouter } from '@angular/router';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 
 import { CvBuilderComponent } from './cv-builder.component';
+
+const baseProfileResponse = {
+  id: 1,
+  full_name: 'Max Mustermann',
+  email: 'max@example.com',
+  phone: null,
+  address: null,
+  summary: null,
+  experiences_json: [],
+  education_json: [],
+  skills_json: [],
+  languages_json: [],
+  projects_json: [],
+  photo_filename: null,
+  template_id: null,
+  cv_filename: null,
+  attachments: [],
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+};
 
 describe('CvBuilderComponent', () => {
   let component: CvBuilderComponent;
@@ -34,6 +55,19 @@ describe('CvBuilderComponent', () => {
   afterEach(() => {
     httpMock.verify();
   });
+
+  /** Bringt die Komponente in den `ready`-Zustand mit dem gegebenen Profil
+   * (Merge über `baseProfileResponse`) - flusht sowohl `GET /profile` als
+   * auch das `PhotoSectionComponent`-eigene `GET /profile/photo`. */
+  const goToReady = (overrides: Record<string, unknown> = {}): void => {
+    fixture.detectChanges();
+    flushProfileRequest(200, { ...baseProfileResponse, ...overrides });
+    fixture.detectChanges();
+    httpMock
+      .expectOne((r) => r.url.endsWith('/profile/photo') && r.method === 'GET')
+      .flush(new Blob(), { status: 404, statusText: 'Not Found' });
+    fixture.detectChanges();
+  };
 
   it('should create', () => {
     fixture.detectChanges();
@@ -129,5 +163,75 @@ describe('CvBuilderComponent', () => {
       'Import',
       'Vorschau & Export',
     ]);
+  });
+
+  it('saves via PATCH /profile with content fields only (no prior parse), and clears the unsaved-changes baseline', () => {
+    goToReady();
+
+    component['summaryControl'].setValue('New summary');
+    const saveButton = (fixture.nativeElement as HTMLElement).querySelector(
+      '.cv-builder-page__save-bar button',
+    ) as HTMLButtonElement;
+    expect(saveButton).toBeTruthy();
+    saveButton.click();
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'PATCH');
+    expect(req.request.body).toEqual({
+      summary: 'New summary',
+      experiences_json: [],
+      education_json: [],
+      skills_json: [],
+      languages_json: [],
+      projects_json: [],
+    });
+    expect(Object.keys(req.request.body)).not.toContain('full_name');
+    expect(Object.keys(req.request.body)).not.toContain('photo_path');
+
+    req.flush({ ...baseProfileResponse, summary: 'New summary' });
+    fixture.detectChanges();
+
+    expect(component.hasUnsavedChanges()).toBeFalse();
+  });
+
+  it('hasUnsavedChanges() treats a reordered-but-unchanged array as unchanged (KTD12)', () => {
+    goToReady({
+      skills_json: [
+        { name: 'TypeScript', level: 'Gut' },
+        { name: 'Angular', level: 'Experte' },
+      ],
+    });
+
+    const formBuilder = new FormBuilder();
+    component['skillsArray'].clear();
+    component['skillsArray'].push(formBuilder.nonNullable.group({ name: 'Angular', level: 'Experte' }));
+    component['skillsArray'].push(formBuilder.nonNullable.group({ name: 'TypeScript', level: 'Gut' }));
+
+    expect(component.hasUnsavedChanges()).toBeFalse();
+
+    component['skillsArray'].at(0).get('level')?.setValue('Grundkenntnisse');
+    expect(component.hasUnsavedChanges()).toBeTrue();
+  });
+
+  it('onBeforeUnload prevents the default and sets returnValue when there are unsaved changes', () => {
+    goToReady();
+    component['summaryControl'].setValue('Unsaved edit');
+
+    const event = {
+      preventDefault: jasmine.createSpy('preventDefault'),
+      returnValue: '',
+    } as unknown as BeforeUnloadEvent;
+    component.onBeforeUnload(event);
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(event.returnValue).toBe('');
+  });
+
+  it('onBeforeUnload does nothing when there are no unsaved changes', () => {
+    goToReady();
+
+    const event = { preventDefault: jasmine.createSpy('preventDefault') } as unknown as BeforeUnloadEvent;
+    component.onBeforeUnload(event);
+
+    expect(event.preventDefault).not.toHaveBeenCalled();
   });
 });

@@ -101,3 +101,52 @@ export interface CvUploadResponse {
   profile: MasterProfileRead;
   warnings: string[];
 }
+
+/**
+ * Entspricht `ParsedCvProfile`: Ergebnis von `POST /cv-builder/parse`.
+ * `full_name`/`email`/`phone`/`address` sind reine Anzeigefelder für den
+ * CV-Builder-Import (KTD1) - werden im Formular nur read-only dargestellt
+ * und NIE in den Save-Payload (`PATCH /profile`) übernommen. `skills` sind
+ * bewusst reine Strings (kein `SkillEntry[]`): die KI leitet keinen
+ * Kompetenzgrad ab (R7), das Frontend ergänzt beim Übernehmen einen
+ * Default-Level.
+ */
+export interface ParsedCvProfile {
+  full_name: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  summary: string | null;
+  experiences: ExperienceEntry[];
+  education: EducationEntry[];
+  skills: string[];
+  projects: ProjectEntry[];
+}
+
+/**
+ * Entspricht `CvParseResponse`: Antwort von `POST /cv-builder/parse`.
+ * `warnings` benennt jedes Feld, für das die KI nichts gefunden hat - schreibt
+ * NICHTS in die Datenbank (R6), das Ergebnis befüllt nur die Formularfelder
+ * im Builder.
+ */
+export interface CvParseResponse {
+  parsed: ParsedCvProfile;
+  warnings: string[];
+}
+
+/**
+ * Entspricht `MasterProfileUpdate` - Payload für `PATCH /api/profile`
+ * (partielles Update, KTD2): nur die CV-Builder-Inhaltsfelder, bewusst OHNE
+ * Identitätsfelder (`full_name`/`email`/`phone`/`address`, 422 falls
+ * nicht-null mitgeschickt) und OHNE `photo_path`/`photo_filename` (laufen
+ * ausschließlich über die Foto-Endpunkte).
+ */
+export interface ProfileContentUpdate {
+  summary?: string | null;
+  experiences_json?: ExperienceEntry[];
+  education_json?: EducationEntry[];
+  skills_json?: SkillEntry[];
+  languages_json?: LanguageEntry[];
+  projects_json?: ProjectEntry[];
+  template_id?: string | null;
+}
