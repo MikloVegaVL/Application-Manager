@@ -150,3 +150,27 @@ export interface ProfileContentUpdate {
   projects_json?: ProjectEntry[];
   template_id?: string | null;
 }
+
+/** Entspricht einem Eintrag der `GET /cv-builder/templates`-Antwort (R9): eine wählbare CV-Vorlage. */
+export interface CvTemplate {
+  id: string;
+  label: string;
+}
+
+/**
+ * Entspricht `CvRenderRequest` - Payload für `POST /cv-builder/preview` und
+ * `.../export` (R10/R11, KTD11): der aktuelle, ggf. noch nicht gespeicherte
+ * Inhalt des CV-Builder-Formulars, bewusst 1:1 aus den Formularwerten und
+ * NICHT aus `lastSavedProfile` gebaut. Identitätsfelder und Foto sind bewusst
+ * NICHT Teil dieses Typs - der Server mergt sie serverseitig aus dem
+ * gespeicherten `MasterProfile`-Datensatz (siehe `cv_builder.py`).
+ */
+export interface CvRenderPayload {
+  template_id: string;
+  summary: string | null;
+  experiences_json: ExperienceEntry[];
+  education_json: EducationEntry[];
+  skills_json: SkillEntry[];
+  languages_json: LanguageEntry[];
+  projects_json: ProjectEntry[];
+}

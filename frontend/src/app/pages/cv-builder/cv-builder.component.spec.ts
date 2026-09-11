@@ -7,6 +7,11 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 
 import { CvBuilderComponent } from './cv-builder.component';
 
+const templatesFixture = [
+  { id: 'classic', label: 'Classic' },
+  { id: 'modern', label: 'Modern' },
+];
+
 const baseProfileResponse = {
   id: 1,
   full_name: 'Max Mustermann',
@@ -57,8 +62,10 @@ describe('CvBuilderComponent', () => {
   });
 
   /** Bringt die Komponente in den `ready`-Zustand mit dem gegebenen Profil
-   * (Merge über `baseProfileResponse`) - flusht sowohl `GET /profile` als
-   * auch das `PhotoSectionComponent`-eigene `GET /profile/photo`. */
+   * (Merge über `baseProfileResponse`) - flusht sowohl `GET /profile`, das
+   * `PhotoSectionComponent`-eigene `GET /profile/photo`, als auch das
+   * `CvPreviewExportComponent`-eigene `GET /cv-builder/templates` (alle Tabs
+   * werden eager instanziiert, siehe `cv-builder.component.ts`). */
   const goToReady = (overrides: Record<string, unknown> = {}): void => {
     fixture.detectChanges();
     flushProfileRequest(200, { ...baseProfileResponse, ...overrides });
@@ -66,6 +73,9 @@ describe('CvBuilderComponent', () => {
     httpMock
       .expectOne((r) => r.url.endsWith('/profile/photo') && r.method === 'GET')
       .flush(new Blob(), { status: 404, statusText: 'Not Found' });
+    httpMock
+      .expectOne((r) => r.url.endsWith('/cv-builder/templates') && r.method === 'GET')
+      .flush(templatesFixture);
     fixture.detectChanges();
   };
 
@@ -144,6 +154,11 @@ describe('CvBuilderComponent', () => {
     httpMock
       .expectOne((r) => r.url.endsWith('/profile/photo') && r.method === 'GET')
       .flush(new Blob(), { status: 404, statusText: 'Not Found' });
+    // `CvPreviewExportComponent` lädt beim Erstellen ebenso selbstständig die
+    // Vorlagenliste (GET /cv-builder/templates), siehe cv-preview-export.component.spec.ts.
+    httpMock
+      .expectOne((r) => r.url.endsWith('/cv-builder/templates') && r.method === 'GET')
+      .flush(templatesFixture);
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
@@ -183,6 +198,9 @@ describe('CvBuilderComponent', () => {
       skills_json: [],
       languages_json: [],
       projects_json: [],
+      // KTD8: `template_id` war auf dem Profil `null` -> `CvPreviewExportComponent`
+      // hat beim Laden der Vorlagenliste (`templatesFixture`) die erste Vorlage vorbelegt.
+      template_id: 'classic',
     });
     expect(Object.keys(req.request.body)).not.toContain('full_name');
     expect(Object.keys(req.request.body)).not.toContain('photo_path');

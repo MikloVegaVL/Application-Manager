@@ -19,6 +19,7 @@ import {
 } from '../../core/models/master-profile.model';
 import { ProfileService } from '../../core/services/profile.service';
 import { sectionsEqual } from './cv-section-diff.util';
+import { CvPreviewExportComponent } from './export/cv-preview-export.component';
 import { CvImportComponent } from './import/cv-import.component';
 import { EducationSectionComponent } from './sections/education-section.component';
 import { ExperienceSectionComponent } from './sections/experience-section.component';
@@ -73,6 +74,7 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
     ProjectsSectionComponent,
     PhotoSectionComponent,
     CvImportComponent,
+    CvPreviewExportComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -173,7 +175,17 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
               </div>
             </mat-tab>
             <mat-tab label="Vorschau & Export">
-              <div class="tab-content"><p>Bald verfügbar.</p></div>
+              <div class="tab-content">
+                <app-cv-preview-export
+                  [summaryControl]="summaryControl"
+                  [experiencesArray]="experiencesArray"
+                  [educationArray]="educationArray"
+                  [skillsArray]="skillsArray"
+                  [languagesArray]="languagesArray"
+                  [projectsArray]="projectsArray"
+                  [templateIdControl]="templateIdControl"
+                />
+              </div>
             </mat-tab>
           </mat-tab-group>
         }
@@ -253,6 +265,11 @@ export class CvBuilderComponent implements OnInit {
   protected readonly skillsArray: FormArray<FormGroup> = this.formBuilder.array<FormGroup>([]);
   protected readonly languagesArray: FormArray<FormGroup> = this.formBuilder.array<FormGroup>([]);
   protected readonly projectsArray: FormArray<FormGroup> = this.formBuilder.array<FormGroup>([]);
+  /** R9/KTD8: gewählte CV-Vorlage - befüllt aus `profile.template_id` beim Laden,
+   * per `app-cv-preview-export` (Vorschau & Export-Tab) auf die erste verfügbare
+   * Vorlage vorbelegt, falls noch keine gewählt wurde. Teil des Save-Payloads,
+   * damit die Wahl auf dem Profil persistiert wird. */
+  protected readonly templateIdControl: FormControl<string | null> = this.formBuilder.control<string | null>(null);
 
   ngOnInit(): void {
     this.loadProfile();
@@ -282,6 +299,7 @@ export class CvBuilderComponent implements OnInit {
       skills_json: this.skillsArray.getRawValue() as SkillEntry[],
       languages_json: this.languagesArray.getRawValue() as LanguageEntry[],
       projects_json: this.projectsArray.getRawValue() as ProjectEntry[],
+      template_id: this.templateIdControl.value,
     };
 
     this.profileService.patchProfile(payload).subscribe({
@@ -342,6 +360,7 @@ export class CvBuilderComponent implements OnInit {
 
   private applyProfileToArrays(profile: MasterProfileRead): void {
     this.summaryControl.setValue(profile.summary ?? '');
+    this.templateIdControl.setValue(profile.template_id);
 
     this.experiencesArray.clear();
     profile.experiences_json.forEach((entry) => this.experiencesArray.push(this.createExperienceGroup(entry)));

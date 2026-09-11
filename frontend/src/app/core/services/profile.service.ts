@@ -1,10 +1,12 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import {
   CvParseResponse,
+  CvRenderPayload,
+  CvTemplate,
   CvUploadResponse,
   MasterProfile,
   MasterProfileRead,
@@ -119,5 +121,35 @@ export class ProfileService {
   /** Entfernt das hochgeladene Profilfoto wieder. */
   deletePhoto(): Observable<MasterProfileRead> {
     return this.http.delete<MasterProfileRead>(`${this.baseUrl}/photo`);
+  }
+
+  /** Lädt die kleine, feste Auswahl wählbarer CV-Vorlagen (R9, KTD8). */
+  getTemplates(): Observable<CvTemplate[]> {
+    return this.http.get<CvTemplate[]>(`${this.cvBuilderBaseUrl}/templates`);
+  }
+
+  /**
+   * Rendert den aktuellen (ggf. ungespeicherten) CV-Builder-Formularinhalt
+   * als PDF zur Inline-Anzeige (`POST /cv-builder/preview`, R10, KTD7/KTD11).
+   * `observe: 'response'` liefert die vollständige Antwort inkl. Headern -
+   * hier ungenutzt, aber symmetrisch zu `exportCv`, das den
+   * `Content-Disposition`-Dateinamen daraus liest.
+   */
+  previewCv(payload: CvRenderPayload): Observable<HttpResponse<Blob>> {
+    return this.http.post(`${this.cvBuilderBaseUrl}/preview`, payload, {
+      responseType: 'blob',
+      observe: 'response',
+    });
+  }
+
+  /**
+   * Rendert den aktuellen (ggf. ungespeicherten) CV-Builder-Formularinhalt
+   * als PDF zum Download (`POST /cv-builder/export`, R11, KTD11).
+   */
+  exportCv(payload: CvRenderPayload): Observable<HttpResponse<Blob>> {
+    return this.http.post(`${this.cvBuilderBaseUrl}/export`, payload, {
+      responseType: 'blob',
+      observe: 'response',
+    });
   }
 }
