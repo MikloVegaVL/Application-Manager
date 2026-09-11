@@ -77,6 +77,10 @@ describe('ApplicationEditorComponent', () => {
   let httpMock: HttpTestingController;
 
   beforeEach(async () => {
+    // Sprachauswahl nicht zwischen Specs teilen (sonst starten Tests je nach
+    // Reihenfolge auf Englisch statt Deutsch).
+    localStorage.clear();
+
     await TestBed.configureTestingModule({
       imports: [ApplicationEditorComponent, NoopAnimationsModule],
       providers: [provideHttpClient(), provideHttpClientTesting()],

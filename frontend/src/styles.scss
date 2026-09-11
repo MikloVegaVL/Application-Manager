@@ -1,8 +1,40 @@
 /* You can add global styles to this file, and also import other style files */
 
+/* Theme-abhängige Design-Tokens.
+   Das aktive Material-Prebuilt-Theme setzt `--mat-app-text-color` und
+   `--mat-sidenav-content-background-color`; `ThemeService` setzt zusätzlich
+   `data-theme-tone` ("light" | "dark") auf `<html>`. Komponenten nutzen diese
+   Tokens, damit Text- und Flächenfarben zum gewählten Theme passen, statt einen
+   festen hellen oder dunklen Hintergrund anzunehmen.
+   Standardwerte = dunkler Ton (das Standard-Theme purple-green). */
+:root {
+  --app-body-text: var(--mat-app-text-color);
+  --app-secondary-text: rgba(255, 255, 255, 0.75);
+  --app-muted-text: rgba(255, 255, 255, 0.7);
+  --app-subtle-text: rgba(255, 255, 255, 0.6);
+  --app-surface-subtle: rgba(255, 255, 255, 0.08);
+  --app-hover-surface: rgba(255, 255, 255, 0.08);
+  --app-border-strong: rgba(255, 255, 255, 0.5);
+  --app-success: #81c784;
+  --app-on-success: rgba(0, 0, 0, 0.87);
+  --app-error: #ff9e93;
+}
+
+html[data-theme-tone='light'] {
+  --app-secondary-text: rgba(0, 0, 0, 0.75);
+  --app-muted-text: rgba(0, 0, 0, 0.6);
+  --app-subtle-text: rgba(0, 0, 0, 0.55);
+  --app-surface-subtle: rgba(0, 0, 0, 0.04);
+  --app-hover-surface: rgba(0, 0, 0, 0.06);
+  --app-border-strong: rgba(0, 0, 0, 0.45);
+  --app-success: #2e7d32;
+  --app-on-success: #ffffff;
+  --app-error: #b3261e;
+}
+
 html, body { height: 100%; }
 body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }
-p { color: rgba(255, 255, 255, 0.6); }
+p { color: var(--app-muted-text); }
 
 /* Center icon + text content in all Material buttons app-wide.
    Angular Material projects a button's icon and text together into one

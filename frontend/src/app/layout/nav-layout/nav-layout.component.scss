@@ -11,10 +11,64 @@
   top: 0;
   z-index: 10;
 
+  &__logo {
+    width: 34px;
+    height: 34px;
+    margin-left: 4px;
+    border-radius: 6px;
+    object-fit: contain;
+    background-color: #fff;
+  }
+
   &__title {
     margin-left: 12px;
     font-size: 1.1rem;
     font-weight: 500;
+  }
+
+  &__spacer {
+    flex: 1 1 auto;
+  }
+
+  /* Sprach- und Theme-Auswahl an die Toolbar angleichen: alle Material-
+     Formfeld-Farben von der Textfarbe der Toolbar erben lassen. */
+  &__language,
+  &__theme {
+    font-size: 0.8125rem;
+
+    /* Kompaktere Höhe/Abstände, damit die Felder nicht wie große Buttons wirken. */
+    --mat-form-field-container-height: 40px;
+    --mat-form-field-container-vertical-padding: 8px;
+    --mat-form-field-container-text-size: 0.8125rem;
+    --mat-select-trigger-text-size: 0.8125rem;
+
+    mat-icon[matPrefix] {
+      font-size: 20px;
+      width: 20px;
+      height: 20px;
+    }
+
+    --mdc-outlined-text-field-label-text-color: currentColor;
+    --mdc-outlined-text-field-hover-label-text-color: currentColor;
+    --mdc-outlined-text-field-focus-label-text-color: currentColor;
+    --mdc-outlined-text-field-input-text-color: currentColor;
+    --mdc-outlined-text-field-caret-color: currentColor;
+    --mdc-outlined-text-field-outline-color: color-mix(in srgb, currentColor 60%, transparent);
+    --mdc-outlined-text-field-hover-outline-color: currentColor;
+    --mdc-outlined-text-field-focus-outline-color: currentColor;
+    --mat-form-field-leading-icon-color: currentColor;
+    --mat-select-enabled-trigger-text-color: currentColor;
+    --mat-select-enabled-arrow-color: currentColor;
+    --mat-select-focused-arrow-color: currentColor;
+  }
+
+  &__language {
+    width: 140px;
+    margin-right: 8px;
+  }
+
+  &__theme {
+    width: 190px;
   }
 }
 
@@ -23,6 +77,6 @@
 }
 
 ::ng-deep .active-link {
-  background-color: rgba(0, 0, 0, 0.06);
+  background-color: var(--app-hover-surface);
   font-weight: 600;
 }

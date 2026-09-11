@@ -24,10 +24,12 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { HttpErrorResponse } from '@angular/common/http';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { Application } from '../../core/models/application.model';
 import { JobOfferRead } from '../../core/models/job-offer.model';
 import { ApplicationService } from '../../core/services/application.service';
 import { JobService } from '../../core/services/job.service';
+import { TranslationService } from '../../core/services/translation.service';
 import { parseBetreff } from '../../core/utils/cover-letter.util';
 import { extractEmail } from '../../core/utils/email-extraction.util';
 import {
@@ -50,6 +52,7 @@ import {
     MatToolbarModule,
     MatTooltipModule,
     TextFieldModule,
+    TranslatePipe,
   ],
   templateUrl: './application-editor.component.html',
   styleUrl: './application-editor.component.scss',
@@ -65,6 +68,7 @@ export class ApplicationEditorComponent implements OnInit {
   private readonly snackBar = inject(MatSnackBar);
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly i18n = inject(TranslationService);
 
   /** Abstand zwischen zwei Status-Abfragen, während auf eine bereits
    * laufende Generierung gewartet wird (siehe `pollForRunningGeneration`). */
@@ -105,7 +109,7 @@ export class ApplicationEditorComponent implements OnInit {
   private loadOrGenerateApplication(): void {
     const jobOfferIdParam = this.jobOfferId();
     if (!jobOfferIdParam) {
-      this.errorMessage.set('Es wurde keine Job-ID übergeben.');
+      this.errorMessage.set(this.i18n.translate('editor.noJobId'));
       this.loading.set(false);
       return;
     }
@@ -150,7 +154,11 @@ export class ApplicationEditorComponent implements OnInit {
       next: (application) => {
         this.isFirstGeneration.set(false);
         this.applyApplication(application);
-        this.snackBar.open('Anschreiben wurde erstmalig generiert.', 'OK', { duration: 3000 });
+        this.snackBar.open(
+          this.i18n.translate('editor.generated'),
+          this.i18n.translate('common.ok'),
+          { duration: 3000 },
+        );
       },
       error: (error: HttpErrorResponse) => {
         if (error.status === 409) {
@@ -217,9 +225,7 @@ export class ApplicationEditorComponent implements OnInit {
           if (this.isFirstGeneration()) {
             this.isFirstGeneration.set(false);
             this.loading.set(false);
-            this.errorMessage.set(
-              'Die Generierung dauert ungewöhnlich lange oder ist fehlgeschlagen. Bitte lade die Seite neu, um es erneut zu versuchen.',
-            );
+            this.errorMessage.set(this.i18n.translate('editor.generationTimeout'));
           }
         },
       });
@@ -236,7 +242,7 @@ export class ApplicationEditorComponent implements OnInit {
   private handleLoadError(error: HttpErrorResponse): void {
     this.loading.set(false);
     this.errorMessage.set(
-      (error.error?.detail as string | undefined) ?? 'Bewerbung konnte nicht geladen werden.',
+      (error.error?.detail as string | undefined) ?? this.i18n.translate('editor.loadFailed'),
     );
   }
 
@@ -255,7 +261,11 @@ export class ApplicationEditorComponent implements OnInit {
     }
     if (this.coverLetterForm.invalid) {
       this.coverLetterForm.markAllAsTouched();
-      this.snackBar.open('Bitte gib einen Anschreiben-Text ein.', 'OK', { duration: 3000 });
+      this.snackBar.open(
+        this.i18n.translate('editor.enterCoverLetter'),
+        this.i18n.translate('common.ok'),
+        { duration: 3000 },
+      );
       return;
     }
 
@@ -268,13 +278,17 @@ export class ApplicationEditorComponent implements OnInit {
         next: (updated) => {
           this.saving.set(false);
           this.applyApplication(updated);
-          this.snackBar.open('Anschreiben wurde gespeichert.', 'OK', { duration: 3000 });
+          this.snackBar.open(
+            this.i18n.translate('editor.saved'),
+            this.i18n.translate('common.ok'),
+            { duration: 3000 },
+          );
         },
         error: (error: HttpErrorResponse) => {
           this.saving.set(false);
           const message =
-            (error.error?.detail as string | undefined) ?? 'Anschreiben konnte nicht gespeichert werden.';
-          this.snackBar.open(message, 'OK', { duration: 4000 });
+            (error.error?.detail as string | undefined) ?? this.i18n.translate('editor.saveFailed');
+          this.snackBar.open(message, this.i18n.translate('common.ok'), { duration: 4000 });
         },
       });
   }
@@ -293,7 +307,9 @@ export class ApplicationEditorComponent implements OnInit {
     const { subject: derivedSubject, message: derivedMessage } = parseBetreff(
       application.cover_letter_text ?? null,
     );
-    const fallbackSubject = jobOffer?.title ? `Bewerbung als ${jobOffer.title}` : 'Bewerbung';
+    const fallbackSubject = jobOffer?.title
+      ? this.i18n.translate('editor.fallbackSubjectWithTitle', { title: jobOffer.title })
+      : this.i18n.translate('editor.fallbackSubject');
 
     const dialogRef = this.dialog.open(SendApplicationDialogComponent, {
       width: '520px',
@@ -326,13 +342,17 @@ export class ApplicationEditorComponent implements OnInit {
         next: (updated) => {
           this.sending.set(false);
           this.application.set(updated);
-          this.snackBar.open('Bewerbung wurde erfolgreich versendet.', 'OK', { duration: 4000 });
+          this.snackBar.open(
+            this.i18n.translate('editor.sent'),
+            this.i18n.translate('common.ok'),
+            { duration: 4000 },
+          );
         },
         error: (error: HttpErrorResponse) => {
           this.sending.set(false);
           const message =
-            (error.error?.detail as string | undefined) ?? 'Bewerbung konnte nicht versendet werden.';
-          this.snackBar.open(message, 'OK', { duration: 5000 });
+            (error.error?.detail as string | undefined) ?? this.i18n.translate('editor.sendFailed');
+          this.snackBar.open(message, this.i18n.translate('common.ok'), { duration: 5000 });
         },
       });
   }

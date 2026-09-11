@@ -1,49 +1,60 @@
-<h2 mat-dialog-title>Bewerbung jetzt per E-Mail versenden?</h2>
+<h2 mat-dialog-title>{{ 'dialog.title' | translate: i18n.language() }}</h2>
 
 <mat-dialog-content>
   @if (data.jobTitle || data.companyName) {
     <p class="dialog-hint">
-      Bewerbung für <strong>{{ data.jobTitle }}</strong>
+      {{ 'dialog.applicationFor' | translate: i18n.language() }} <strong>{{ data.jobTitle }}</strong>
       @if (data.companyName) {
-        bei <strong>{{ data.companyName }}</strong>
+        {{ 'dialog.at' | translate: i18n.language() }} <strong>{{ data.companyName }}</strong>
       }
-      wird inkl. PDF-Anhang versendet.
+      {{ 'dialog.sentWithPdf' | translate: i18n.language() }}
     </p>
   }
 
   <form [formGroup]="form" class="dialog-form">
     <mat-form-field appearance="outline" class="dialog-form__field">
-      <mat-label>Empfänger-E-Mail</mat-label>
+      <mat-label>{{ 'dialog.recipientLabel' | translate: i18n.language() }}</mat-label>
       <mat-icon matPrefix>mail</mat-icon>
       <input
         matInput
         type="email"
         formControlName="to_email"
-        placeholder="Keine E-Mail im Stellenangebot gefunden - bitte eintragen"
+        [placeholder]="'dialog.recipientPlaceholder' | translate: i18n.language()"
       />
       @if (form.controls.to_email.hasError('required') && form.controls.to_email.touched) {
-        <mat-error>Bitte gib eine Empfänger-E-Mail an.</mat-error>
+        <mat-error>{{ 'dialog.recipientRequired' | translate: i18n.language() }}</mat-error>
       } @else if (form.controls.to_email.hasError('email') && form.controls.to_email.touched) {
-        <mat-error>Bitte gib eine gültige E-Mail-Adresse an.</mat-error>
+        <mat-error>{{ 'dialog.recipientInvalid' | translate: i18n.language() }}</mat-error>
       }
     </mat-form-field>
 
     <mat-form-field appearance="outline" class="dialog-form__field">
-      <mat-label>Betreff</mat-label>
-      <input matInput formControlName="subject" placeholder="Wird sonst automatisch gesetzt" />
+      <mat-label>{{ 'dialog.subjectLabel' | translate: i18n.language() }}</mat-label>
+      <input
+        matInput
+        formControlName="subject"
+        [placeholder]="'dialog.subjectPlaceholder' | translate: i18n.language()"
+      />
     </mat-form-field>
 
     <mat-form-field appearance="outline" class="dialog-form__field">
-      <mat-label>Mail-Text</mat-label>
-      <textarea matInput formControlName="message" rows="5" placeholder="Wird sonst automatisch gesetzt"></textarea>
+      <mat-label>{{ 'dialog.messageLabel' | translate: i18n.language() }}</mat-label>
+      <textarea
+        matInput
+        formControlName="message"
+        rows="5"
+        [placeholder]="'dialog.messagePlaceholder' | translate: i18n.language()"
+      ></textarea>
     </mat-form-field>
   </form>
 </mat-dialog-content>
 
 <mat-dialog-actions align="end">
-  <button mat-button type="button" (click)="onCancel()">Abbrechen</button>
+  <button mat-button type="button" (click)="onCancel()">
+    {{ 'dialog.cancel' | translate: i18n.language() }}
+  </button>
   <button mat-raised-button color="primary" type="button" (click)="onConfirm()">
     <mat-icon>send</mat-icon>
-    Jetzt versenden
+    {{ 'dialog.sendNow' | translate: i18n.language() }}
   </button>
 </mat-dialog-actions>

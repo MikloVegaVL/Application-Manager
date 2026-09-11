@@ -1,51 +1,51 @@
 <div class="profile-page">
   <header class="profile-page__intro">
-    <h1>Profil</h1>
-    <p>Stammdaten, Werdegang und Skills - die Basis für automatisch generierte Bewerbungen.</p>
+    <h1>{{ 'profile.title' | translate: i18n.language() }}</h1>
+    <p>{{ 'profile.intro' | translate: i18n.language() }}</p>
   </header>
 
   @if (loading()) {
     <div class="profile-page__loading">
       <mat-progress-spinner mode="indeterminate" diameter="48" />
-      <p>Profil wird geladen ...</p>
+      <p>{{ 'profile.loading' | translate: i18n.language() }}</p>
     </div>
   } @else {
     <form [formGroup]="profileForm" (ngSubmit)="onSubmit()">
       <mat-tab-group animationDuration="150ms">
         <!-- Tab 1: Persönliche Daten -->
-        <mat-tab label="Persönliche Daten">
+        <mat-tab [label]="'profile.tab.personal' | translate: i18n.language()">
           <div class="tab-content">
             <div class="form-grid">
               <mat-form-field appearance="outline">
-                <mat-label>Vollständiger Name</mat-label>
+                <mat-label>{{ 'profile.fullName' | translate: i18n.language() }}</mat-label>
                 <input matInput formControlName="full_name" />
                 @if (profileForm.controls['full_name'].hasError('required') && profileForm.controls['full_name'].touched) {
-                  <mat-error>Bitte gib deinen Namen an.</mat-error>
+                  <mat-error>{{ 'profile.fullNameRequired' | translate: i18n.language() }}</mat-error>
                 }
               </mat-form-field>
 
               <mat-form-field appearance="outline">
-                <mat-label>E-Mail</mat-label>
+                <mat-label>{{ 'profile.email' | translate: i18n.language() }}</mat-label>
                 <input matInput type="email" formControlName="email" />
                 @if (profileForm.controls['email'].hasError('required') && profileForm.controls['email'].touched) {
-                  <mat-error>Bitte gib deine E-Mail-Adresse an.</mat-error>
+                  <mat-error>{{ 'profile.emailRequired' | translate: i18n.language() }}</mat-error>
                 } @else if (profileForm.controls['email'].hasError('email') && profileForm.controls['email'].touched) {
-                  <mat-error>Bitte gib eine gültige E-Mail-Adresse an.</mat-error>
+                  <mat-error>{{ 'profile.emailInvalid' | translate: i18n.language() }}</mat-error>
                 }
               </mat-form-field>
 
               <mat-form-field appearance="outline">
-                <mat-label>Telefon</mat-label>
+                <mat-label>{{ 'profile.phone' | translate: i18n.language() }}</mat-label>
                 <input matInput formControlName="phone" />
               </mat-form-field>
 
               <mat-form-field appearance="outline">
-                <mat-label>Adresse</mat-label>
+                <mat-label>{{ 'profile.address' | translate: i18n.language() }}</mat-label>
                 <input matInput formControlName="address" />
               </mat-form-field>
 
               <mat-form-field appearance="outline" class="form-grid__full">
-                <mat-label>Kurzprofil / Zusammenfassung</mat-label>
+                <mat-label>{{ 'profile.summary' | translate: i18n.language() }}</mat-label>
                 <textarea matInput formControlName="summary" rows="4"></textarea>
               </mat-form-field>
             </div>
@@ -53,19 +53,19 @@
         </mat-tab>
 
         <!-- Tab 2: Berufserfahrung & Ausbildung -->
-        <mat-tab label="Berufserfahrung & Ausbildung">
+        <mat-tab [label]="'profile.tab.experience' | translate: i18n.language()">
           <div class="tab-content">
             <section class="form-array-section">
               <div class="form-array-section__header">
-                <h3>Berufserfahrung</h3>
+                <h3>{{ 'profile.workExperience' | translate: i18n.language() }}</h3>
                 <button mat-stroked-button type="button" (click)="addExperience()">
                   <mat-icon>add</mat-icon>
-                  Station hinzufügen
+                  {{ 'common.addStation' | translate: i18n.language() }}
                 </button>
               </div>
 
               @if (experiencesArray.length === 0) {
-                <p class="form-array-section__empty">Noch keine Berufserfahrung erfasst.</p>
+                <p class="form-array-section__empty">{{ 'profile.noExperience' | translate: i18n.language() }}</p>
               }
 
               <div formArrayName="experiences">
@@ -73,30 +73,38 @@
                   <mat-card class="entry-card" appearance="outlined" [formGroupName]="$index">
                     <mat-card-content class="entry-card__grid">
                       <mat-form-field appearance="outline">
-                        <mat-label>Unternehmen</mat-label>
+                        <mat-label>{{ 'profile.company' | translate: i18n.language() }}</mat-label>
                         <input matInput formControlName="company" />
                       </mat-form-field>
                       <mat-form-field appearance="outline">
-                        <mat-label>Position</mat-label>
+                        <mat-label>{{ 'profile.position' | translate: i18n.language() }}</mat-label>
                         <input matInput formControlName="role" />
                       </mat-form-field>
                       <mat-form-field appearance="outline">
-                        <mat-label>Start</mat-label>
-                        <input matInput formControlName="start_date" placeholder="z. B. 2021" />
+                        <mat-label>{{ 'profile.start' | translate: i18n.language() }}</mat-label>
+                        <input
+                          matInput
+                          formControlName="start_date"
+                          [placeholder]="'profile.startPlaceholderExperience' | translate: i18n.language()"
+                        />
                       </mat-form-field>
                       <mat-form-field appearance="outline">
-                        <mat-label>Ende</mat-label>
-                        <input matInput formControlName="end_date" placeholder="leer = aktuell" />
+                        <mat-label>{{ 'profile.end' | translate: i18n.language() }}</mat-label>
+                        <input
+                          matInput
+                          formControlName="end_date"
+                          [placeholder]="'profile.endPlaceholder' | translate: i18n.language()"
+                        />
                       </mat-form-field>
                       <mat-form-field appearance="outline" class="entry-card__description">
-                        <mat-label>Beschreibung</mat-label>
+                        <mat-label>{{ 'profile.description' | translate: i18n.language() }}</mat-label>
                         <textarea matInput formControlName="description" rows="2"></textarea>
                       </mat-form-field>
                     </mat-card-content>
                     <mat-card-actions align="end">
                       <button mat-button color="warn" type="button" (click)="removeExperience($index)">
                         <mat-icon>delete</mat-icon>
-                        Entfernen
+                        {{ 'common.remove' | translate: i18n.language() }}
                       </button>
                     </mat-card-actions>
                   </mat-card>
@@ -106,15 +114,15 @@
 
             <section class="form-array-section">
               <div class="form-array-section__header">
-                <h3>Ausbildung</h3>
+                <h3>{{ 'profile.education' | translate: i18n.language() }}</h3>
                 <button mat-stroked-button type="button" (click)="addEducation()">
                   <mat-icon>add</mat-icon>
-                  Station hinzufügen
+                  {{ 'common.addStation' | translate: i18n.language() }}
                 </button>
               </div>
 
               @if (educationArray.length === 0) {
-                <p class="form-array-section__empty">Noch keine Ausbildung erfasst.</p>
+                <p class="form-array-section__empty">{{ 'profile.noEducation' | translate: i18n.language() }}</p>
               }
 
               <div formArrayName="education">
@@ -122,30 +130,38 @@
                   <mat-card class="entry-card" appearance="outlined" [formGroupName]="$index">
                     <mat-card-content class="entry-card__grid">
                       <mat-form-field appearance="outline">
-                        <mat-label>Einrichtung</mat-label>
+                        <mat-label>{{ 'profile.institution' | translate: i18n.language() }}</mat-label>
                         <input matInput formControlName="institution" />
                       </mat-form-field>
                       <mat-form-field appearance="outline">
-                        <mat-label>Abschluss</mat-label>
+                        <mat-label>{{ 'profile.degree' | translate: i18n.language() }}</mat-label>
                         <input matInput formControlName="degree" />
                       </mat-form-field>
                       <mat-form-field appearance="outline">
-                        <mat-label>Studienfach</mat-label>
+                        <mat-label>{{ 'profile.fieldOfStudy' | translate: i18n.language() }}</mat-label>
                         <input matInput formControlName="field_of_study" />
                       </mat-form-field>
                       <mat-form-field appearance="outline">
-                        <mat-label>Start</mat-label>
-                        <input matInput formControlName="start_date" placeholder="z. B. 2017" />
+                        <mat-label>{{ 'profile.start' | translate: i18n.language() }}</mat-label>
+                        <input
+                          matInput
+                          formControlName="start_date"
+                          [placeholder]="'profile.startPlaceholderEducation' | translate: i18n.language()"
+                        />
                       </mat-form-field>
                       <mat-form-field appearance="outline">
-                        <mat-label>Ende</mat-label>
-                        <input matInput formControlName="end_date" placeholder="z. B. 2021" />
+                        <mat-label>{{ 'profile.end' | translate: i18n.language() }}</mat-label>
+                        <input
+                          matInput
+                          formControlName="end_date"
+                          [placeholder]="'profile.startPlaceholderExperience' | translate: i18n.language()"
+                        />
                       </mat-form-field>
                     </mat-card-content>
                     <mat-card-actions align="end">
                       <button mat-button color="warn" type="button" (click)="removeEducation($index)">
                         <mat-icon>delete</mat-icon>
-                        Entfernen
+                        {{ 'common.remove' | translate: i18n.language() }}
                       </button>
                     </mat-card-actions>
                   </mat-card>
@@ -156,41 +172,37 @@
         </mat-tab>
 
         <!-- Tab 3: Skills & Zertifikate -->
-        <mat-tab label="Skills & Zertifikate">
+        <mat-tab [label]="'profile.tab.skills' | translate: i18n.language()">
           <div class="tab-content">
             <mat-form-field appearance="outline" class="skills-field">
-              <mat-label>Skills & Zertifikate</mat-label>
-              <mat-chip-grid #chipGrid aria-label="Skills-Eingabe">
+              <mat-label>{{ 'profile.skillsLabel' | translate: i18n.language() }}</mat-label>
+              <mat-chip-grid #chipGrid [attr.aria-label]="'profile.skillsInputAria' | translate: i18n.language()">
                 @for (skill of skills(); track skill) {
                   <mat-chip-row (removed)="removeSkill(skill)" [editable]="true" (edited)="editSkill(skill, $event)">
                     {{ skill }}
-                    <button matChipRemove [attr.aria-label]="'entferne ' + skill">
+                    <button matChipRemove [attr.aria-label]="'profile.removeSkillAria' | translate: i18n.language(): { skill }">
                       <mat-icon>cancel</mat-icon>
                     </button>
                   </mat-chip-row>
                 }
               </mat-chip-grid>
               <input
-                placeholder="Neuer Skill - mit Enter oder Komma bestätigen"
+                [placeholder]="'profile.skillPlaceholder' | translate: i18n.language()"
                 [matChipInputFor]="chipGrid"
                 [matChipInputSeparatorKeyCodes]="separatorKeysCodes"
                 (matChipInputTokenEnd)="addSkill($event)"
               />
             </mat-form-field>
             @if (skills().length === 0) {
-              <p class="form-array-section__empty">Noch keine Skills erfasst.</p>
+              <p class="form-array-section__empty">{{ 'profile.noSkills' | translate: i18n.language() }}</p>
             }
           </div>
         </mat-tab>
 
         <!-- Tab 4: CV-Import -->
-        <mat-tab label="CV-Import">
+        <mat-tab [label]="'profile.tab.cvImport' | translate: i18n.language()">
           <div class="tab-content">
-            <p class="cv-import__hint">
-              Lade deinen Lebenslauf als PDF hoch - die KI extrahiert Stammdaten, Werdegang und
-              Skills automatisch und befüllt die anderen Tabs. Bestehende Angaben werden dabei
-              ergänzt, nicht überschrieben.
-            </p>
+            <p class="cv-import__hint">{{ 'profile.cvImportHint' | translate: i18n.language() }}</p>
 
             <div
               class="cv-dropzone"
@@ -201,7 +213,7 @@
               (click)="fileInput.click()"
             >
               <mat-icon>upload_file</mat-icon>
-              <p>PDF hierher ziehen oder klicken zum Auswählen</p>
+              <p>{{ 'profile.dropzone' | translate: i18n.language() }}</p>
               @if (selectedFile(); as file) {
                 <p class="cv-dropzone__filename">
                   {{ file.name }}
@@ -226,25 +238,19 @@
               } @else {
                 <mat-icon>auto_awesome</mat-icon>
               }
-              CV analysieren & Profil befüllen
+              {{ 'profile.analyzeCv' | translate: i18n.language() }}
             </button>
 
             @if (uploading()) {
-              <p class="cv-import__hint">
-                Die KI-Analyse läuft ohne GPU-Beschleunigung - das kann je nach Lebenslauflänge
-                mehrere Minuten dauern. Bitte die Seite währenddessen nicht schließen.
-              </p>
+              <p class="cv-import__hint">{{ 'profile.analyzingHint' | translate: i18n.language() }}</p>
             }
           </div>
         </mat-tab>
 
         <!-- Tab 5: Lebenslauf-Anhang -->
-        <mat-tab label="Lebenslauf-Anhang">
+        <mat-tab [label]="'profile.tab.cvAttachment' | translate: i18n.language()">
           <div class="tab-content">
-            <p class="cv-import__hint">
-              Lade hier deinen Lebenslauf als PDF hoch - diese Datei wird unverändert (keine
-              KI-Analyse) als Anhang verwendet, wenn du eine Bewerbung per E-Mail versendest.
-            </p>
+            <p class="cv-import__hint">{{ 'profile.cvAttachmentHint' | translate: i18n.language() }}</p>
 
             @if (cvFilename(); as filename) {
               <p class="cv-attachment__current">
@@ -262,13 +268,12 @@
                   } @else {
                     <mat-icon>delete</mat-icon>
                   }
-                  Entfernen
+                  {{ 'common.remove' | translate: i18n.language() }}
                 </button>
               </p>
             } @else {
               <p class="cv-attachment__current cv-attachment__current--empty">
-                Noch keine Lebenslauf-Datei hochgeladen - Bewerbungen können erst versendet werden,
-                sobald eine Datei hochgeladen wurde.
+                {{ 'profile.noCvFile' | translate: i18n.language() }}
               </p>
             }
 
@@ -281,7 +286,7 @@
               (click)="cvFileInput.click()"
             >
               <mat-icon>upload_file</mat-icon>
-              <p>PDF hierher ziehen oder klicken zum Auswählen</p>
+              <p>{{ 'profile.dropzone' | translate: i18n.language() }}</p>
               @if (selectedCvFile(); as file) {
                 <p class="cv-dropzone__filename">
                   {{ file.name }}
@@ -306,23 +311,21 @@
               } @else {
                 <mat-icon>upload</mat-icon>
               }
-              Lebenslauf-Datei hochladen
+              {{ 'profile.uploadCvFile' | translate: i18n.language() }}
             </button>
           </div>
         </mat-tab>
 
         <!-- Tab 6: Weitere Anhänge -->
-        <mat-tab label="Weitere Anhänge">
+        <mat-tab [label]="'profile.tab.attachments' | translate: i18n.language()">
           <div class="tab-content">
             <p class="cv-import__hint">
-              Lade hier bis zu {{ MAX_ATTACHMENTS }} zusätzliche Dokumente als PDF hoch (z. B.
-              Arbeitszeugnisse, Zertifikate) - sie werden beim Versand einer Bewerbung zusätzlich
-              zum Lebenslauf als weitere E-Mail-Anhänge mitgeschickt.
+              {{ 'profile.attachmentsHint' | translate: i18n.language(): { max: MAX_ATTACHMENTS } }}
             </p>
 
             @if (attachments().length === 0) {
               <p class="cv-attachment__current cv-attachment__current--empty">
-                Noch keine zusätzlichen Anhänge hochgeladen.
+                {{ 'profile.noAttachments' | translate: i18n.language() }}
               </p>
             } @else {
               <div class="cv-attachment__list">
@@ -342,7 +345,7 @@
                       } @else {
                         <mat-icon>delete</mat-icon>
                       }
-                      Entfernen
+                      {{ 'common.remove' | translate: i18n.language() }}
                     </button>
                   </p>
                 }
@@ -359,7 +362,7 @@
                 (click)="attachmentFileInput.click()"
               >
                 <mat-icon>upload_file</mat-icon>
-                <p>PDF hierher ziehen oder klicken zum Auswählen</p>
+                <p>{{ 'profile.dropzone' | translate: i18n.language() }}</p>
                 @if (selectedAttachmentFile(); as file) {
                   <p class="cv-dropzone__filename">
                     {{ file.name }}
@@ -390,12 +393,10 @@
                 } @else {
                   <mat-icon>upload</mat-icon>
                 }
-                Anhang hochladen
+                {{ 'profile.uploadAttachment' | translate: i18n.language() }}
               </button>
             } @else {
-              <p class="cv-import__hint">
-                Maximale Anzahl erreicht - entferne zuerst einen Anhang, um einen neuen hochzuladen.
-              </p>
+              <p class="cv-import__hint">{{ 'profile.maxAttachmentsReached' | translate: i18n.language() }}</p>
             }
           </div>
         </mat-tab>
@@ -408,7 +409,7 @@
           } @else {
             <mat-icon>save</mat-icon>
           }
-          Profil speichern
+          {{ 'profile.save' | translate: i18n.language() }}
         </button>
       </div>
     </form>

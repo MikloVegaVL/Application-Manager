@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
 <head>
   <meta charset="utf-8">
   <title>Frontend</title>
@@ -8,6 +8,36 @@
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <link id="app-theme" rel="stylesheet" href="theme-purple-green.css">
+  <script>
+    // Apply the persisted Material theme before Angular boots to avoid a flash.
+    (function () {
+      try {
+        var tones = {
+          'deeppurple-amber': 'light',
+          'indigo-pink': 'light',
+          'pink-bluegrey': 'dark',
+          'purple-green': 'dark',
+        };
+        var stored = localStorage.getItem('app-theme');
+        var theme =
+          stored && Object.prototype.hasOwnProperty.call(tones, stored) ? stored : 'purple-green';
+        var tone = tones[theme];
+        var root = document.documentElement;
+        document.getElementById('app-theme').href = 'theme-' + theme + '.css';
+        root.setAttribute('data-theme', theme);
+        root.setAttribute('data-theme-tone', tone);
+        root.style.colorScheme = tone;
+
+        var storedLanguage = localStorage.getItem('app-language');
+        if (storedLanguage === 'de' || storedLanguage === 'en') {
+          root.setAttribute('lang', storedLanguage);
+        }
+      } catch (e) {
+        /* localStorage unavailable - keep the default theme */
+      }
+    })();
+  </script>
 </head>
 <body class="mat-typography">
   <app-root></app-root>

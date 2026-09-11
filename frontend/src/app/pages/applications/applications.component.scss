@@ -13,7 +13,7 @@
 
     p {
       margin: 0;
-      color: rgba(0, 0, 0, 0.6);
+      color: var(--app-muted-text);
     }
   }
 
@@ -23,15 +23,15 @@
     align-items: center;
     gap: 12px;
     padding: 48px 0;
-    color: rgba(0, 0, 0, 0.6);
+    color: var(--app-muted-text);
   }
 
   &__error {
-    color: #b3261e;
+    color: var(--app-error);
   }
 
   &__empty {
-    color: rgba(0, 0, 0, 0.6);
+    color: var(--app-muted-text);
   }
 
   &__results {
@@ -46,8 +46,8 @@
   flex-direction: column;
 
   &__status--sent {
-    background-color: #2e7d32;
-    color: #fff;
+    background-color: var(--app-success);
+    color: var(--app-on-success);
   }
 
   mat-card-content {
@@ -59,10 +59,3 @@
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  .applications__intro p,
-  .applications__loading,
-  .applications__empty {
-    color: rgba(255, 255, 255, 0.6);
-  }
-}

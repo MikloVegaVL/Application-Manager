@@ -1,5 +1,5 @@
 .editor-page {
-  color: rgba(0, 0, 0, 0.87);
+  color: var(--app-body-text);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -50,7 +50,7 @@
   justify-content: center;
   gap: 12px;
   padding: 64px 24px;
-  color: rgba(0, 0, 0, 0.6);
+  color: var(--app-muted-text);
   flex: 1;
 }
 
@@ -58,7 +58,7 @@
   font-size: 40px;
   width: 40px;
   height: 40px;
-  color: #b3261e;
+  color: var(--app-error);
 }
 
 .editor-page__loading-hint {
@@ -89,9 +89,3 @@
   width: 100%;
 }
 
-@media (prefers-color-scheme: dark) {
-  .editor-page__loading,
-  .editor-page__error {
-    color: rgba(255, 255, 255, 0.6);
-  }
-}
