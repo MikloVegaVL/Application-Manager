@@ -129,32 +129,18 @@ class MasterProfileRead(MasterProfileBase):
     updated_at: datetime
 
 
-class CvUploadResponse(BaseModel):
-    """Antwort von `POST /profile/upload-cv`.
-
-    `upload_cv` übernimmt Felder aus dem CV nur, wenn die KI dafür tatsächlich
-    etwas gefunden hat (siehe `app.api.profile.upload_cv`) - ein unvollständig
-    gelesener CV darf ein bereits gepflegtes Profil nicht mit leeren Werten
-    überschreiben. Das schützt gute Daten, verschluckt aber ohne `warnings`
-    stillschweigend, dass z. B. gar keine Berufserfahrung erkannt wurde -
-    siehe ce-debug-Untersuchung, 2026-08-18 (ein Nutzer bemerkte erst beim
-    manuellen Nachsehen, dass sein Profil trotz "erfolgreichem" Import keine
-    Berufserfahrung/Ausbildung enthielt). `warnings` benennt jedes Feld, das
-    die KI leer zurückgab und das deshalb NICHT übernommen wurde, damit das
-    Frontend das transparent anzeigen kann statt einen unbedingten Erfolg zu
-    melden.
-    """
-
-    profile: MasterProfileRead
-    warnings: list[str] = Field(default_factory=list)
-
-
 class ParsedCvProfile(BaseModel):
     """Ergebnis der KI-gestützten CV-Analyse (siehe `app.services.pdf_parser`).
 
     Bewusst von `MasterProfileBase` getrennt: Ein Lebenslauf liefert nicht
     zwingend alle Felder (z. B. keine erkennbare E-Mail-Adresse), daher sind
     hier - anders als beim Stammprofil selbst - alle Felder optional.
+
+    `full_name`/`email`/`phone`/`address` sind reine Anzeigefelder für den
+    CV-Builder (R5): Sie werden im Import-Vorschau-Formular nur read-only
+    dargestellt und fließen NIE in den Save-Payload des Builders ein (KTD1) -
+    `POST /cv-builder/parse` schreibt ohnehin grundsätzlich nichts in die
+    Datenbank (R6).
     """
 
     full_name: str | None = None
@@ -165,3 +151,17 @@ class ParsedCvProfile(BaseModel):
     experiences: list[ExperienceEntry] = Field(default_factory=list)
     education: list[EducationEntry] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
+    projects: list[ProjectEntry] = Field(default_factory=list)
+
+
+class CvParseResponse(BaseModel):
+    """Antwort von `POST /cv-builder/parse` (R5/R6): liefert das rohe, per KI
+    geparste Profil unverändert zurück - dieser Endpunkt schreibt NICHTS in
+    die Datenbank, das übernimmt ausschließlich ein späterer, expliziter
+    Save-Aufruf des Nutzers im Builder-Formular. `warnings` benennt jedes
+    Feld, für das die KI nichts gefunden hat (siehe
+    `app.services.pdf_parser.missing_field_warnings`), damit das Frontend das
+    transparent anzeigen kann statt einen unbedingten Erfolg zu melden."""
+
+    parsed: ParsedCvProfile
+    warnings: list[str] = Field(default_factory=list)

@@ -1,8 +1,9 @@
-"""Tests für die Profil-API-Route, insbesondere `POST /profile/upload-cv`
-(siehe ce-debug-Untersuchung, 2026-08-18: ein CV-Import, der die KI-Antwort
-teilweise leer zurückbekommt, ließ das Profil unverändert - ohne jede
-Rückmeldung an den Nutzer, dass z. B. keine Berufserfahrung übernommen
-wurde)."""
+"""Tests für die Profil-API-Route: Stammdaten, Lebenslauf-Anhang-Datei,
+Profilfoto sowie zusätzliche PDF-Anhänge.
+
+Der frühere KI-gestützte CV-Import (`POST /profile/upload-cv`) samt seinen
+Tests ist mit U3 entfallen - sein Nachfolger `POST /cv-builder/parse` wird in
+`tests/api/test_cv_builder.py` getestet."""
 from __future__ import annotations
 
 import pytest
@@ -15,7 +16,6 @@ from app import models  # noqa: F401 - registriert Modelle in Base.metadata
 from app.db.database import Base, get_db
 from app.main import app
 from app.models.master_profile import MasterProfile
-from app.schemas.master_profile import ParsedCvProfile
 
 
 @pytest.fixture
@@ -42,96 +42,12 @@ def client():
         app.dependency_overrides.clear()
 
 
-def _upload(client: TestClient, mocker, parsed: ParsedCvProfile):
-    mocker.patch("app.api.profile.parse_cv_pdf", return_value=parsed)
-    return client.post(
-        "/api/profile/upload-cv",
-        files={"file": ("cv.pdf", b"%PDF-1.4 fake content", "application/pdf")},
-    )
-
-
-def test_upload_cv_with_full_data_returns_no_warnings(client, mocker):
-    test_client, _ = client
-    parsed = ParsedCvProfile(
-        full_name="Max Mustermann",
-        email="max@example.com",
-        phone="0123456789",
-        address="Musterstraße 1, Berlin",
-        summary="Erfahrener Entwickler.",
-        experiences=[
-            {"company": "Acme GmbH", "role": "Entwickler", "start_date": "2020", "end_date": None}
-        ],
-        education=[{"institution": "TU Berlin", "degree": "B.Sc. Informatik"}],
-        skills=["Python"],
-    )
-
-    response = _upload(test_client, mocker, parsed)
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["warnings"] == []
-    assert body["profile"]["full_name"] == "Max Mustermann"
-    assert len(body["profile"]["experiences_json"]) == 1
-
-
-def test_upload_cv_with_missing_experience_and_education_reports_warnings(client, mocker):
-    """The core regression case: a parse that finds contact details/skills
-    but no experience or education must still succeed (protecting existing
-    data is correct behavior) but must tell the caller which fields were
-    skipped, not silently report unconditional success."""
-    test_client, _ = client
-    parsed = ParsedCvProfile(
-        full_name="Max Mustermann",
-        email="max@example.com",
-        experiences=[],
-        education=[],
-        skills=["Python"],
-    )
-
-    response = _upload(test_client, mocker, parsed)
-
-    assert response.status_code == 200
-    body = response.json()
-    assert "Keine Berufserfahrung gefunden - vorhandene Angaben blieben unverändert." in body["warnings"]
-    assert "Keine Ausbildung gefunden - vorhandene Angaben blieben unverändert." in body["warnings"]
-    assert "Kein Kurzprofil/Zusammenfassung gefunden." in body["warnings"]
-    # Skills wurden gefunden - dafür keine Warnung.
-    assert "Keine Skills gefunden." not in body["warnings"]
-
-
-def test_upload_cv_missing_experience_does_not_erase_existing_experience(client, mocker):
-    """Locks in the pre-existing protective behavior this fix must not
-    change: an empty parse result for a field must leave already-saved data
-    untouched, only now with a visible warning explaining why."""
-    test_client, session_local = client
-
-    db = session_local()
-    existing = MasterProfile(
-        full_name="Bestehender Nutzer",
-        email="bestehend@example.com",
-        experiences_json=[{"company": "Alt GmbH", "role": "Alt-Rolle"}],
-        education_json=[],
-        skills_json=[],
-    )
-    db.add(existing)
-    db.commit()
-    db.close()
-
-    parsed = ParsedCvProfile(full_name="Bestehender Nutzer", email="bestehend@example.com", experiences=[])
-
-    response = _upload(test_client, mocker, parsed)
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["profile"]["experiences_json"] == [{"company": "Alt GmbH", "role": "Alt-Rolle", "start_date": None, "end_date": None, "description": None}]
-    assert "Keine Berufserfahrung gefunden - vorhandene Angaben blieben unverändert." in body["warnings"]
-
-
 # --- POST/GET/DELETE /profile/cv-file -----------------------------------
 #
 # Die Lebenslauf-Anhang-Datei ist unabhängig vom KI-gestützten CV-Import
-# (`upload-cv`, oben): sie wird nicht analysiert, sondern unverändert als
-# E-Mail-Anhang verwendet (siehe `app.api.applications.send_application`).
+# (`POST /cv-builder/parse`, siehe `test_cv_builder.py`): sie wird nicht
+# analysiert, sondern unverändert als E-Mail-Anhang verwendet (siehe
+# `app.api.applications.send_application`).
 
 
 def _create_profile(session_local) -> MasterProfile:
