@@ -23,6 +23,7 @@ def _full_content() -> dict:
         phone="+49 176 12345678",
         address="Musterstraße 1, 12345 Musterstadt",
         summary="Erfahrener Softwareentwickler mit Fokus auf Backend-Systeme.",
+        berufsbezeichnung="Backend-Entwickler",
         experiences=[
             ExperienceEntry(
                 company="Beispiel GmbH",
@@ -162,3 +163,101 @@ class TestRenderCvPdfErrorHandling:
 
         with pytest.raises(PdfRenderError):
             pdf_service.render_cv_pdf(template_id="classic", **_full_content())
+
+
+class TestRenderCvPdfPreviewMode:
+    def _capture(self, mocker, **kwargs) -> str:
+        mock_html_cls = mocker.patch.object(pdf_service, "HTML")
+        mock_html_cls.return_value.write_pdf.return_value = b"%PDF-1.4 fake bytes"
+        pdf_service.render_cv_pdf(**kwargs)
+        return mock_html_cls.call_args.kwargs["string"]
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_preview_renders_all_canonical_sections(self, mocker, template_id):
+        rendered = self._capture(mocker, template_id=template_id, preview=True, **_empty_content())
+
+        for heading in ("Profil", "Berufserfahrung", "Ausbildung", "Skills", "Sprachen", "Projekte"):
+            assert heading in rendered
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_preview_fills_empty_sections_with_muted_sample_content(self, mocker, template_id):
+        rendered = self._capture(mocker, template_id=template_id, preview=True, **_empty_content())
+
+        assert "Erfahrene Fachkraft" in rendered
+        assert "Beispiel GmbH" in rendered
+        assert 'class="ph"' in rendered
+
+    def test_export_omits_sample_content_even_when_a_sample_is_passed(self, mocker):
+        rendered = self._capture(
+            mocker,
+            template_id="classic",
+            preview=False,
+            sample=pdf_service.SAMPLE,
+            **_empty_content(),
+        )
+
+        assert "Beispiel GmbH" not in rendered
+        assert "Berufserfahrung" not in rendered
+        # R9: auch die leere `Profil`-Überschrift fehlt im Export.
+        assert "Profil" not in rendered
+
+    def test_preview_keeps_real_entry_and_fills_only_a_blank_sub_field(self, mocker):
+        content = _empty_content()
+        content["experiences"] = [
+            ExperienceEntry(
+                company="Acme GmbH",
+                role="Entwickler",
+                start_date="2020",
+                end_date=None,
+                description=None,
+            )
+        ]
+
+        rendered = self._capture(mocker, template_id="classic", preview=True, **content)
+
+        assert "Acme GmbH" in rendered
+        assert "Entwickler" in rendered
+        assert "Beschreibung der Tätigkeit" in rendered
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_berufsbezeichnung_renders_under_the_name(self, mocker, template_id):
+        content = _empty_content()
+        content["berufsbezeichnung"] = "Frontend Developer"
+
+        rendered = self._capture(mocker, template_id=template_id, preview=False, **content)
+
+        assert "Frontend Developer" in rendered
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_empty_berufsbezeichnung_shows_sample_in_preview(self, mocker, template_id):
+        rendered = self._capture(mocker, template_id=template_id, preview=True, **_empty_content())
+
+        assert pdf_service.SAMPLE["berufsbezeichnung"] in rendered
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_empty_berufsbezeichnung_absent_in_export(self, mocker, template_id):
+        rendered = self._capture(mocker, template_id=template_id, preview=False, **_empty_content())
+
+        assert pdf_service.SAMPLE["berufsbezeichnung"] not in rendered
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_preview_without_photo_shows_placeholder(self, mocker, template_id):
+        rendered = self._capture(mocker, template_id=template_id, preview=True, **_empty_content())
+
+        assert "photo--placeholder" in rendered
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_export_without_photo_omits_img(self, mocker, template_id):
+        rendered = self._capture(mocker, template_id=template_id, preview=False, **_empty_content())
+
+        assert "<img" not in rendered
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_preview_renders_real_pdf_bytes(self, template_id):
+        """Vorschau läuft (anders als die HTML-Assertions oben) durch echtes
+        WeasyPrint - ein kaputtes Preview-Konstrukt darf nicht nur im Mock
+        bestehen."""
+        pdf_bytes = pdf_service.render_cv_pdf(template_id=template_id, preview=True, **_empty_content())
+
+        assert pdf_bytes.startswith(b"%PDF")
+        assert len(pdf_bytes) > 0

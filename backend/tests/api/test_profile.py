@@ -160,7 +160,7 @@ def test_patch_profile_partial_payload_leaves_other_fields_untouched(client, tmp
             ],
             "languages_json": [{"name": "Deutsch", "level": "C2"}],
             "projects_json": [{"title": "Projekt X", "description": "Beschreibung"}],
-            "template_id": "modern",
+            "template_id": "template-1",
         },
     )
     assert first.status_code == 200
@@ -187,7 +187,39 @@ def test_patch_profile_partial_payload_leaves_other_fields_untouched(client, tmp
     assert body["projects_json"] == [
         {"title": "Projekt X", "description": "Beschreibung", "start_date": None, "end_date": None, "link": None}
     ]
-    assert body["template_id"] == "modern"
+    assert body["template_id"] == "template-1"
+
+
+def test_patch_profile_round_trips_berufsbezeichnung(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch("/api/profile", json={"berufsbezeichnung": "Frontend Developer"})
+
+    assert response.status_code == 200
+    assert response.json()["berufsbezeichnung"] == "Frontend Developer"
+
+    # Ohne das Feld im Payload bleibt der Wert unangetastet (`exclude_unset`).
+    untouched = test_client.patch("/api/profile", json={"summary": "Neu"})
+    assert untouched.json()["berufsbezeichnung"] == "Frontend Developer"
+
+
+def test_put_profile_round_trips_berufsbezeichnung(client, tmp_path, monkeypatch):
+    test_client, _session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+
+    response = test_client.put(
+        "/api/profile",
+        json={
+            "full_name": "Max Mustermann",
+            "email": "max@example.com",
+            "berufsbezeichnung": "Frontend Developer",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["berufsbezeichnung"] == "Frontend Developer"
 
 
 # --- POST/GET/DELETE /profile/cv-file -----------------------------------

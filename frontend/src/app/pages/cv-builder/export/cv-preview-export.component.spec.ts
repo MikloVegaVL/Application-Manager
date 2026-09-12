@@ -8,7 +8,7 @@ import { CvPreviewExportComponent } from './cv-preview-export.component';
 
 const templatesFixture = [
   { id: 'classic', label: 'Classic' },
-  { id: 'modern', label: 'Modern' },
+  { id: 'template-1', label: 'Template 1' },
 ];
 
 describe('CvPreviewExportComponent', () => {
@@ -18,6 +18,7 @@ describe('CvPreviewExportComponent', () => {
   let formBuilder: FormBuilder;
 
   let summaryControl: FormControl<string>;
+  let berufsbezeichnungControl: FormControl<string>;
   let experiencesArray: FormArray<FormGroup>;
   let educationArray: FormArray<FormGroup>;
   let skillsArray: FormArray<FormGroup>;
@@ -27,6 +28,7 @@ describe('CvPreviewExportComponent', () => {
 
   const setInputs = (): void => {
     fixture.componentRef.setInput('summaryControl', summaryControl);
+    fixture.componentRef.setInput('berufsbezeichnungControl', berufsbezeichnungControl);
     fixture.componentRef.setInput('experiencesArray', experiencesArray);
     fixture.componentRef.setInput('educationArray', educationArray);
     fixture.componentRef.setInput('skillsArray', skillsArray);
@@ -46,6 +48,7 @@ describe('CvPreviewExportComponent', () => {
   const expectedPayload = (overrides: Record<string, unknown> = {}) => ({
     template_id: 'classic',
     summary: '',
+    berufsbezeichnung: '',
     experiences_json: [],
     education_json: [],
     skills_json: [],
@@ -66,6 +69,7 @@ describe('CvPreviewExportComponent', () => {
     formBuilder = TestBed.inject(FormBuilder);
 
     summaryControl = formBuilder.nonNullable.control('');
+    berufsbezeichnungControl = formBuilder.nonNullable.control('');
     experiencesArray = formBuilder.array<FormGroup>([]);
     educationArray = formBuilder.array<FormGroup>([]);
     skillsArray = formBuilder.array<FormGroup>([]);
@@ -99,15 +103,34 @@ describe('CvPreviewExportComponent', () => {
     secondToggleButton.click();
     fixture.detectChanges();
 
-    expect(templateIdControl.value).toBe('modern');
+    expect(templateIdControl.value).toBe('template-1');
   });
 
   it('does not override an already-selected template when templates load', () => {
+    templateIdControl.setValue('template-1');
+    setInputs();
+    flushTemplates();
+
+    expect(templateIdControl.value).toBe('template-1');
+  });
+
+  it('resets an unknown stored template id to the first fetched template (KTD10)', () => {
     templateIdControl.setValue('modern');
     setInputs();
     flushTemplates();
 
-    expect(templateIdControl.value).toBe('modern');
+    expect(templateIdControl.value).toBe('classic');
+  });
+
+  it('disables rendering while the template load is in error (KTD10)', () => {
+    templateIdControl.setValue('classic');
+    setInputs();
+    httpMock
+      .expectOne((r) => r.url.endsWith('/cv-builder/templates') && r.method === 'GET')
+      .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(component['canRender']()).toBeFalse();
   });
 
   it('shows an error with a retry action when templates fail to load', () => {
@@ -154,6 +177,23 @@ describe('CvPreviewExportComponent', () => {
     const embed = compiled.querySelector('embed');
     expect(embed).toBeTruthy();
     expect(embed?.getAttribute('src')).toMatch(/^blob:/);
+  });
+
+  it('preview sends the live Berufsbezeichnung value (R5)', () => {
+    berufsbezeichnungControl.setValue('Frontend Developer');
+    setInputs();
+    flushTemplates();
+
+    const previewButton = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      '.cv-preview-export__actions button',
+    )[0] as HTMLButtonElement;
+    previewButton.click();
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/preview') && r.method === 'POST');
+    expect(req.request.body.berufsbezeichnung).toBe('Frontend Developer');
+
+    req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+    fixture.detectChanges();
   });
 
   it('shows an error message (not a stale preview) when the preview request fails with 404/422/500', () => {

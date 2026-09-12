@@ -14,9 +14,7 @@
     }
   }
 
-  * {
-    box-sizing: border-box;
-  }
+  * { box-sizing: border-box; }
 
   body {
     font-family: 'Georgia', 'Times New Roman', serif;
@@ -24,179 +22,192 @@
     margin: 0;
   }
 
-  .cv {
-    font-size: 10.5pt;
-    line-height: 1.45;
-  }
+  .cv { font-size: 10.5pt; line-height: 1.45; }
 
-  .cv .header {
+  /* Vorschau-Platzhalter (R8/KTD3): nur Beispielwerte werden gedämpft. */
+  .ph { color: #9a9a9a; font-style: italic; }
+
+  .header {
     display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
     gap: 8mm;
-    border-bottom: 1.5pt solid #2b2b2b;
-    padding-bottom: 4mm;
-    margin-bottom: 8mm;
+    align-items: flex-start;
+    margin-bottom: 10mm;
   }
 
-  .cv .header__text {
-    flex: 1;
-  }
+  .header__text { flex: 1; }
+  .header__name { font-size: 15pt; font-weight: 700; margin: 0 0 2mm; }
+  .header__line { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 9.5pt; color: #444; }
+  .header__email { color: #2f6fd0; }
 
-  .cv .photo {
-    width: 30mm;
-    height: 30mm;
-    object-fit: cover;
-    border-radius: 1mm;
-  }
-
-  .cv h1 {
-    font-size: 21pt;
-    font-weight: 400;
-    letter-spacing: 0.5pt;
-    margin: 0 0 2mm;
-    color: #1a1a1a;
-  }
-
-  .cv .contact-line {
-    font-size: 9.5pt;
-    color: #555;
+  .photo { width: 30mm; height: 30mm; object-fit: cover; }
+  .photo--placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #e6e6e6;
+    color: #9a9a9a;
     font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 9pt;
   }
 
-  .cv .contact-line span:not(:last-child)::after {
-    content: " \00b7 ";
+  .cols, .section {
+    display: grid;
+    grid-template-columns: 45mm 1fr;
+    column-gap: 8mm;
   }
 
-  .cv h2 {
-    font-size: 11.5pt;
+  .section { margin-top: 7mm; }
+
+  .name-large { font-size: 22pt; font-weight: 700; line-height: 1.05; }
+  .title {
+    color: #e8543f;
     font-family: 'Helvetica Neue', Arial, sans-serif;
-    text-transform: uppercase;
-    letter-spacing: 1pt;
-    color: #2b2b2b;
-    border-bottom: 0.75pt solid #b8b0a0;
-    padding-bottom: 1mm;
-    margin: 7mm 0 3.5mm;
+    font-size: 12pt;
+    margin-top: 1mm;
   }
+  .dash { border-top: 2pt solid #e8543f; width: 8mm; margin-top: 3mm; }
 
-  .cv .summary {
-    margin: 0;
-  }
+  .sec-label { font-weight: 700; font-size: 11pt; margin: 0; }
+  .rule { border-top: 1.5pt solid #e8543f; margin-top: 1.5mm; }
 
-  .cv .entry {
-    margin-bottom: 5mm;
-  }
-
-  .cv .entry__title-row {
+  .main p { margin: 0 0 3mm; }
+  .entry { margin-bottom: 4mm; }
+  .entry__title-row {
     display: flex;
     justify-content: space-between;
     gap: 4mm;
     font-weight: 700;
   }
+  .entry__date { font-weight: 400; color: #666; white-space: nowrap; }
+  .entry__description { margin: 1mm 0 0; white-space: pre-line; font-weight: 400; color: #333; }
+  .entry__link { font-size: 9pt; color: #666; }
 
-  .cv .entry__subtitle {
-    font-style: italic;
-    color: #444;
-  }
-
-  .cv .entry__description {
-    margin: 1mm 0 0;
-    white-space: pre-line;
-    font-weight: 400;
-    color: #333;
-  }
-
-  .cv .entry__link {
-    font-size: 9pt;
-    color: #555;
-  }
-
-  .cv .tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2mm 5mm;
-    font-family: 'Helvetica Neue', Arial, sans-serif;
-    font-size: 9.5pt;
-  }
-
-  .cv .tag {
-    color: #2b2b2b;
-  }
-
-  .cv .tag__level {
-    color: #777;
-  }
+  .tags { margin: 0; padding: 0; list-style: none; }
+  .tags li { margin-bottom: 1mm; }
+  .tag__level { color: #777; }
 </style>
 </head>
 <body>
   <section class="cv">
     <div class="header">
+      {% if photo_url %}
+      <img class="photo" src="{{ photo_url }}" alt="Profilfoto">
+      {% elif preview %}
+      <div class="photo photo--placeholder">Foto</div>
+      {% endif %}
       <div class="header__text">
-        <h1>{{ full_name }}</h1>
-        <div class="contact-line">
-          {% if address %}<span>{{ address }}</span>{% endif %}
-          {% if phone %}<span>{{ phone }}</span>{% endif %}
-          <span>{{ email }}</span>
+        <h1 class="header__name">{{ full_name }}</h1>
+        {% if address %}<div class="header__line">{{ address }}</div>
+        {% elif preview %}<div class="header__line ph">{{ sample.address }}</div>{% endif %}
+        {% if phone %}<div class="header__line">{{ phone }}</div>
+        {% elif preview %}<div class="header__line ph">{{ sample.phone }}</div>{% endif %}
+        <div class="header__line header__email">{{ email }}</div>
+      </div>
+    </div>
+
+    <div class="cols">
+      <div>
+        <div class="name-large">{{ full_name }}</div>
+        <div class="title">
+          {%- if berufsbezeichnung %}{{ berufsbezeichnung }}
+          {%- elif preview %}<span class="ph">{{ sample.berufsbezeichnung }}</span>{% endif %}
         </div>
+        <div class="dash"></div>
+        {% if summary or preview %}
+        <h2 class="sec-label" style="margin-top: 4mm">Profil</h2>
+        <div class="rule"></div>
+        {% endif %}
       </div>
-      {% if photo_url %}<img class="photo" src="{{ photo_url }}" alt="Profilfoto">{% endif %}
-    </div>
-
-    {% if summary %}
-    <h2>Profil</h2>
-    <p class="summary">{{ summary }}</p>
-    {% endif %}
-
-    {% if experiences %}
-    <h2>Berufserfahrung</h2>
-    {% for exp in experiences %}
-    <div class="entry">
-      <div class="entry__title-row">
-        <span>{{ exp.role }}, {{ exp.company }}</span>
-        <span>{{ exp.date_range }}</span>
-      </div>
-      {% if exp.description %}<p class="entry__description">{{ exp.description }}</p>{% endif %}
-    </div>
-    {% endfor %}
-    {% endif %}
-
-    {% if education %}
-    <h2>Ausbildung</h2>
-    {% for edu in education %}
-    <div class="entry">
-      <div class="entry__title-row">
-        <span>{{ edu.degree }}{% if edu.field_of_study %} &middot; {{ edu.field_of_study }}{% endif %}, {{ edu.institution }}</span>
-        <span>{{ edu.date_range }}</span>
+      <div class="main">
+        {% if summary %}<p>{{ summary }}</p>
+        {% elif preview %}<p class="ph">{{ sample.summary }}</p>{% endif %}
       </div>
     </div>
-    {% endfor %}
-    {% endif %}
 
-    {% if projects %}
-    <h2>Projekte</h2>
-    {% for project in projects %}
-    <div class="entry">
-      <div class="entry__title-row">
-        <span>{{ project.title }}</span>
-        {% if project.date_range %}<span>{{ project.date_range }}</span>{% endif %}
+    {% if experiences or preview %}
+    <div class="section">
+      <div><h2 class="sec-label">Berufserfahrung</h2><div class="rule"></div></div>
+      <div class="main">
+        {% set exp_list = experiences if experiences else sample.experiences %}
+        {% set exp_sample = not experiences %}
+        {% for exp in exp_list %}
+        <div class="entry{% if exp_sample %} ph{% endif %}">
+          <div class="entry__title-row">
+            <span>{{ exp.role }}, {{ exp.company }}</span>
+            <span class="entry__date">{{ exp.date_range }}</span>
+          </div>
+          {% if exp.description %}<p class="entry__description">{{ exp.description }}</p>
+          {% elif preview %}<p class="entry__description ph">{{ sample.entry_description }}</p>{% endif %}
+        </div>
+        {% endfor %}
       </div>
-      {% if project.description %}<p class="entry__description">{{ project.description }}</p>{% endif %}
-      {% if project.link %}<p class="entry__link">{{ project.link }}</p>{% endif %}
-    </div>
-    {% endfor %}
-    {% endif %}
-
-    {% if skills %}
-    <h2>Skills</h2>
-    <div class="tags">
-      {% for skill in skills %}<span class="tag">{{ skill.name }} <span class="tag__level">&mdash; {{ skill.level }}</span></span>{% endfor %}
     </div>
     {% endif %}
 
-    {% if languages %}
-    <h2>Sprachen</h2>
-    <div class="tags">
-      {% for language in languages %}<span class="tag">{{ language.name }} <span class="tag__level">&mdash; {{ language.level }}</span></span>{% endfor %}
+    {% if education or preview %}
+    <div class="section">
+      <div><h2 class="sec-label">Ausbildung</h2><div class="rule"></div></div>
+      <div class="main">
+        {% set edu_list = education if education else sample.education %}
+        {% set edu_sample = not education %}
+        {% for edu in edu_list %}
+        <div class="entry{% if edu_sample %} ph{% endif %}">
+          <div class="entry__title-row">
+            <span>{{ edu.degree }}{% if edu.field_of_study %} &middot; {{ edu.field_of_study }}{% endif %}, {{ edu.institution }}</span>
+            <span class="entry__date">{{ edu.date_range }}</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if skills or preview %}
+    <div class="section">
+      <div><h2 class="sec-label">Skills</h2><div class="rule"></div></div>
+      <div class="main">
+        {% set skill_list = skills if skills else sample.skills %}
+        <ul class="tags{% if not skills %} ph{% endif %}">
+          {% for skill in skill_list %}
+          <li>{{ skill.name }} <span class="tag__level">&mdash; {{ skill.level }}</span></li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if languages or preview %}
+    <div class="section">
+      <div><h2 class="sec-label">Sprachen</h2><div class="rule"></div></div>
+      <div class="main">
+        {% set lang_list = languages if languages else sample.languages %}
+        <ul class="tags{% if not languages %} ph{% endif %}">
+          {% for language in lang_list %}
+          <li>{{ language.name }} <span class="tag__level">&mdash; {{ language.level }}</span></li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if projects or preview %}
+    <div class="section">
+      <div><h2 class="sec-label">Projekte</h2><div class="rule"></div></div>
+      <div class="main">
+        {% set project_list = projects if projects else sample.projects %}
+        {% set project_sample = not projects %}
+        {% for project in project_list %}
+        <div class="entry{% if project_sample %} ph{% endif %}">
+          <div class="entry__title-row">
+            <span>{{ project.title }}</span>
+            {% if project.date_range %}<span class="entry__date">{{ project.date_range }}</span>{% endif %}
+          </div>
+          {% if project.description %}<p class="entry__description">{{ project.description }}</p>
+          {% elif preview %}<p class="entry__description ph">{{ sample.project_description }}</p>{% endif %}
+          {% if project.link %}<p class="entry__link">{{ project.link }}</p>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
     </div>
     {% endif %}
   </section>

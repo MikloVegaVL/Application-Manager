@@ -218,6 +218,7 @@ describe('ProfileComponent - non-destructive identity save (KTD14)', () => {
     phone: '+49 30 1234567',
     address: 'Musterstraße 1, Berlin',
     summary: 'Erfahrene Softwareentwicklerin.',
+    berufsbezeichnung: 'Frontend Developer',
     experiences_json: [
       { company: 'Acme GmbH', role: 'Senior Engineer', start_date: '2020', end_date: null, description: 'Backend.' },
     ],
@@ -230,7 +231,7 @@ describe('ProfileComponent - non-destructive identity save (KTD14)', () => {
       { title: 'Portfolio', description: 'Persönliche Website.', start_date: '2022', end_date: null, link: null },
     ],
     photo_filename: 'photo.jpg',
-    template_id: 'modern',
+    template_id: 'template-1',
     cv_filename: null,
     attachments: [],
     created_at: new Date().toISOString(),
@@ -272,6 +273,7 @@ describe('ProfileComponent - non-destructive identity save (KTD14)', () => {
     expect(body.address).toBe(loadedProfileFixture.address);
 
     expect(body.summary).toBe(loadedProfileFixture.summary);
+    expect(body.berufsbezeichnung).toBe(loadedProfileFixture.berufsbezeichnung);
     expect(body.experiences_json).toEqual(loadedProfileFixture.experiences_json);
     expect(body.education_json).toEqual(loadedProfileFixture.education_json);
     expect(body.skills_json).toEqual(loadedProfileFixture.skills_json);

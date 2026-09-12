@@ -18,6 +18,14 @@ import { MatInputModule } from '@angular/material/input';
     <section class="form-array-section">
       <h3>Zusammenfassung</h3>
       <mat-form-field appearance="outline" class="summary-section__field">
+        <mat-label>Berufsbezeichnung</mat-label>
+        <input
+          matInput
+          [formControl]="berufsbezeichnungControl"
+          placeholder="z. B. Frontend Developer"
+        />
+      </mat-form-field>
+      <mat-form-field appearance="outline" class="summary-section__field">
         <mat-label>Professionelle Zusammenfassung</mat-label>
         <textarea
           matInput
@@ -49,4 +57,7 @@ import { MatInputModule } from '@angular/material/input';
 export class SummarySectionComponent {
   /** FormControl für die Zusammenfassung, verwaltet von der Elternform. */
   @Input({ required: true }) control!: FormControl<string>;
+
+  /** R5: optionaler Job-Titel unter dem Namen, ebenfalls von der Elternform. */
+  @Input({ required: true }) berufsbezeichnungControl!: FormControl<string>;
 }

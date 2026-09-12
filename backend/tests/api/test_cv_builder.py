@@ -215,7 +215,7 @@ def test_list_templates_returns_the_configured_template_ids(client):
     assert response.status_code == 200
     body = response.json()
     ids = {template["id"] for template in body}
-    assert ids == {"classic", "modern"}
+    assert ids == {"classic", "template-1"}
     assert all("label" in template for template in body)
 
 
@@ -228,6 +228,7 @@ def test_list_templates_returns_the_configured_template_ids(client):
 _RENDER_PAYLOAD = {
     "template_id": "classic",
     "summary": "Erfahrener Entwickler.",
+    "berufsbezeichnung": "Frontend Developer",
     "experiences_json": [
         {"company": "Acme GmbH", "role": "Entwickler", "start_date": "2020", "end_date": None}
     ],
@@ -278,6 +279,7 @@ def test_preview_returns_inline_pdf_with_merged_identity(client_with_session, mo
     assert render_spy.call_args.kwargs["email"] == "max@example.com"
     assert render_spy.call_args.kwargs["phone"] == "0176 123456"
     assert render_spy.call_args.kwargs["address"] == "Musterstraße 1, Berlin"
+    assert render_spy.call_args.kwargs["berufsbezeichnung"] == "Frontend Developer"
 
 
 def test_export_returns_attachment_disposition_with_sanitized_filename(client_with_session):
@@ -294,17 +296,30 @@ def test_export_returns_attachment_disposition_with_sanitized_filename(client_wi
     assert response.content.startswith(b"%PDF")
 
 
-def test_preview_and_export_use_the_same_rendering_pipeline(client_with_session, mocker):
-    """KTD7: Preview liefert dieselben PDF-Bytes, die der Export für denselben
-    Inhalt erzeugen würde (eine WeasyPrint-Pipeline für beide)."""
+def test_preview_and_export_use_the_same_renderer_with_different_modes(client_with_session, mocker):
+    """KTD1 (revised KTD7): beide Endpunkte nutzen dieselbe Render-Pipeline,
+    aber die Vorschau rendert im `preview`-Modus und der Export nicht."""
     test_client, session_local = client_with_session
     _create_profile(session_local)
-    mocker.patch.object(pdf_service, "HTML").return_value.write_pdf.return_value = b"%PDF-1.4 identical bytes"
+    render_spy = mocker.spy(cv_builder_module, "render_cv_pdf")
 
     preview_response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD)
-    export_response = test_client.post("/api/cv-builder/export", json=_RENDER_PAYLOAD)
+    assert preview_response.status_code == 200
+    assert render_spy.call_args.kwargs["preview"] is True
 
-    assert preview_response.content == export_response.content == b"%PDF-1.4 identical bytes"
+    export_response = test_client.post("/api/cv-builder/export", json=_RENDER_PAYLOAD)
+    assert export_response.status_code == 200
+    assert render_spy.call_args.kwargs["preview"] is False
+
+
+def test_render_rejects_legacy_modern_template_id(client_with_session):
+    test_client, session_local = client_with_session
+    _create_profile(session_local)
+    payload = {**_RENDER_PAYLOAD, "template_id": "modern"}
+
+    response = test_client.post("/api/cv-builder/preview", json=payload)
+
+    assert response.status_code == 422
 
 
 def test_render_rejects_unknown_template_id(client_with_session):

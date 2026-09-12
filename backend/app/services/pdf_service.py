@@ -15,11 +15,14 @@ Template-Auswahl (R9) sowie eine `url_fetcher`-Einschränkung (KTD6) erweitert.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from weasyprint import HTML, URLFetcher
+
+from app.services.cv_sample_content import SAMPLE
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +45,11 @@ _env = Environment(
 # Template-IDs: `CvTemplateId` treibt sowohl die Pydantic-Validierung des
 # Preview-/Export-Payloads (unbekannte ID -> automatisch 422 durch FastAPI)
 # als auch `GET /cv-builder/templates` (siehe `app.api.cv_builder`).
-CvTemplateId = Literal["classic", "modern"]
+CvTemplateId = Literal["classic", "template-1"]
 
 CV_TEMPLATES: list[dict[str, str]] = [
     {"id": "classic", "label": "Classic"},
-    {"id": "modern", "label": "Modern"},
+    {"id": "template-1", "label": "Template 1"},
 ]
 
 
@@ -108,12 +111,15 @@ def render_cv_pdf(
     phone: str | None,
     address: str | None,
     summary: str | None,
+    berufsbezeichnung: str | None = None,
     experiences: list[Any],
     education: list[Any],
     skills: list[Any],
     languages: list[Any],
     projects: list[Any],
     photo_path: str | Path | None,
+    preview: bool = False,
+    sample: Mapping[str, Any] | None = None,
 ) -> bytes:
     """Rendert den Lebenslauf als PDF (bytes).
 
@@ -126,6 +132,13 @@ def render_cv_pdf(
     (siehe `app.api.cv_builder`).
     """
     template = _env.get_template(f"cv/{template_id}.html")
+
+    # R8/KTD2: im Vorschaumodus den geteilten Beispiel-Inhalt bereitstellen,
+    # wenn der Aufrufer keinen eigenen übergibt. Der Renderer ersetzt keine
+    # echten Werte - die Templates entscheiden pro Feld (KTD3). Im Exportmodus
+    # bleibt `sample` ungenutzt, selbst wenn ein Aufrufer es mitgibt.
+    if preview and sample is None:
+        sample = SAMPLE
 
     experiences_ctx = [
         {**_entry_dict(exp), "date_range": _format_date_range(exp.start_date, exp.end_date)}
@@ -146,12 +159,15 @@ def render_cv_pdf(
         phone=phone,
         address=address,
         summary=summary,
+        berufsbezeichnung=berufsbezeichnung,
         experiences=experiences_ctx,
         education=education_ctx,
         skills=[_entry_dict(skill) for skill in skills],
         languages=[_entry_dict(lang) for lang in languages],
         projects=projects_ctx,
         photo_url=_photo_file_uri(photo_path),
+        preview=preview,
+        sample=sample,
     )
 
     try:

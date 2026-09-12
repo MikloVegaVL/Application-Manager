@@ -149,6 +149,7 @@ export class ProfileComponent implements OnInit {
       phone: raw.phone || null,
       address: raw.address || null,
       summary: base?.summary ?? null,
+      berufsbezeichnung: base?.berufsbezeichnung ?? null,
       experiences_json: base?.experiences_json ?? [],
       education_json: base?.education_json ?? [],
       skills_json: base?.skills_json ?? [],

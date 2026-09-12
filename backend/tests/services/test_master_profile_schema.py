@@ -232,3 +232,93 @@ def test_merge_revision_heals_a_database_stuck_on_only_the_sent_to_email_branch(
         assert column in master_profile_columns
     # ... without losing the already-applied branch's DDL.
     assert "sent_to_email" in application_columns
+
+
+# --- Migration c3d5e7f9a1b2: modern -> template-1 remap ---------------------
+#
+# Anders als `test_migrations.py` (nur Schema-Vergleich auf einer leeren DB)
+# prüfen diese Tests den Daten-Remap auf einer bereits migrierten Datenbank,
+# wie sie in Produktion existiert (Zeile mit `template_id='modern'`).
+
+
+def _fresh_db_at(tmp_path: Path, revision: str) -> tuple[Config, sa.Engine]:
+    database_url = f"sqlite:///{tmp_path / 'remap-check.db'}"
+    alembic_cfg = Config(str(_ALEMBIC_INI_PATH))
+    alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+    upgrade(alembic_cfg, revision)
+    return alembic_cfg, sa.create_engine(database_url)
+
+
+def test_migration_remaps_legacy_modern_template_id(tmp_path) -> None:
+    alembic_cfg, engine = _fresh_db_at(tmp_path, "d98463c22408")
+    try:
+        _insert_master_profile(
+            engine,
+            email="modern@example.com",
+            template_id="modern",
+            languages_json="[]",
+            projects_json="[]",
+        )
+        _insert_master_profile(
+            engine,
+            email="unset@example.com",
+            template_id=None,
+            languages_json="[]",
+            projects_json="[]",
+        )
+        _insert_master_profile(
+            engine,
+            email="classic@example.com",
+            template_id="classic",
+            languages_json="[]",
+            projects_json="[]",
+        )
+
+        upgrade(alembic_cfg, "head")
+
+        with engine.connect() as conn:
+            modern_row = conn.execute(
+                sa.text("SELECT template_id FROM master_profiles WHERE email = :email"),
+                {"email": "modern@example.com"},
+            ).fetchone()
+            unset_row = conn.execute(
+                sa.text("SELECT template_id FROM master_profiles WHERE email = :email"),
+                {"email": "unset@example.com"},
+            ).fetchone()
+            classic_row = conn.execute(
+                sa.text("SELECT template_id FROM master_profiles WHERE email = :email"),
+                {"email": "classic@example.com"},
+            ).fetchone()
+
+        assert modern_row.template_id == "template-1"
+        assert unset_row.template_id is None
+        # Ein echter, bereits gültiger Wert darf nicht mit-remappt werden.
+        assert classic_row.template_id == "classic"
+    finally:
+        engine.dispose()
+
+
+def test_remap_downgrade_does_not_revert_a_genuine_template_1(tmp_path) -> None:
+    alembic_cfg, engine = _fresh_db_at(tmp_path, "d98463c22408")
+    try:
+        _insert_master_profile(
+            engine,
+            email="genuine@example.com",
+            template_id="template-1",
+            languages_json="[]",
+            projects_json="[]",
+        )
+        upgrade(alembic_cfg, "head")
+
+        # No-op-Downgrade der Remap-Migration: eine echte Auswahl bleibt erhalten.
+        downgrade(alembic_cfg, "b8f2a4c6d9e1")
+
+        with engine.connect() as conn:
+            row = conn.execute(
+                sa.text("SELECT template_id FROM master_profiles WHERE email = :email"),
+                {"email": "genuine@example.com"},
+            ).fetchone()
+
+        assert row.template_id == "template-1"
+    finally:
+        engine.dispose()

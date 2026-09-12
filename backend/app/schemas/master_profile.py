@@ -66,6 +66,7 @@ class MasterProfileBase(BaseModel):
     phone: str | None = Field(default=None, max_length=50)
     address: str | None = Field(default=None, max_length=255)
     summary: str | None = None
+    berufsbezeichnung: str | None = Field(default=None, max_length=255)
     experiences_json: list[ExperienceEntry] = Field(default_factory=list)
     education_json: list[EducationEntry] = Field(default_factory=list)
     skills_json: list[SkillEntry] = Field(default_factory=list)
@@ -96,6 +97,7 @@ class MasterProfileUpdate(BaseModel):
     phone: str | None = Field(default=None, max_length=50)
     address: str | None = Field(default=None, max_length=255)
     summary: str | None = None
+    berufsbezeichnung: str | None = Field(default=None, max_length=255)
     experiences_json: list[ExperienceEntry] | None = None
     education_json: list[EducationEntry] | None = None
     skills_json: list[SkillEntry] | None = None
