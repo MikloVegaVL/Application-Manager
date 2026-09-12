@@ -1,7 +1,7 @@
 import { JobOfferRead } from './job-offer.model';
 
 /** Spiegelt `backend/app/models/application.py::ApplicationStatus` wider. */
-export type ApplicationStatus = 'draft' | 'sent' | 'rejected' | 'interview';
+export type ApplicationStatus = 'draft' | 'sent' | 'rejected' | 'accepted' | 'interview';
 
 /** Entspricht `ApplicationRead`. */
 export interface Application {
@@ -10,6 +10,8 @@ export interface Application {
   cover_letter_text: string | null;
   status: ApplicationStatus;
   sent_at: string | null;
+  /** Empfängeradresse des Mailversands - erst nach dem Versand gesetzt. */
+  sent_to_email: string | null;
   created_at: string;
   /** Stellenangebot, zu dem die Bewerbung gehört - für die Übersichtsliste. */
   job_offer: JobOfferRead;
@@ -18,6 +20,7 @@ export interface Application {
 /** Payload für `PUT /api/applications/{id}` (Editor-Änderungen). */
 export interface ApplicationUpdatePayload {
   cover_letter_text?: string;
+  status?: ApplicationStatus;
 }
 
 /** Payload für `POST /api/applications/{id}/send`. */

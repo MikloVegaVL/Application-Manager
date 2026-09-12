@@ -6,6 +6,9 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
+import { TranslationService } from '../../../core/services/translation.service';
+
 export interface SendApplicationDialogData {
   toEmail: string;
   subject: string;
@@ -30,6 +33,7 @@ export interface SendApplicationDialogResult {
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
+    TranslatePipe,
   ],
   templateUrl: './send-application-dialog.component.html',
   styleUrl: './send-application-dialog.component.scss',
@@ -39,6 +43,7 @@ export class SendApplicationDialogComponent {
   private readonly dialogRef = inject(MatDialogRef<SendApplicationDialogComponent, SendApplicationDialogResult>);
   private readonly formBuilder = inject(FormBuilder);
   protected readonly data = inject<SendApplicationDialogData>(MAT_DIALOG_DATA);
+  protected readonly i18n = inject(TranslationService);
 
   protected readonly form = this.formBuilder.nonNullable.group({
     to_email: [this.data.toEmail, [Validators.required, Validators.email]],

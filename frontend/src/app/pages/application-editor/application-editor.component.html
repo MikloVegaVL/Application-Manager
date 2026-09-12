@@ -1,7 +1,7 @@
 <div class="editor-page">
   <mat-toolbar color="primary" class="editor-toolbar">
     <span class="editor-toolbar__title">
-      Bewerbungs-Editor
+      {{ 'editor.title' | translate: i18n.language() }}
       @if (jobOffer(); as job) {
         <span class="editor-toolbar__subtitle">- {{ job.title }} bei {{ job.company }}</span>
       }
@@ -12,7 +12,7 @@
     <button
       mat-button
       type="button"
-      matTooltip="Speichert den bearbeiteten Anschreiben-Text"
+      [matTooltip]="'editor.saveTooltip' | translate: i18n.language()"
       [disabled]="!application() || saving()"
       (click)="onSaveCoverLetter()"
     >
@@ -21,7 +21,7 @@
       } @else {
         <mat-icon>save</mat-icon>
       }
-      Anschreiben speichern
+      {{ 'editor.saveCoverLetter' | translate: i18n.language() }}
     </button>
 
     <button
@@ -36,19 +36,16 @@
       } @else {
         <mat-icon>send</mat-icon>
       }
-      Bewerbung jetzt per E-Mail versenden
+      {{ 'editor.sendNow' | translate: i18n.language() }}
     </button>
   </mat-toolbar>
 
   @if (loading()) {
     <div class="editor-page__loading">
       <mat-progress-spinner mode="indeterminate" diameter="48" />
-      <p>Bewerbung wird geladen / generiert ...</p>
+      <p>{{ 'editor.loading' | translate: i18n.language() }}</p>
       @if (isFirstGeneration()) {
-        <p class="editor-page__loading-hint">
-          Die KI-Generierung läuft ohne GPU-Beschleunigung - das kann mehrere Minuten dauern.
-          Bitte die Seite währenddessen nicht schließen.
-        </p>
+        <p class="editor-page__loading-hint">{{ 'editor.loadingHint' | translate: i18n.language() }}</p>
       }
     </div>
   } @else if (errorMessage()) {
@@ -60,10 +57,10 @@
     <section class="editor-content">
       <mat-tab-group animationDuration="150ms">
         <!-- Anschreiben (KI-generiert, manuell editierbar) -->
-        <mat-tab label="Anschreiben">
+        <mat-tab [label]="'editor.tabCoverLetter' | translate: i18n.language()">
           <form [formGroup]="coverLetterForm" class="tab-content">
             <mat-form-field appearance="outline" class="cover-letter-field">
-              <mat-label>Anschreiben-Text</mat-label>
+              <mat-label>{{ 'editor.coverLetterLabel' | translate: i18n.language() }}</mat-label>
               <textarea
                 matInput
                 formControlName="cover_letter_text"
@@ -71,7 +68,7 @@
                 cdkTextareaAutosize
               ></textarea>
               @if (coverLetterForm.controls.cover_letter_text.hasError('required') && coverLetterForm.controls.cover_letter_text.touched) {
-                <mat-error>Das Anschreiben darf nicht leer sein.</mat-error>
+                <mat-error>{{ 'editor.coverLetterRequired' | translate: i18n.language() }}</mat-error>
               }
             </mat-form-field>
           </form>

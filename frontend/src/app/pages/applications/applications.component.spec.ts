@@ -41,6 +41,7 @@ describe('ApplicationsComponent', () => {
     cover_letter_text: 'Sehr geehrte Damen und Herren...',
     status: 'draft',
     sent_at: null,
+    sent_to_email: null,
     created_at: new Date().toISOString(),
     job_offer: {
       id: 42,
@@ -68,6 +69,7 @@ describe('ApplicationsComponent', () => {
         cover_letter_text: 'Sehr geehrte Damen und Herren...',
         status: 'draft',
         sent_at: null,
+        sent_to_email: null,
         created_at: new Date().toISOString(),
         job_offer: {
           id: 42,
@@ -145,5 +147,66 @@ describe('ApplicationsComponent', () => {
 
     expect(component['applications']().length).toBe(1);
     expect(component['deletingId']()).toBeNull();
+  });
+
+  it('updates the status via PUT when Zusage/Absage is selected', () => {
+    flushList([sampleApplication]);
+
+    component.onStatusChange(sampleApplication, 'accepted');
+
+    const updateReq = httpMock.expectOne(
+      (request) => request.url === `${environment.apiBaseUrl}/applications/1` && request.method === 'PUT',
+    );
+    expect(updateReq.request.body).toEqual({ status: 'accepted' });
+    updateReq.flush({ ...sampleApplication, status: 'accepted' });
+
+    expect(component['applications']()[0].status).toBe('accepted');
+    expect(component['updatingStatusId']()).toBeNull();
+  });
+
+  it('ignores deselecting the outcome toggle (undefined status)', () => {
+    flushList([sampleApplication]);
+
+    component.onStatusChange(sampleApplication, undefined);
+
+    httpMock.expectNone((request) => request.method === 'PUT');
+    expect(component['updatingStatusId']()).toBeNull();
+  });
+
+  it('filters the rendered applications by the selected radio status', () => {
+    const acceptedApplication: Application = { ...sampleApplication, id: 2, status: 'accepted' };
+    flushList([sampleApplication, acceptedApplication]);
+
+    component.onFilterChange('accepted');
+    expect(component['filteredApplications']().length).toBe(1);
+    expect(component['filteredApplications']()[0].id).toBe(2);
+
+    component.onFilterChange('draft');
+    expect(component['filteredApplications']().length).toBe(1);
+    expect(component['filteredApplications']()[0].id).toBe(1);
+
+    component.onFilterChange('all');
+    expect(component['filteredApplications']().length).toBe(2);
+  });
+
+  it('shows the recipient email on the card once the application was sent', () => {
+    const sentApplication: Application = {
+      ...sampleApplication,
+      status: 'sent',
+      sent_at: new Date().toISOString(),
+      sent_to_email: 'recruiter@example.com',
+    };
+    flushList([sentApplication]);
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Gesendet an');
+    expect(text).toContain('recruiter@example.com');
+  });
+
+  it('does not show a recipient row before the application was sent', () => {
+    flushList([sampleApplication]);
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).not.toContain('Gesendet an');
   });
 });

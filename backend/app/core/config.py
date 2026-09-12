@@ -89,6 +89,29 @@ class Settings(BaseSettings):
     # Wie lange LinkedIn nach einem 429 übersprungen wird (KTD5).
     JOB_SEARCH_LINKEDIN_COOLDOWN_SECONDS: float = 300.0
 
+    # --- Jobsuche: weitere HTML-Boards (U3/U6, KTD7) ---
+    # Alle neuen Börsen sind standardmäßig aktiviert; ein Board ohne
+    # verlässliche anonyme Suchoberfläche lässt sich per Flag deaktivieren,
+    # ohne den Rest der Suche zu blockieren (KD1).
+    JOB_SEARCH_DEVJOBS_ENABLED: bool = True
+    JOB_SEARCH_KIMETA_ENABLED: bool = True
+    JOB_SEARCH_STEPSTONE_ENABLED: bool = True
+    JOB_SEARCH_GERMANTECHJOBS_ENABLED: bool = True
+    JOB_SEARCH_INDEED_ENABLED: bool = True
+    JOB_SEARCH_JOBWARE_ENABLED: bool = True
+    JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED: bool = True
+    JOB_SEARCH_IT_ENTWICKLER_JOBS_ENABLED: bool = True
+
+    # --- Jobsuche: credential-basierte APIs (U3/U4/U5, KTD7/KTD9) ---
+    JOB_SEARCH_ADZUNA_ENABLED: bool = True
+    JOB_SEARCH_JOOBLE_ENABLED: bool = True
+    # Leere Defaults sind beabsichtigt: ohne Zugangsdaten melden Adzuna und
+    # Jooble den Status `not-configured`, statt die Suche fehlschlagen zu
+    # lassen (R9/KD7).
+    ADZUNA_APP_ID: str = ""
+    ADZUNA_APP_KEY: str = ""
+    JOOBLE_API_KEY: str = ""
+
     # --- Generierte/hochgeladene Dateien ---
     # Ablageort der vom Nutzer hochgeladenen Lebenslauf-Anhang-Datei (siehe
     # `app.api.profile`). Es gibt keine serverseitig generierten Bewerbungs-

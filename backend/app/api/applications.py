@@ -243,6 +243,7 @@ def send_application(
 
     application.status = ApplicationStatus.SENT
     application.sent_at = datetime.now(timezone.utc)
+    application.sent_to_email = payload.to_email
     db.commit()
     db.refresh(application)
     return application

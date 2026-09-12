@@ -13,7 +13,7 @@
 
     p {
       margin: 0;
-      color: rgba(0, 0, 0, 0.6);
+      color: var(--app-muted-text);
     }
   }
 
@@ -43,27 +43,27 @@
     align-items: center;
     gap: 12px;
     padding: 48px 0;
-    color: rgba(0, 0, 0, 0.6);
+    color: var(--app-muted-text);
   }
 
   &__error {
-    color: #b3261e;
+    color: var(--app-error);
   }
 
   &__source-status {
     mat-icon {
-      color: #2e7d32;
+      color: var(--app-success);
     }
   }
 
   &__source-chip--unavailable {
     mat-icon {
-      color: #b3261e;
+      color: var(--app-error);
     }
   }
 
   &__empty {
-    color: rgba(0, 0, 0, 0.6);
+    color: var(--app-muted-text);
   }
 
   &__results {
@@ -83,7 +83,7 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
     min-height: 3.6em;
-    color: rgba(0, 0, 0, 0.75);
+    color: var(--app-secondary-text);
   }
 
   &__generate-btn {
@@ -111,14 +111,3 @@
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  .job-search__intro p,
-  .job-search__loading,
-  .job-search__empty {
-    color: rgba(255, 255, 255, 0.6);
-  }
-
-  .job-card__description {
-    color: rgba(255, 255, 255, 0.75);
-  }
-}
