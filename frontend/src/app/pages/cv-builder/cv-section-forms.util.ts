@@ -1,9 +1,10 @@
-import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { FormArray, FormBuilder, FormGroup, Validators } from '@angular/forms';
 
 import {
   EducationEntry,
   ExperienceEntry,
   LanguageEntry,
+  MasterProfileRead,
   ProjectEntry,
   SkillEntry,
 } from '../../core/models/master-profile.model';
@@ -62,4 +63,37 @@ export function createProjectGroup(fb: FormBuilder, entry?: ProjectEntry): FormG
     end_date: [entry?.end_date ?? ''],
     link: [entry?.link ?? ''],
   });
+}
+
+/** Geteiltes "eine Sektions-FormArray aus Backend-/Parse-Einträgen neu
+ * aufbauen" (KTD10) - vorher in `CvBuilderComponent` und `CvImportComponent`
+ * dupliziert. `entries` toleriert `null`/`undefined` (ein Backend, das eine
+ * neuere Sektion noch nicht kennt - siehe `ce-debug`, 2026-09-12), damit der
+ * Fallback nicht an jeder Aufrufstelle wiederholt werden muss. */
+export function replaceArray<T>(
+  array: FormArray<FormGroup>,
+  entries: T[] | null | undefined,
+  factory: (entry: T) => FormGroup,
+): void {
+  array.clear();
+  (entries ?? []).forEach((entry) => array.push(factory(entry)));
+}
+
+/** fix(review) (ce-debug, 2026-09-12): normalisiert die Sektions-Felder
+ * eines vom Backend geladenen/gespeicherten Profils genau wie `replaceArray`
+ * die FormArrays normalisiert - fehlende Felder werden zu `[]`. Muss auf
+ * jedem Profil angewendet werden, bevor es in `lastSavedProfile` landet:
+ * sonst vergleicht `sectionsEqual` das `[]` der FormArray gegen ein
+ * `undefined` im rohen Profil (normalisiert zu `null` statt `[]`) und meldet
+ * fälschlich ungespeicherte Änderungen - genau für den Fall eines
+ * versionsversetzten Backends, den dieser Fix eigentlich beheben soll. */
+export function normalizeProfileSections(profile: MasterProfileRead): MasterProfileRead {
+  return {
+    ...profile,
+    experiences_json: profile.experiences_json ?? [],
+    education_json: profile.education_json ?? [],
+    skills_json: profile.skills_json ?? [],
+    languages_json: profile.languages_json ?? [],
+    projects_json: profile.projects_json ?? [],
+  };
 }

@@ -61,21 +61,29 @@ describe('CvBuilderComponent', () => {
     httpMock.verify();
   });
 
-  /** Bringt die Komponente in den `ready`-Zustand mit dem gegebenen Profil
-   * (Merge über `baseProfileResponse`) - flusht sowohl `GET /profile`, das
-   * `PhotoSectionComponent`-eigene `GET /profile/photo`, als auch das
-   * `CvPreviewExportComponent`-eigene `GET /cv-builder/templates` (alle Tabs
-   * werden eager instanziiert, siehe `cv-builder.component.ts`). */
-  const goToReady = (overrides: Record<string, unknown> = {}): void => {
-    fixture.detectChanges();
-    flushProfileRequest(200, { ...baseProfileResponse, ...overrides });
-    fixture.detectChanges();
+  /** `PhotoSectionComponent` und `CvPreviewExportComponent` laden beim
+   * Erstellen selbstständig ihr eigenes `GET /profile/photo` bzw.
+   * `GET /cv-builder/templates` (alle Tabs werden eager instanziiert, siehe
+   * `cv-builder.component.ts`) - unabhängig vom `GET /profile` der
+   * Elternkomponente. `responseType: 'blob'` verlangt einen Blob-Body auch
+   * für den Error-Flush, TestRequest.flush konvertiert Objekte nicht
+   * automatisch. */
+  const flushDependentRequests = (): void => {
     httpMock
       .expectOne((r) => r.url.endsWith('/profile/photo') && r.method === 'GET')
       .flush(new Blob(), { status: 404, statusText: 'Not Found' });
     httpMock
       .expectOne((r) => r.url.endsWith('/cv-builder/templates') && r.method === 'GET')
       .flush(templatesFixture);
+  };
+
+  /** Bringt die Komponente in den `ready`-Zustand mit dem gegebenen Profil
+   * (Merge über `baseProfileResponse`). */
+  const goToReady = (overrides: Record<string, unknown> = {}): void => {
+    fixture.detectChanges();
+    flushProfileRequest(200, { ...baseProfileResponse, ...overrides });
+    fixture.detectChanges();
+    flushDependentRequests();
     fixture.detectChanges();
   };
 
@@ -125,40 +133,9 @@ describe('CvBuilderComponent', () => {
 
   it('renders the tabbed shell when GET /profile succeeds', () => {
     fixture.detectChanges();
-    flushProfileRequest(200, {
-      id: 1,
-      full_name: 'Max Mustermann',
-      email: 'max@example.com',
-      phone: null,
-      address: null,
-      summary: null,
-      experiences_json: [],
-      education_json: [],
-      skills_json: [],
-      languages_json: [],
-      projects_json: [],
-      photo_filename: null,
-      template_id: null,
-      cv_filename: null,
-      attachments: [],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
+    flushProfileRequest(200, baseProfileResponse);
     fixture.detectChanges();
-
-    // `PhotoSectionComponent` lädt beim Erstellen selbstständig das aktuelle
-    // Foto (GET /profile/photo) - unabhängig vom hier getesteten
-    // Eltern-Profil-Request, siehe photo-section.component.spec.ts.
-    // `responseType: 'blob'` verlangt einen Blob-Body auch für den
-    // Error-Flush - TestRequest.flush konvertiert Objekte nicht automatisch.
-    httpMock
-      .expectOne((r) => r.url.endsWith('/profile/photo') && r.method === 'GET')
-      .flush(new Blob(), { status: 404, statusText: 'Not Found' });
-    // `CvPreviewExportComponent` lädt beim Erstellen ebenso selbstständig die
-    // Vorlagenliste (GET /cv-builder/templates), siehe cv-preview-export.component.spec.ts.
-    httpMock
-      .expectOne((r) => r.url.endsWith('/cv-builder/templates') && r.method === 'GET')
-      .flush(templatesFixture);
+    flushDependentRequests();
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
@@ -178,6 +155,39 @@ describe('CvBuilderComponent', () => {
       'Import',
       'Vorschau & Export',
     ]);
+  });
+
+  // ce-debug 2026-09-12: reproduces the crash seen against a backend running
+  // pre-CV-Builder code (or a not-yet-migrated database) - its `GET /profile`
+  // response simply doesn't have these fields at all, unlike a null/empty
+  // value. Without `applyProfileToArrays`'s fallback, this throws "Cannot
+  // read properties of undefined (reading 'forEach')" and the page never
+  // reaches the ready state.
+  it('renders the ready state without crashing when the backend response omits newer CV Builder fields', () => {
+    const { languages_json, projects_json, photo_filename, ...staleBackendResponse } = baseProfileResponse;
+    // template_id pinned to a non-null value (not destructured out, unlike
+    // languages_json/projects_json above): CvPreviewExportComponent's KTD8
+    // auto-select-first-template logic only fires when it's null, and that
+    // interaction is unrelated to what this test checks (see the KTD12/
+    // fix(review) #4 tests above for that case).
+    const response = { ...staleBackendResponse, template_id: 'classic' };
+
+    fixture.detectChanges();
+    flushProfileRequest(200, response);
+    fixture.detectChanges();
+    flushDependentRequests();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('mat-progress-spinner')).toBeFalsy();
+    expect(compiled.querySelector('mat-tab-group')).toBeTruthy();
+    expect(component['languagesArray'].length).toBe(0);
+    expect(component['projectsArray'].length).toBe(0);
+    // fix(review) (ce-debug 2026-09-12): without normalizing lastSavedProfile
+    // the same way applyProfileToArrays normalizes the FormArrays, this was
+    // `true` with zero user edits - tripping the CanDeactivate guard and
+    // beforeunload for exactly the version-skewed-backend case above.
+    expect(component.hasUnsavedChanges()).toBeFalse();
   });
 
   it('saves via PATCH /profile with content fields only (no prior parse), and clears the unsaved-changes baseline', () => {

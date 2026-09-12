@@ -177,7 +177,9 @@ def test_migration_upgrade_downgrade_upgrade_round_trips(migration_db) -> None:
     _insert_master_profile(engine, email="roundtrip@example.com", skills_json='["Python"]')
 
     upgrade(alembic_cfg, "head")
-    downgrade(alembic_cfg, "-1")
+    # Explizites Ziel statt `downgrade(cfg, "-1")`: "head" ist ein Merge-Punkt
+    # (siehe `d98463c22408`), von dort ist "ein Schritt zurück" mehrdeutig.
+    downgrade(alembic_cfg, "3cf25349329e")
     upgrade(alembic_cfg, "head")
 
     with engine.connect() as conn:
@@ -189,3 +191,44 @@ def test_migration_upgrade_downgrade_upgrade_round_trips(migration_db) -> None:
     import json
 
     assert json.loads(row.skills_json) == [{"name": "Python", "level": "Grundkenntnisse"}]
+
+
+# --- Merge revision d98463c22408: heals a database stuck on one sibling ----
+#
+# ce-debug, 2026-09-12: `17c15ce91b4e` (add cv builder fields) and
+# `7b2f5c9d1a34` (add sent_to_email to applications) both branch
+# independently off `3cf25349329e`. A database that ran `alembic upgrade
+# head` while only `7b2f5c9d1a34` existed as a head - i.e. it walked that
+# branch and stopped, never seeing `17c15ce91b4e` - must still receive
+# `17c15ce91b4e`'s DDL once the merge revision `d98463c22408` joins both
+# branches. This was previously broken by rebasing `7b2f5c9d1a34` onto
+# `17c15ce91b4e` instead of using a real merge revision: `alembic upgrade
+# head` then saw the stamped `7b2f5c9d1a34` as already being the head and
+# silently skipped `17c15ce91b4e` entirely (reproduced live against a
+# docker-compose Postgres database). Only manually verified until now -
+# this pins it as an automated regression.
+
+
+def test_merge_revision_heals_a_database_stuck_on_only_the_sent_to_email_branch(migration_db) -> None:
+    alembic_cfg, engine = migration_db
+
+    # Walks ONLY the sent_to_email branch, mirroring a database that ran
+    # `alembic upgrade head` back when that revision was itself a head -
+    # never touching the sibling `17c15ce91b4e` branch at all.
+    upgrade(alembic_cfg, "7b2f5c9d1a34")
+
+    with engine.connect() as conn:
+        columns_before = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
+    assert "languages_json" not in columns_before, "test setup must reproduce the pre-merge, single-branch state"
+
+    upgrade(alembic_cfg, "head")
+
+    with engine.connect() as conn:
+        master_profile_columns = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
+        application_columns = {col["name"] for col in sa.inspect(conn).get_columns("applications")}
+
+    # The previously-missing sibling branch's DDL is now present ...
+    for column in ("photo_path", "photo_filename", "languages_json", "projects_json", "template_id"):
+        assert column in master_profile_columns
+    # ... without losing the already-applied branch's DDL.
+    assert "sent_to_email" in application_columns
