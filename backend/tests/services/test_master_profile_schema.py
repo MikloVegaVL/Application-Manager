@@ -266,6 +266,13 @@ def test_migration_remaps_legacy_modern_template_id(tmp_path) -> None:
             languages_json="[]",
             projects_json="[]",
         )
+        _insert_master_profile(
+            engine,
+            email="classic@example.com",
+            template_id="classic",
+            languages_json="[]",
+            projects_json="[]",
+        )
 
         upgrade(alembic_cfg, "head")
 
@@ -278,9 +285,15 @@ def test_migration_remaps_legacy_modern_template_id(tmp_path) -> None:
                 sa.text("SELECT template_id FROM master_profiles WHERE email = :email"),
                 {"email": "unset@example.com"},
             ).fetchone()
+            classic_row = conn.execute(
+                sa.text("SELECT template_id FROM master_profiles WHERE email = :email"),
+                {"email": "classic@example.com"},
+            ).fetchone()
 
         assert modern_row.template_id == "template-1"
         assert unset_row.template_id is None
+        # Ein echter, bereits gültiger Wert darf nicht mit-remappt werden.
+        assert classic_row.template_id == "classic"
     finally:
         engine.dispose()
 

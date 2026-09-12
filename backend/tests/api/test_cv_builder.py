@@ -228,6 +228,7 @@ def test_list_templates_returns_the_configured_template_ids(client):
 _RENDER_PAYLOAD = {
     "template_id": "classic",
     "summary": "Erfahrener Entwickler.",
+    "berufsbezeichnung": "Frontend Developer",
     "experiences_json": [
         {"company": "Acme GmbH", "role": "Entwickler", "start_date": "2020", "end_date": None}
     ],
@@ -278,6 +279,7 @@ def test_preview_returns_inline_pdf_with_merged_identity(client_with_session, mo
     assert render_spy.call_args.kwargs["email"] == "max@example.com"
     assert render_spy.call_args.kwargs["phone"] == "0176 123456"
     assert render_spy.call_args.kwargs["address"] == "Musterstraße 1, Berlin"
+    assert render_spy.call_args.kwargs["berufsbezeichnung"] == "Frontend Developer"
 
 
 def test_export_returns_attachment_disposition_with_sanitized_filename(client_with_session):

@@ -24,10 +24,11 @@ const DEFAULT_EXPORT_FILENAME = 'lebenslauf.pdf';
 /**
  * Vorschau & Export-Sektion des CV Builders (R9-R11, U9).
  *
- * KTD7: die Vorschau nutzt dieselbe PDF-Rendering-Pipeline wie der Export
- * (`POST /cv-builder/preview` bzw. `.../export`, siehe `cv_builder.py`) -
- * das Ergebnis wird per Browser-nativem `<embed>` angezeigt, nicht als
- * separates Live-HTML/CSS-Preview-Template nachgebaut.
+ * KTD1: die Vorschau nutzt dieselbe PDF-Rendering-Pipeline wie der Export
+ * (`POST /cv-builder/preview` bzw. `.../export`, siehe `cv_builder.py`), rendert
+ * aber im `preview`-Modus (Beispiel-Skeleton) - das Ergebnis wird per
+ * Browser-nativem `<embed>` angezeigt, nicht als separates Live-HTML/CSS-
+ * Preview-Template nachgebaut.
  *
  * KTD11: Preview/Export senden den AKTUELLEN Formularinhalt (inkl. etwaiger
  * noch nicht gespeicherter Änderungen) als Request-Body - die vom
@@ -35,12 +36,12 @@ const DEFAULT_EXPORT_FILENAME = 'lebenslauf.pdf';
  * werden bei jedem Klick per `getRawValue()`/`.value` frisch gelesen, nie aus
  * `lastSavedProfile`.
  *
- * KTD8: `templateIdControl` ist dieselbe FormControl-Instanz, die die
+ * KTD10: `templateIdControl` ist dieselbe FormControl-Instanz, die die
  * Elternform auch in den Save-Payload (`PATCH /profile`) übernimmt - die
  * gewählte Vorlage ist so Teil des persistierten Profils. Ist beim Laden der
- * Vorlagenliste noch keine Vorlage gewählt (Wert `null`, z. B. bei einem
- * frisch angelegten Profil), wird automatisch die erste verfügbare Vorlage
- * vorbelegt.
+ * Vorlagenliste keine Vorlage gewählt (Wert `null`, z. B. bei einem frisch
+ * angelegten Profil) oder eine unbekannte (z. B. das entfernte `modern`), wird
+ * automatisch die erste verfügbare Vorlage vorbelegt.
  */
 @Component({
   selector: 'app-cv-preview-export',
@@ -196,8 +197,12 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
   }
 
   protected canRender(): boolean {
-    const value = this.templateIdControl.value;
-    return !!value && this.templates().some((template) => template.id === value);
+    return !this.templatesError() && this.isKnownTemplate(this.templateIdControl.value);
+  }
+
+  /** KTD10: nur eine tatsächlich geladene Vorlage ist renderbar. */
+  private isKnownTemplate(id: string | null): boolean {
+    return id !== null && this.templates().some((template) => template.id === id);
   }
 
   loadTemplates(): void {
@@ -210,9 +215,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
         // KTD10: gespeicherte Vorlage auf eine bekannte ID normalisieren - die
         // erste verfügbare vorbelegen, wenn keine (oder eine unbekannte, z. B.
         // das entfernte `modern`) gewählt war.
-        const current = this.templateIdControl.value;
-        const isKnown = current !== null && templates.some((template) => template.id === current);
-        if (!isKnown && templates.length > 0) {
+        if (!this.isKnownTemplate(this.templateIdControl.value) && templates.length > 0) {
           this.templateIdControl.setValue(templates[0].id);
         }
       },

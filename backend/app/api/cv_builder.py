@@ -58,7 +58,7 @@ class CvRenderRequest(BaseModel):
 
     template_id: CvTemplateId
     summary: str | None = None
-    berufsbezeichnung: str | None = None
+    berufsbezeichnung: str | None = Field(default=None, max_length=255)
     experiences_json: list[ExperienceEntry] = Field(default_factory=list)
     education_json: list[EducationEntry] = Field(default_factory=list)
     skills_json: list[SkillEntry] = Field(default_factory=list)
@@ -83,7 +83,9 @@ def _render_cv_for_current_profile(
 ) -> tuple[bytes, MasterProfile]:
     """Gemeinsame Implementierung für `preview`/`export` (KTD11): lädt das
     gespeicherte Profil (404, falls keins existiert - KTD9), mergt dessen
-    Identitätsfelder und Foto mit dem Request-Body und rendert das PDF."""
+    Identitätsfelder und Foto mit dem Request-Body und rendert das PDF. Das
+    keyword-only `preview` steuert den Render-Modus (KTD1): `True` füllt leere
+    Felder mit Beispiel-Inhalt (R8), `False` lässt sie leer (R9)."""
     profile = db.query(MasterProfile).first()
     if profile is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NO_PROFILE_DETAIL)
@@ -154,8 +156,8 @@ def list_templates() -> list[dict[str, str]]:
 def preview_cv(payload: CvRenderRequest, db: Session = Depends(get_db)) -> StreamingResponse:
     """Rendert den Lebenslauf aus dem aktuellen (ggf. ungespeicherten)
     Formularinhalt als PDF und liefert es inline zur Anzeige im Browser
-    (R10, KTD7: dieselbe Rendering-Pipeline wie der Export, kein separates
-    Live-HTML/CSS-Preview-Template)."""
+    (R7/R9, KTD1: dieselbe Rendering-Pipeline wie der Export, aber im
+    `preview`-Modus mit Beispiel-Skeleton)."""
     pdf_bytes, _profile = _render_cv_for_current_profile(payload, db, preview=True)
     return StreamingResponse(
         io.BytesIO(pdf_bytes),

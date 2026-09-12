@@ -205,6 +205,23 @@ def test_patch_profile_round_trips_berufsbezeichnung(client, tmp_path, monkeypat
     assert untouched.json()["berufsbezeichnung"] == "Frontend Developer"
 
 
+def test_put_profile_round_trips_berufsbezeichnung(client, tmp_path, monkeypatch):
+    test_client, _session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+
+    response = test_client.put(
+        "/api/profile",
+        json={
+            "full_name": "Max Mustermann",
+            "email": "max@example.com",
+            "berufsbezeichnung": "Frontend Developer",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["berufsbezeichnung"] == "Frontend Developer"
+
+
 # --- POST/GET/DELETE /profile/cv-file -----------------------------------
 #
 # Die Lebenslauf-Anhang-Datei ist unabhängig vom KI-gestützten CV-Import

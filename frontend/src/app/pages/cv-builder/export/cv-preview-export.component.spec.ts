@@ -179,6 +179,23 @@ describe('CvPreviewExportComponent', () => {
     expect(embed?.getAttribute('src')).toMatch(/^blob:/);
   });
 
+  it('preview sends the live Berufsbezeichnung value (R5)', () => {
+    berufsbezeichnungControl.setValue('Frontend Developer');
+    setInputs();
+    flushTemplates();
+
+    const previewButton = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      '.cv-preview-export__actions button',
+    )[0] as HTMLButtonElement;
+    previewButton.click();
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/preview') && r.method === 'POST');
+    expect(req.request.body.berufsbezeichnung).toBe('Frontend Developer');
+
+    req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+    fixture.detectChanges();
+  });
+
   it('shows an error message (not a stale preview) when the preview request fails with 404/422/500', () => {
     setInputs();
     flushTemplates();

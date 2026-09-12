@@ -67,7 +67,7 @@
   }
   .dash { border-top: 2pt solid #e8543f; width: 8mm; margin-top: 3mm; }
 
-  .sec-label { font-weight: 700; font-size: 11pt; }
+  .sec-label { font-weight: 700; font-size: 11pt; margin: 0; }
   .rule { border-top: 1.5pt solid #e8543f; margin-top: 1.5mm; }
 
   .main p { margin: 0 0 3mm; }
@@ -96,7 +96,7 @@
       <div class="photo photo--placeholder">Foto</div>
       {% endif %}
       <div class="header__text">
-        <div class="header__name">{{ full_name }}</div>
+        <h1 class="header__name">{{ full_name }}</h1>
         {% if address %}<div class="header__line">{{ address }}</div>
         {% elif preview %}<div class="header__line ph">{{ sample.address }}</div>{% endif %}
         {% if phone %}<div class="header__line">{{ phone }}</div>
@@ -113,8 +113,10 @@
           {%- elif preview %}<span class="ph">{{ sample.berufsbezeichnung }}</span>{% endif %}
         </div>
         <div class="dash"></div>
-        <div class="sec-label" style="margin-top: 4mm">Profil</div>
+        {% if summary or preview %}
+        <h2 class="sec-label" style="margin-top: 4mm">Profil</h2>
         <div class="rule"></div>
+        {% endif %}
       </div>
       <div class="main">
         {% if summary %}<p>{{ summary }}</p>
@@ -124,7 +126,7 @@
 
     {% if experiences or preview %}
     <div class="section">
-      <div><div class="sec-label">Berufserfahrung</div><div class="rule"></div></div>
+      <div><h2 class="sec-label">Berufserfahrung</h2><div class="rule"></div></div>
       <div class="main">
         {% set exp_list = experiences if experiences else sample.experiences %}
         {% set exp_sample = not experiences %}
@@ -144,7 +146,7 @@
 
     {% if education or preview %}
     <div class="section">
-      <div><div class="sec-label">Ausbildung</div><div class="rule"></div></div>
+      <div><h2 class="sec-label">Ausbildung</h2><div class="rule"></div></div>
       <div class="main">
         {% set edu_list = education if education else sample.education %}
         {% set edu_sample = not education %}
@@ -162,7 +164,7 @@
 
     {% if skills or preview %}
     <div class="section">
-      <div><div class="sec-label">Skills</div><div class="rule"></div></div>
+      <div><h2 class="sec-label">Skills</h2><div class="rule"></div></div>
       <div class="main">
         {% set skill_list = skills if skills else sample.skills %}
         <ul class="tags{% if not skills %} ph{% endif %}">
@@ -176,7 +178,7 @@
 
     {% if languages or preview %}
     <div class="section">
-      <div><div class="sec-label">Sprachen</div><div class="rule"></div></div>
+      <div><h2 class="sec-label">Sprachen</h2><div class="rule"></div></div>
       <div class="main">
         {% set lang_list = languages if languages else sample.languages %}
         <ul class="tags{% if not languages %} ph{% endif %}">
@@ -190,7 +192,7 @@
 
     {% if projects or preview %}
     <div class="section">
-      <div><div class="sec-label">Projekte</div><div class="rule"></div></div>
+      <div><h2 class="sec-label">Projekte</h2><div class="rule"></div></div>
       <div class="main">
         {% set project_list = projects if projects else sample.projects %}
         {% set project_sample = not projects %}

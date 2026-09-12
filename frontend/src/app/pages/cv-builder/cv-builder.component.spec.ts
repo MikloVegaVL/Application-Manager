@@ -264,6 +264,22 @@ describe('CvBuilderComponent', () => {
     expect(component.hasUnsavedChanges()).toBeTrue();
   });
 
+  it('populates berufsbezeichnungControl from the loaded profile (R5)', () => {
+    goToReady({ template_id: 'classic', berufsbezeichnung: 'Frontend Developer' });
+
+    expect(component['berufsbezeichnungControl'].value).toBe('Frontend Developer');
+  });
+
+  it('hasUnsavedChanges() is true when only berufsbezeichnung changed (R5)', () => {
+    goToReady({ template_id: 'classic', berufsbezeichnung: 'Frontend Developer' });
+
+    expect(component.hasUnsavedChanges()).toBeFalse();
+
+    component['berufsbezeichnungControl'].setValue('Full-Stack Developer');
+
+    expect(component.hasUnsavedChanges()).toBeTrue();
+  });
+
   it('onBeforeUnload prevents the default and sets returnValue when there are unsaved changes', () => {
     goToReady();
     component['summaryControl'].setValue('Unsaved edit');

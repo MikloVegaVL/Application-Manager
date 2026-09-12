@@ -18,6 +18,7 @@ Daten-Backfills umkehrt).
 from collections.abc import Sequence
 
 from alembic import op
+import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
@@ -28,10 +29,12 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute(
-        "UPDATE master_profiles SET template_id = 'template-1' "
-        "WHERE template_id = 'modern'"
-    )
+    existing_columns = {col["name"] for col in sa.inspect(op.get_bind()).get_columns("master_profiles")}
+    if "template_id" in existing_columns:
+        op.execute(
+            "UPDATE master_profiles SET template_id = 'template-1' "
+            "WHERE template_id = 'modern'"
+        )
 
 
 def downgrade() -> None:
