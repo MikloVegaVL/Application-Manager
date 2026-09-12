@@ -29,31 +29,55 @@ befragt - dieser Pfad ist von der neuen Mehrquellen-Suche unberührt.
 from __future__ import annotations
 
 import base64
-import json
 import logging
 import re
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from dataclasses import dataclass
 from time import monotonic
 from typing import Any
-from urllib.parse import unquote, urljoin
+from urllib.parse import unquote
 
 import requests
-from bs4 import BeautifulSoup
 
 from app.core.config import settings
 from app.schemas.job_offer import JobOfferCreate, JobSearchResponse, SourceStatus
+from app.services.job_sources.adzuna import AdzunaJobsClient
+from app.services.job_sources.boards import BOARD_DESCRIPTORS, BoardSource
+from app.services.job_sources.jooble import JoobleJobsClient
 from app.services.job_sources.linkedin import LinkedInJobsClient
+from app.services.job_sources.shared import (
+    DEFAULT_USER_AGENT,
+    MAX_HEURISTIC_RESULTS,
+    SourceNotConfiguredError,
+    extract_heuristic_offers,
+    extract_offers,
+    fetch_html,
+    inner_timeout_for,
+    strip_html,
+    validate_source_url,
+)
 from app.services.job_sources.xing import XingJobScraper
 
 logger = logging.getLogger(__name__)
 
-# Browser-artiger User-Agent, um von Zielseiten nicht pauschal als Bot
-# geblockt zu werden. Für produktive Nutzung sollte jede Quelle einzeln auf
-# robots.txt / Nutzungsbedingungen geprüft werden.
-_DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (compatible; ApplicationManagerBot/1.0; "
-    "+https://github.com/application-manager)"
-)
+
+@dataclass(frozen=True)
+class SourceRegistration:
+    """Eine im Fan-out registrierte Quelle (KTD3).
+
+    `client` erfüllt den Standard-Vertrag `SOURCE_PLATFORM` + `search(
+    keywords, location)`; `enabled=False` nimmt die Quelle aus der Suche,
+    ohne den Fan-out-Code zu ändern. Quellen mit `is_configured()` werden vor
+    dem Submit befragt (KTD9).
+    """
+
+    client: Any
+    enabled: bool = True
+
+    @property
+    def platform(self) -> str:
+        return self.client.SOURCE_PLATFORM
 
 
 class ArbeitsagenturJobsClient:
@@ -94,7 +118,7 @@ class ArbeitsagenturJobsClient:
         self._headers = {
             "X-API-Key": self.API_KEY,
             "Accept": "application/json",
-            "User-Agent": _DEFAULT_USER_AGENT,
+            "User-Agent": DEFAULT_USER_AGENT,
         }
 
     def search(
@@ -207,29 +231,23 @@ class ArbeitsagenturJobsClient:
         raw_description = payload.get("stellenangebotsBeschreibung") or payload.get("stellenbeschreibung") or ""
         if not raw_description:
             return None
-        return BeautifulSoup(raw_description, "html.parser").get_text(separator=" ", strip=True) or None
+        return strip_html(raw_description)
 
 
 class GenericJobScraper:
     """Generischer Fallback-Scraper für Stellenanzeigen-Webseiten ohne API.
 
-    Extrahiert Stellenanzeigen aus einer beliebigen Ergebnisseite in zwei
-    Stufen:
-
-    1. Bevorzugt über eingebettete `schema.org/JobPosting`-JSON-LD-Daten,
-       die die meisten seriösen Jobbörsen zu SEO-Zwecken einbetten - das
-       liefert sauber strukturierte, verlässliche Felder.
-    2. Fällt das aus, über eine heuristische Extraktion anhand verbreiteter
-       HTML-/CSS-Muster (Karten-/Listenelemente mit Job-typischen
-       Klassennamen).
-
-    Für Seiten, deren Inhalt erst per JavaScript nachgeladen wird, kann
-    `use_playwright=True` gesetzt werden, um die Seite vor der Extraktion
-    vollständig zu rendern.
+    Dünner Konsument der geteilten Extraktions-Helfer in
+    `app.services.job_sources.shared` (KTD2): die zweistufige Extraktion
+    (bevorzugt `schema.org/JobPosting`-JSON-LD, sonst heuristische Karten-
+    Erkennung) und die HTML-Beschaffung liegen dort und werden von allen
+    HTML-Quellen geteilt. `SOURCE_PLATFORM` bleibt "web-scraper", weil dieser
+    Pfad eine beliebige, unbenannte Fallback-URL lädt - benannte Boards nutzen
+    stattdessen ihren `BoardDescriptor`.
     """
 
     SOURCE_PLATFORM = "web-scraper"
-    _MAX_HEURISTIC_RESULTS = 25
+    _MAX_HEURISTIC_RESULTS = MAX_HEURISTIC_RESULTS
 
     def __init__(self, use_playwright: bool = False, timeout: float = 15.0) -> None:
         self._use_playwright = use_playwright
@@ -242,168 +260,28 @@ class GenericJobScraper:
         location: str | None = None,
     ) -> list[JobOfferCreate]:
         """Lädt `url` und extrahiert daraus strukturierte Stellenanzeigen."""
-        html = self._fetch_html(url)
+        html = fetch_html(url, use_playwright=self._use_playwright, timeout=self._timeout)
         if not html:
             return []
         return self._extract_offers(html, source_url=url)
 
-    # --- HTML-Beschaffung -------------------------------------------------
-
-    def _fetch_html(self, url: str) -> str | None:
-        if self._use_playwright:
-            return self._fetch_with_playwright(url)
-        return self._fetch_with_requests(url)
-
-    def _fetch_with_requests(self, url: str) -> str | None:
-        try:
-            response = requests.get(
-                url,
-                timeout=self._timeout,
-                headers={"User-Agent": _DEFAULT_USER_AGENT},
-            )
-            response.raise_for_status()
-            return response.text
-        except requests.RequestException as exc:
-            logger.warning("Fallback-Scraper: Abruf von %s fehlgeschlagen: %s", url, exc)
-            return None
-
-    def _fetch_with_playwright(self, url: str) -> str | None:
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError:
-            logger.warning("Playwright ist nicht installiert - Fallback auf requests.")
-            return self._fetch_with_requests(url)
-
-        try:
-            with sync_playwright() as playwright:
-                browser = playwright.chromium.launch(headless=True)
-                try:
-                    page = browser.new_page(user_agent=_DEFAULT_USER_AGENT)
-                    page.goto(url, timeout=self._timeout * 1000, wait_until="networkidle")
-                    return page.content()
-                finally:
-                    browser.close()
-        except Exception as exc:  # noqa: BLE001 - z. B. fehlende Browser-Binaries
-            logger.warning(
-                "Playwright-Rendering von %s fehlgeschlagen (%s). "
-                "Ist der Browser installiert? -> `playwright install chromium`",
-                url,
-                exc,
-            )
-            return None
-
-    # --- Extraktion ---------------------------------------------------
+    # --- Extraktion (dünne Delegationen auf die geteilte Schicht) --------
 
     def _extract_offers(self, html: str, source_url: str) -> list[JobOfferCreate]:
-        soup = BeautifulSoup(html, "html.parser")
-
-        offers = self._extract_json_ld_offers(soup, source_url)
-        if offers:
-            return offers
-
-        return self._extract_heuristic_offers(soup, source_url)
-
-    def _extract_json_ld_offers(self, soup: BeautifulSoup, source_url: str) -> list[JobOfferCreate]:
-        offers: list[JobOfferCreate] = []
-        for script in soup.find_all("script", type="application/ld+json"):
-            try:
-                data = json.loads(script.string or "")
-            except (json.JSONDecodeError, TypeError):
-                continue
-
-            for item in data if isinstance(data, list) else [data]:
-                if not isinstance(item, dict) or item.get("@type") != "JobPosting":
-                    continue
-                offer = self._map_json_ld_offer(item, source_url)
-                if offer is not None:
-                    offers.append(offer)
-        return offers
-
-    def _map_json_ld_offer(self, item: dict[str, Any], source_url: str) -> JobOfferCreate | None:
-        title = item.get("title")
-        if not title:
-            return None
-
-        organization = item.get("hiringOrganization")
-        if isinstance(organization, dict):
-            company = organization.get("name")
-        else:
-            company = organization
-        company = company or "Unbekanntes Unternehmen"
-
-        job_location = item.get("jobLocation")
-        if isinstance(job_location, list):
-            job_location = job_location[0] if job_location else {}
-        address = job_location.get("address") if isinstance(job_location, dict) else None
-        address = address if isinstance(address, dict) else {}
-        location = ", ".join(
-            filter(None, [address.get("addressLocality"), address.get("addressRegion")])
-        ) or None
-
-        raw_description = item.get("description") or ""
-        description_text = BeautifulSoup(raw_description, "html.parser").get_text(
-            separator=" ", strip=True
-        ) or None
-
-        return JobOfferCreate(
-            title=str(title).strip(),
-            company=str(company).strip(),
-            location=location,
-            source_url=item.get("url") or source_url,
-            description_text=description_text,
-            source_platform=self.SOURCE_PLATFORM,
+        return extract_offers(
+            html,
+            source_url,
+            self.SOURCE_PLATFORM,
+            max_results=self._MAX_HEURISTIC_RESULTS,
         )
 
-    def _extract_heuristic_offers(self, soup: BeautifulSoup, source_url: str) -> list[JobOfferCreate]:
-        job_class_pattern = re.compile(r"job|stelle|vacan", re.IGNORECASE)
-        company_pattern = re.compile(r"company|arbeitgeber|employer|firma", re.IGNORECASE)
-        location_pattern = re.compile(r"location|ort|city|standort", re.IGNORECASE)
-
-        offers: list[JobOfferCreate] = []
-        seen_titles: set[str] = set()
-
-        candidates = soup.find_all(class_=job_class_pattern) + soup.find_all("article")
-        for node in candidates:
-            # Erst nach einer echten Überschrift suchen, erst danach auf ein
-            # <a> zurückfallen: viele Kartenlayouts wickeln die ganze Karte
-            # in ein textloses Overlay-<a> (Linktext nur im aria-label), das
-            # im DOM vor der sichtbaren Überschrift steht - `find()` mit
-            # einer Tag-Liste matcht in Dokumentreihenfolge, nicht nach
-            # Priorität der Liste, und würde sonst immer das leere <a>
-            # statt der echten Überschrift treffen (siehe Xing-Scraper für
-            # ein konkretes Beispiel dieses Karten-Musters).
-            title_el = node.find(["h1", "h2", "h3"]) or node.find("a")
-            if title_el is None:
-                continue
-            title = title_el.get_text(strip=True)
-            if len(title) < 3 or title in seen_titles:
-                continue
-
-            link_el = node.find("a", href=True)
-            href = link_el["href"] if link_el else source_url
-            full_url = href if href.startswith("http") else urljoin(source_url, href)
-
-            company_el = node.find(class_=company_pattern)
-            company = company_el.get_text(strip=True) if company_el else "Unbekanntes Unternehmen"
-
-            location_el = node.find(class_=location_pattern)
-            location = location_el.get_text(strip=True) if location_el else None
-
-            seen_titles.add(title)
-            offers.append(
-                JobOfferCreate(
-                    title=title,
-                    company=company,
-                    location=location,
-                    source_url=full_url,
-                    description_text=None,
-                    source_platform=self.SOURCE_PLATFORM,
-                )
-            )
-            if len(offers) >= self._MAX_HEURISTIC_RESULTS:
-                break
-
-        return offers
+    def _extract_heuristic_offers(self, soup: Any, source_url: str) -> list[JobOfferCreate]:
+        return extract_heuristic_offers(
+            soup,
+            source_url,
+            self.SOURCE_PLATFORM,
+            max_results=self._MAX_HEURISTIC_RESULTS,
+        )
 
 
 class JobSearchService:
@@ -418,29 +296,127 @@ class JobSearchService:
 
     def __init__(
         self,
-        arbeitsagentur_client: ArbeitsagenturJobsClient | None = None,
         fallback_scraper: GenericJobScraper | None = None,
-        linkedin_client: LinkedInJobsClient | None = None,
-        xing_client: XingJobScraper | None = None,
         deadline_seconds: float | None = None,
+        sources: Sequence[SourceRegistration] | None = None,
     ) -> None:
-        self._arbeitsagentur_client = arbeitsagentur_client or ArbeitsagenturJobsClient()
         self._fallback_scraper = fallback_scraper or GenericJobScraper()
-        self._linkedin_client = linkedin_client or LinkedInJobsClient(
-            result_cap=settings.JOB_SEARCH_LINKEDIN_RESULT_CAP,
-            cooldown_seconds=settings.JOB_SEARCH_LINKEDIN_COOLDOWN_SECONDS,
-        )
         self._deadline_seconds = (
             deadline_seconds if deadline_seconds is not None else settings.JOB_SEARCH_DEADLINE_SECONDS
         )
-        # Xings innerer Timeout darf laut KTD6 die äußere Such-Deadline nie
-        # überschreiten - sonst hält ein Xing-Render, das erst nach der
-        # Deadline abbricht, den Playwright-Semaphore länger als nötig,
-        # während der Rest der Antwort schon zurückgegeben wurde. Ein Sicherheits-
-        # abstand von 1s lässt Playwright selbst noch sauber abbrechen können.
-        self._xing_client = xing_client or XingJobScraper(
-            inner_timeout=max(1.0, self._deadline_seconds - 1.0)
+        self._arbeitsagentur_client = ArbeitsagenturJobsClient()
+        # Xings innerer Timeout darf laut KTD8 die äußere Such-Deadline nie
+        # erreichen - sonst hält ein Xing-Render, das erst nach der Deadline
+        # abbricht, den Playwright-Semaphore länger als nötig, während der Rest
+        # der Antwort schon zurückgegeben wurde. `inner_timeout_for` leitet ihn
+        # strikt unter der Deadline ab (auch bei sehr kleinen Deadlines).
+        self._xing_client = XingJobScraper(
+            inner_timeout=inner_timeout_for(self._deadline_seconds)
         )
+        # KTD11: Tests injizieren eine Registry, statt den gecachten
+        # `settings`-Singleton zu verändern. Ohne Injektion wird die
+        # settings-abgeleitete Default-Registry gebaut.
+        self._sources: list[SourceRegistration] = (
+            list(sources) if sources is not None else self._build_default_registry()
+        )
+
+    def _build_default_registry(self) -> list[SourceRegistration]:
+        """Baut die settings-abgeleitete Quellen-Registry (KTD3/KTD11).
+
+        Basis sind die drei bestehenden Primärquellen, gated über ihre
+        Enable-Flags. Die neuen HTML-/API-Quellen (U4/U5/U6) werden hier
+        anhand der lokal eingesammelten Enable-Flags und Zugangsdaten ergänzt -
+        der Fan-out selbst bleibt unverändert.
+        """
+        # Flags und Zugangsdaten einmalig aus den Settings einsammeln (U3,
+        # KTD7/KTD9); als Locals, damit der Service sie nicht dauerhaft cachen
+        # muss.
+        source_enabled: dict[str, bool] = {
+            "devjobs": settings.JOB_SEARCH_DEVJOBS_ENABLED,
+            "kimeta": settings.JOB_SEARCH_KIMETA_ENABLED,
+            "stepstone": settings.JOB_SEARCH_STEPSTONE_ENABLED,
+            "germantechjobs": settings.JOB_SEARCH_GERMANTECHJOBS_ENABLED,
+            "indeed": settings.JOB_SEARCH_INDEED_ENABLED,
+            "jobware": settings.JOB_SEARCH_JOBWARE_ENABLED,
+            "programmiererjobboerse": settings.JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED,
+            "it-entwickler-jobs": settings.JOB_SEARCH_IT_ENTWICKLER_JOBS_ENABLED,
+            "adzuna": settings.JOB_SEARCH_ADZUNA_ENABLED,
+            "jooble": settings.JOB_SEARCH_JOOBLE_ENABLED,
+        }
+        adzuna_app_id = settings.ADZUNA_APP_ID
+        adzuna_app_key = settings.ADZUNA_APP_KEY
+        jooble_api_key = settings.JOOBLE_API_KEY
+
+        registry: list[SourceRegistration] = [SourceRegistration(self._arbeitsagentur_client)]
+        if settings.JOB_SEARCH_LINKEDIN_ENABLED:
+            registry.append(
+                SourceRegistration(
+                    LinkedInJobsClient(
+                        result_cap=settings.JOB_SEARCH_LINKEDIN_RESULT_CAP,
+                        cooldown_seconds=settings.JOB_SEARCH_LINKEDIN_COOLDOWN_SECONDS,
+                    )
+                )
+            )
+        if settings.JOB_SEARCH_XING_ENABLED:
+            registry.append(SourceRegistration(self._xing_client))
+        if source_enabled["adzuna"]:
+            # Auch ohne Credentials registriert: `search()` wird vom Fan-out
+            # gar nicht erst aufgerufen (KTD9) - der Client meldet dann
+            # `is_configured() == False` und wird als "not-configured"
+            # gekennzeichnet, statt stillschweigend zu verschwinden (R9).
+            registry.append(
+                SourceRegistration(
+                    AdzunaJobsClient(
+                        app_id=adzuna_app_id,
+                        app_key=adzuna_app_key,
+                        # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
+                        timeout=inner_timeout_for(self._deadline_seconds),
+                    )
+                )
+            )
+        if source_enabled["jooble"]:
+            # Auch ohne API-Key registriert: der Fan-out ruft `search()` gar
+            # nicht erst auf (KTD9) - der Client meldet dann
+            # `is_configured() == False` und wird als "not-configured"
+            # gekennzeichnet, statt stillschweigend zu verschwinden (R9).
+            registry.append(
+                SourceRegistration(
+                    JoobleJobsClient(
+                        api_key=jooble_api_key,
+                        # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
+                        timeout=inner_timeout_for(self._deadline_seconds),
+                    )
+                )
+            )
+        # U6: die acht benannten HTML-Boards laufen alle über den geteilten
+        # generischen Extraktionspfad (KD4/KTD2) - je Board ein eigener
+        # Deskriptor/Plattform-Schlüssel, kein "web-scraper" (R4/R6). Auch ein
+        # Board ohne lesbare Seite bleibt registriert und meldet `unavailable`,
+        # statt stillschweigend zu verschwinden (R5).
+        for descriptor in BOARD_DESCRIPTORS:
+            if not source_enabled.get(descriptor.source_platform):
+                continue
+            registry.append(
+                SourceRegistration(
+                    BoardSource(
+                        descriptor,
+                        # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
+                        timeout=inner_timeout_for(self._deadline_seconds),
+                    )
+                )
+            )
+        return registry
+
+    @staticmethod
+    def _is_rate_limited(client: Any) -> bool:
+        """Ob eine Quelle mit leerem Ergebnis im Rate-Limit-Cooldown steht.
+
+        Verallgemeinert die frühere LinkedIn-Sonderbehandlung: jede Quelle,
+        die `is_cooldown_active()` anbietet, kann so als "rate-limited"
+        gekennzeichnet werden (KTD3).
+        """
+        checker = getattr(client, "is_cooldown_active", None)
+        return bool(checker()) if checker is not None else False
 
     def search(
         self,
@@ -448,60 +424,106 @@ class JobSearchService:
         location: str | None = None,
         fallback_url: str | None = None,
     ) -> JobSearchResponse:
-        """Fragt Arbeitsagentur, LinkedIn und Xing gleichzeitig ab und
-        liefert eine zusammengeführte `JobSearchResponse` (KTD1/KTD2)."""
-        primary_clients: dict[str, Any] = {
-            ArbeitsagenturJobsClient.SOURCE_PLATFORM: self._arbeitsagentur_client,
-        }
-        if settings.JOB_SEARCH_LINKEDIN_ENABLED:
-            primary_clients[LinkedInJobsClient.SOURCE_PLATFORM] = self._linkedin_client
-        if settings.JOB_SEARCH_XING_ENABLED:
-            primary_clients[XingJobScraper.SOURCE_PLATFORM] = self._xing_client
+        """Fragt alle registrierten Quellen gleichzeitig ab und liefert eine
+        zusammengeführte `JobSearchResponse` (KTD3/KTD8/KTD9)."""
+        # Nur aktivierte Quellen nehmen teil; unkonfigurierte Quellen werden
+        # VOR dem Submit aussortiert und ohne `search()`-Aufruf als
+        # "not-configured" markiert (KTD9).
+        submittable: list[SourceRegistration] = []
+        source_statuses: list[SourceStatus] = []
+        for registration in self._sources:
+            if not registration.enabled:
+                continue
+            is_configured = getattr(registration.client, "is_configured", None)
+            if is_configured is not None and not is_configured():
+                source_statuses.append(
+                    SourceStatus(
+                        platform=registration.platform,
+                        status="unavailable",
+                        reason="not-configured",
+                    )
+                )
+                continue
+            submittable.append(registration)
 
         results: list[JobOfferCreate] = []
-        sources: list[SourceStatus] = []
         arbeitsagentur_results: list[JobOfferCreate] = []
 
-        # NICHT `with ThreadPoolExecutor(...) as executor:` - dessen eigenes
-        # __exit__ ruft shutdown(wait=True) auf, was genau auf das
-        # ausgelaufene Future warten würde, das diese Deadline verhindern
-        # soll (KTD1).
-        executor = ThreadPoolExecutor(max_workers=len(primary_clients))
-        try:
-            deadline = monotonic() + self._deadline_seconds
-            futures = {
-                source_name: executor.submit(client.search, keywords, location)
-                for source_name, client in primary_clients.items()
-            }
-            for source_name, future in futures.items():
-                try:
-                    offers = future.result(timeout=max(0.0, deadline - monotonic()))
-                except FuturesTimeoutError:
-                    logger.warning("Quelle '%s' hat die Such-Deadline überschritten.", source_name)
-                    sources.append(SourceStatus(platform=source_name, status="unavailable", reason="timeout"))
-                    continue
-                except Exception:  # noqa: BLE001 - eine fehlschlagende Quelle darf die anderen nicht stoppen
-                    logger.exception("Quelle '%s' ist mit einem Fehler fehlgeschlagen.", source_name)
-                    sources.append(SourceStatus(platform=source_name, status="unavailable", reason="error"))
-                    continue
+        if submittable:
+            # NICHT `with ThreadPoolExecutor(...) as executor:` - dessen eigenes
+            # __exit__ ruft shutdown(wait=True) auf, was genau auf das
+            # ausgelaufene Future warten würde, das diese Deadline verhindern
+            # soll (KTD1).
+            executor = ThreadPoolExecutor(max_workers=len(submittable))
+            try:
+                deadline = monotonic() + self._deadline_seconds
+                # Liste (nicht Dict) aus (registration, future): zwei
+                # Registrierungen mit demselben Plattform-Schlüssel dürfen
+                # sich nicht gegenseitig aus dem Mapping verdrängen.
+                futures = [
+                    (
+                        registration,
+                        executor.submit(registration.client.search, keywords, location),
+                    )
+                    for registration in submittable
+                ]
+                for registration, future in futures:
+                    platform = registration.platform
+                    try:
+                        offers = future.result(timeout=max(0.0, deadline - monotonic()))
+                    except FuturesTimeoutError:
+                        logger.warning("Quelle '%s' hat die Such-Deadline überschritten.", platform)
+                        source_statuses.append(
+                            SourceStatus(platform=platform, status="unavailable", reason="timeout")
+                        )
+                        continue
+                    except SourceNotConfiguredError:
+                        logger.warning("Quelle '%s' ist nicht konfiguriert.", platform)
+                        source_statuses.append(
+                            SourceStatus(
+                                platform=platform,
+                                status="unavailable",
+                                reason="not-configured",
+                            )
+                        )
+                        continue
+                    except Exception:  # noqa: BLE001 - eine fehlschlagende Quelle darf die anderen nicht stoppen
+                        logger.exception("Quelle '%s' ist mit einem Fehler fehlgeschlagen.", platform)
+                        source_statuses.append(
+                            SourceStatus(platform=platform, status="unavailable", reason="error")
+                        )
+                        continue
 
-                if source_name == ArbeitsagenturJobsClient.SOURCE_PLATFORM:
-                    arbeitsagentur_results = offers
+                    if platform == ArbeitsagenturJobsClient.SOURCE_PLATFORM:
+                        arbeitsagentur_results = offers
 
-                if offers:
-                    results.extend(offers)
-                    sources.append(SourceStatus(platform=source_name, status="ok"))
-                else:
-                    reason = "empty"
-                    if source_name == LinkedInJobsClient.SOURCE_PLATFORM and LinkedInJobsClient.is_cooldown_active():
-                        reason = "rate-limited"
-                    sources.append(SourceStatus(platform=source_name, status="unavailable", reason=reason))
-        finally:
-            # wait=False: ein bereits als "timeout" markiertes Future darf im
-            # Hintergrund zu Ende laufen, ohne die Antwort zu blockieren (KTD1).
-            executor.shutdown(wait=False)
+                    if offers:
+                        results.extend(offers)
+                        source_statuses.append(SourceStatus(platform=platform, status="ok"))
+                    else:
+                        reason = "rate-limited" if self._is_rate_limited(registration.client) else "empty"
+                        source_statuses.append(
+                            SourceStatus(platform=platform, status="unavailable", reason=reason)
+                        )
+            finally:
+                # wait=False: ein bereits als "timeout" markiertes Future darf im
+                # Hintergrund zu Ende laufen, ohne die Antwort zu blockieren (KTD1).
+                executor.shutdown(wait=False)
 
         if not arbeitsagentur_results and fallback_url:
+            if not validate_source_url(fallback_url):
+                # R3/KTD10: eine unsichere (Loopback/private/metadata/nicht-
+                # http(s)) Fallback-URL darf nie serverseitig abgerufen werden.
+                logger.warning("Unsichere Fallback-URL abgelehnt - Fallback übersprungen.")
+                source_statuses.append(
+                    SourceStatus(
+                        platform=GenericJobScraper.SOURCE_PLATFORM,
+                        status="unavailable",
+                        reason="error",
+                    )
+                )
+                return JobSearchResponse(results=results, sources=source_statuses)
+
             logger.info("Keine Treffer über die Arbeitsagentur-API - nutze Fallback-Scraper (%s).", fallback_url)
             fallback_results = self._fallback_scraper.search(url=fallback_url, keywords=keywords, location=location)
             results.extend(fallback_results)
@@ -511,7 +533,7 @@ class JobSearchService:
             # Frontend-Statusleiste sonst alle drei Primärquellen als
             # "unavailable" zeigen, obwohl der Fallback Treffer geliefert hat).
             fallback_status = "ok" if fallback_results else "unavailable"
-            sources.append(
+            source_statuses.append(
                 SourceStatus(
                     platform=GenericJobScraper.SOURCE_PLATFORM,
                     status=fallback_status,
@@ -519,7 +541,7 @@ class JobSearchService:
                 )
             )
 
-        return JobSearchResponse(results=results, sources=sources)
+        return JobSearchResponse(results=results, sources=source_statuses)
 
     def enrich_description(self, source_platform: str, source_url: str) -> str | None:
         """Lädt nachträglich den vollen Anzeigetext für ein einzelnes,
@@ -535,6 +557,11 @@ class JobSearchService:
         der generische Fallback-Scraper, der `description_text` bereits beim
         Scrapen füllt) ein No-Op.
         """
+        if not validate_source_url(source_url):
+            # R3/KTD10: kein serverseitiger Render/Detail-Abruf für eine
+            # unsichere (Loopback/private/metadata/nicht-http(s)) URL.
+            logger.warning("Unsichere source_url abgelehnt - kein Detail-Abruf.")
+            return None
         if source_platform == ArbeitsagenturJobsClient.SOURCE_PLATFORM:
             return self._arbeitsagentur_client.fetch_description(source_url)
         if source_platform == XingJobScraper.SOURCE_PLATFORM:

@@ -7,6 +7,8 @@ Repo anlegen.
 """
 from __future__ import annotations
 
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -17,7 +19,11 @@ from app import models  # noqa: F401 - registriert Modelle in Base.metadata
 from app.db.database import Base, get_db
 from app.main import app
 from app.schemas.job_offer import JobOfferCreate, JobSearchResponse, SourceStatus
-from app.services.job_search_service import get_job_search_service
+from app.services.job_search_service import (
+    JobSearchService,
+    SourceRegistration,
+    get_job_search_service,
+)
 
 
 @pytest.fixture
@@ -84,6 +90,176 @@ def test_search_returns_envelope_with_results_and_sources(client):
     assert len(body["results"]) == 1
     assert len(body["sources"]) == 3
     assert {s["platform"] for s in body["sources"]} == {"arbeitsagentur", "linkedin", "xing"}
+
+
+# --- U8: End-to-end multi-source verification (2026-09-11 plan) -------------
+#
+# These tests override `get_job_search_service` with a REAL `JobSearchService`
+# wired to a fake 13-source registry through the U2 injection seam
+# (`sources=`). Reusing `_FakeJobSearchService` above would make the envelope
+# assertions tautological - U8 exists to exercise the real fan-out, deadline
+# participation, and per-source status mapping (KTD3/KTD8/KTD9/KTD11).
+
+_ALL_SOURCE_PLATFORMS = (
+    "arbeitsagentur",
+    "linkedin",
+    "xing",
+    "devjobs",
+    "kimeta",
+    "stepstone",
+    "germantechjobs",
+    "indeed",
+    "jobware",
+    "programmiererjobboerse",
+    "it-entwickler-jobs",
+    "adzuna",
+    "jooble",
+)
+
+_NOT_OK_PLATFORMS = {"xing", "indeed", "adzuna", "jooble"}
+
+
+class _FakeSourceClient:
+    """Test-Double mit dem Standard-Vertrag `SOURCE_PLATFORM` + `search()`
+    (KTD3/KTD9) - bewusst KEIN `JobSearchService`, damit der echte Fan-out
+    und die echte Status-Mapping-Logik laufen."""
+
+    def __init__(
+        self,
+        platform: str,
+        offers: list[JobOfferCreate] | None = None,
+        exc: Exception | None = None,
+        delay: float = 0.0,
+        configured: bool = True,
+    ) -> None:
+        self.SOURCE_PLATFORM = platform
+        self._offers = offers or []
+        self._exc = exc
+        self._delay = delay
+        self._configured = configured
+        self.calls: list[tuple] = []
+
+    def is_configured(self) -> bool:
+        return self._configured
+
+    def search(self, keywords, location=None):
+        self.calls.append((keywords, location))
+        if self._delay:
+            time.sleep(self._delay)
+        if self._exc is not None:
+            raise self._exc
+        return self._offers
+
+
+def _source_offer(platform: str) -> JobOfferCreate:
+    return JobOfferCreate(
+        title=f"{platform} Angular Developer",
+        company="Acme",
+        location="Berlin",
+        source_url=f"https://example.com/{platform}/job/1",
+        description_text=None,
+        source_platform=platform,
+    )
+
+
+def _mixed_multi_source_service(deadline_seconds: float = 5.0):
+    """Ein echter `JobSearchService` über alle 13 Quellen mit gemischten
+    Ergebnissen: ok / empty / error / not-configured (U8)."""
+    registrations: list[SourceRegistration] = []
+    clients: dict[str, _FakeSourceClient] = {}
+    for platform in _ALL_SOURCE_PLATFORMS:
+        if platform in ("adzuna", "jooble"):
+            client = _FakeSourceClient(platform, configured=False)
+        elif platform == "xing":
+            client = _FakeSourceClient(platform, offers=[])
+        elif platform == "indeed":
+            client = _FakeSourceClient(platform, exc=RuntimeError("simulated source failure"))
+        else:
+            client = _FakeSourceClient(platform, offers=[_source_offer(platform)])
+        clients[platform] = client
+        registrations.append(SourceRegistration(client))
+    return JobSearchService(sources=registrations, deadline_seconds=deadline_seconds), clients
+
+
+def test_real_service_fans_out_over_all_13_sources_with_per_source_status(client):
+    service, clients = _mixed_multi_source_service()
+    app.dependency_overrides[get_job_search_service] = lambda: service
+
+    response = client.get("/api/jobs/search", params={"keywords": "Angular"})
+
+    assert response.status_code == 200
+    body = response.json()
+
+    # One status entry per registered source, no source silently dropped (R5).
+    assert len(body["sources"]) == len(_ALL_SOURCE_PLATFORMS)
+    assert {s["platform"] for s in body["sources"]} == set(_ALL_SOURCE_PLATFORMS)
+
+    by_platform = {s["platform"]: s for s in body["sources"]}
+    assert by_platform["xing"] == {
+        "platform": "xing",
+        "status": "unavailable",
+        "reason": "empty",
+    }
+    assert by_platform["indeed"] == {
+        "platform": "indeed",
+        "status": "unavailable",
+        "reason": "error",
+    }
+    # The unconfigured Adzuna/Jooble pair appears as not-configured alongside
+    # the ok sources (KTD9/R9) - without ever calling `search()`.
+    assert by_platform["adzuna"] == {
+        "platform": "adzuna",
+        "status": "unavailable",
+        "reason": "not-configured",
+    }
+    assert by_platform["jooble"] == {
+        "platform": "jooble",
+        "status": "unavailable",
+        "reason": "not-configured",
+    }
+    assert clients["adzuna"].calls == []
+    assert clients["jooble"].calls == []
+
+    ok_platforms = set(_ALL_SOURCE_PLATFORMS) - _NOT_OK_PLATFORMS
+    assert {s["platform"] for s in body["sources"] if s["status"] == "ok"} == ok_platforms
+
+    # Merged results carry their responding source's own `source_platform`.
+    assert len(body["results"]) == len(ok_platforms)
+    assert {r["source_platform"] for r in body["results"]} == ok_platforms
+    for result in body["results"]:
+        assert result["source_url"].startswith("https://example.com/")
+        assert result["source_platform"] in ok_platforms
+
+
+def test_real_service_timeout_does_not_delay_response_beyond_deadline(client):
+    """KTD8: a timing-out source is labeled `timeout` and the response comes
+    back at the shared deadline, not after the slow source finishes."""
+    registrations: list[SourceRegistration] = []
+    for platform in _ALL_SOURCE_PLATFORMS:
+        if platform in ("adzuna", "jooble"):
+            registrations.append(
+                SourceRegistration(_FakeSourceClient(platform, configured=False))
+            )
+        elif platform == "indeed":
+            registrations.append(SourceRegistration(_FakeSourceClient(platform, delay=2.0)))
+        else:
+            registrations.append(
+                SourceRegistration(_FakeSourceClient(platform, offers=[_source_offer(platform)]))
+            )
+    service = JobSearchService(sources=registrations, deadline_seconds=0.3)
+    app.dependency_overrides[get_job_search_service] = lambda: service
+
+    started = time.monotonic()
+    response = client.get("/api/jobs/search", params={"keywords": "Angular"})
+    elapsed = time.monotonic() - started
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["sources"]) == len(_ALL_SOURCE_PLATFORMS)
+    indeed_status = next(s for s in body["sources"] if s["platform"] == "indeed")
+    assert indeed_status["status"] == "unavailable"
+    assert indeed_status["reason"] == "timeout"
+    assert elapsed < 1.0
 
 
 def test_save_job_returns_201(client):

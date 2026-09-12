@@ -1,4 +1,5 @@
 """Einstiegspunkt der FastAPI-Anwendung."""
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -11,6 +12,12 @@ from app.api.jobs import router as jobs_router
 from app.api.profile import router as profile_router
 from app.core.config import settings
 from app.db.init_db import init_db
+
+# Adzuna/Jooble tragen ihre API-Keys in der Request-URL. `urllib3`/`requests`
+# loggen die vollständige URL auf DEBUG-Ebene und würden die Keys damit
+# preisgeben - prozessweit unterdrücken.
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("requests").setLevel(logging.WARNING)
 
 
 @asynccontextmanager

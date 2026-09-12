@@ -74,6 +74,16 @@ export class JobSearchComponent {
     arbeitsagentur: 'Arbeitsagentur',
     linkedin: 'LinkedIn',
     xing: 'Xing',
+    adzuna: 'Adzuna',
+    jooble: 'Jooble',
+    devjobs: 'DEVjobs.de',
+    kimeta: 'Kimeta',
+    stepstone: 'Stepstone',
+    germantechjobs: 'GermanTechJobs',
+    indeed: 'Indeed',
+    jobware: 'Jobware',
+    programmiererjobboerse: 'Programmiererjobboerse.de',
+    'it-entwickler-jobs': 'IT-Entwickler-Jobs.de',
   };
 
   private readonly savedJobIds = this.state.savedJobIds;
