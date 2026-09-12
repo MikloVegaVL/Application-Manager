@@ -14,3 +14,6 @@ The mitigation applied once a Structural failure is detected: the AI is asked to
 
 ### Berufsbezeichnung
 The optional job title shown beneath the profile name in a CV template, set independently of any experience entry's `role` (which is a position held at one employer).
+
+### Skill category
+The domain a skill belongs to, used to group skills into compact sections in a rendered CV instead of listing every skill individually. A skill without a category falls into a catch-all group, so grouping never drops a skill.
