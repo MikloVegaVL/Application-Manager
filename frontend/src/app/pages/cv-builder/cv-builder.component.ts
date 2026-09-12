@@ -138,7 +138,10 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
           <mat-tab-group animationDuration="150ms">
             <mat-tab label="Zusammenfassung">
               <div class="tab-content">
-                <app-summary-section [control]="summaryControl" />
+                <app-summary-section
+                  [control]="summaryControl"
+                  [berufsbezeichnungControl]="berufsbezeichnungControl"
+                />
               </div>
             </mat-tab>
             <mat-tab label="Berufserfahrung">
@@ -187,6 +190,7 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
               <div class="tab-content">
                 <app-cv-preview-export
                   [summaryControl]="summaryControl"
+                  [berufsbezeichnungControl]="berufsbezeichnungControl"
                   [experiencesArray]="experiencesArray"
                   [educationArray]="educationArray"
                   [skillsArray]="skillsArray"
@@ -269,6 +273,8 @@ export class CvBuilderComponent implements OnInit {
   protected readonly lastSavedProfile = signal<MasterProfileRead | null>(null);
 
   protected readonly summaryControl: FormControl<string> = this.formBuilder.nonNullable.control('');
+  /** R5: optionaler Job-Titel, im CV unter dem Namen; Inhalt (kein Identitätsfeld). */
+  protected readonly berufsbezeichnungControl: FormControl<string> = this.formBuilder.nonNullable.control('');
   protected readonly experiencesArray: FormArray<FormGroup> = this.formBuilder.array<FormGroup>([]);
   protected readonly educationArray: FormArray<FormGroup> = this.formBuilder.array<FormGroup>([]);
   protected readonly skillsArray: FormArray<FormGroup> = this.formBuilder.array<FormGroup>([]);
@@ -303,6 +309,7 @@ export class CvBuilderComponent implements OnInit {
 
     const payload: ProfileContentUpdate = {
       summary: this.summaryControl.value,
+      berufsbezeichnung: this.berufsbezeichnungControl.value,
       experiences_json: this.experiencesArray.getRawValue() as ExperienceEntry[],
       education_json: this.educationArray.getRawValue() as EducationEntry[],
       skills_json: this.skillsArray.getRawValue() as SkillEntry[],
@@ -335,6 +342,7 @@ export class CvBuilderComponent implements OnInit {
 
     return (
       !sectionsEqual(this.summaryControl.value, saved.summary) ||
+      !sectionsEqual(this.berufsbezeichnungControl.value, saved.berufsbezeichnung) ||
       !sectionsEqual(this.experiencesArray.getRawValue(), saved.experiences_json) ||
       !sectionsEqual(this.educationArray.getRawValue(), saved.education_json) ||
       !sectionsEqual(this.skillsArray.getRawValue(), saved.skills_json) ||
@@ -379,6 +387,7 @@ export class CvBuilderComponent implements OnInit {
 
   private applyProfileToArrays(profile: MasterProfileRead): void {
     this.summaryControl.setValue(profile.summary ?? '');
+    this.berufsbezeichnungControl.setValue(profile.berufsbezeichnung ?? '');
     this.templateIdControl.setValue(profile.template_id);
 
     // `replaceArray` tolerates a missing field - a version-skewed backend

@@ -162,3 +162,55 @@ class TestRenderCvPdfErrorHandling:
 
         with pytest.raises(PdfRenderError):
             pdf_service.render_cv_pdf(template_id="classic", **_full_content())
+
+
+class TestRenderCvPdfPreviewMode:
+    def _capture(self, mocker, **kwargs) -> str:
+        mock_html_cls = mocker.patch.object(pdf_service, "HTML")
+        mock_html_cls.return_value.write_pdf.return_value = b"%PDF-1.4 fake bytes"
+        pdf_service.render_cv_pdf(**kwargs)
+        return mock_html_cls.call_args.kwargs["string"]
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_preview_renders_all_canonical_sections(self, mocker, template_id):
+        rendered = self._capture(mocker, template_id=template_id, preview=True, **_empty_content())
+
+        for heading in ("Profil", "Berufserfahrung", "Ausbildung", "Skills", "Sprachen", "Projekte"):
+            assert heading in rendered
+
+    def test_preview_fills_empty_sections_with_muted_sample_content(self, mocker):
+        rendered = self._capture(mocker, template_id="classic", preview=True, **_empty_content())
+
+        assert "Erfahrene Fachkraft" in rendered
+        assert "Beispiel GmbH" in rendered
+        assert 'class="ph"' in rendered
+
+    def test_export_omits_sample_content_even_when_a_sample_is_passed(self, mocker):
+        rendered = self._capture(
+            mocker,
+            template_id="classic",
+            preview=False,
+            sample=pdf_service.SAMPLE,
+            **_empty_content(),
+        )
+
+        assert "Beispiel GmbH" not in rendered
+        assert "Berufserfahrung" not in rendered
+
+    def test_preview_keeps_real_entry_and_fills_only_a_blank_sub_field(self, mocker):
+        content = _empty_content()
+        content["experiences"] = [
+            ExperienceEntry(
+                company="Acme GmbH",
+                role="Entwickler",
+                start_date="2020",
+                end_date=None,
+                description=None,
+            )
+        ]
+
+        rendered = self._capture(mocker, template_id="classic", preview=True, **content)
+
+        assert "Acme GmbH" in rendered
+        assert "Entwickler" in rendered
+        assert "Beschreibung der Tätigkeit" in rendered

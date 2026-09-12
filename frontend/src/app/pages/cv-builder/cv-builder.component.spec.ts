@@ -9,7 +9,7 @@ import { CvBuilderComponent } from './cv-builder.component';
 
 const templatesFixture = [
   { id: 'classic', label: 'Classic' },
-  { id: 'modern', label: 'Modern' },
+  { id: 'template-1', label: 'Template 1' },
 ];
 
 const baseProfileResponse = {
@@ -19,6 +19,7 @@ const baseProfileResponse = {
   phone: null,
   address: null,
   summary: null,
+  berufsbezeichnung: null,
   experiences_json: [],
   education_json: [],
   skills_json: [],
@@ -203,6 +204,7 @@ describe('CvBuilderComponent', () => {
     const req = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'PATCH');
     expect(req.request.body).toEqual({
       summary: 'New summary',
+      berufsbezeichnung: '',
       experiences_json: [],
       education_json: [],
       skills_json: [],
@@ -257,7 +259,7 @@ describe('CvBuilderComponent', () => {
 
     expect(component.hasUnsavedChanges()).toBeFalse();
 
-    component['templateIdControl'].setValue('modern');
+    component['templateIdControl'].setValue('template-1');
 
     expect(component.hasUnsavedChanges()).toBeTrue();
   });

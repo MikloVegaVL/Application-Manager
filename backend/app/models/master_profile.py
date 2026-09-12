@@ -28,6 +28,9 @@ class MasterProfile(Base):
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Optionaler Job-Titel, der im CV unter dem Namen erscheint (R5) - im
+    # Builder editierbar und Teil des Inhalts-Payloads, nicht der Identität.
+    berufsbezeichnung: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Strukturierte Listen (z. B. Stationen im Werdegang, Ausbildungen,
     # Skills) werden als JSON abgelegt. Der JSON-Typ von SQLAlchemy

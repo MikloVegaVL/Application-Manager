@@ -165,6 +165,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
   private readonly sanitizer = inject(DomSanitizer);
 
   @Input({ required: true }) summaryControl!: FormControl<string>;
+  @Input({ required: true }) berufsbezeichnungControl!: FormControl<string>;
   @Input({ required: true }) experiencesArray!: FormArray<FormGroup>;
   @Input({ required: true }) educationArray!: FormArray<FormGroup>;
   @Input({ required: true }) skillsArray!: FormArray<FormGroup>;
@@ -195,7 +196,8 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
   }
 
   protected canRender(): boolean {
-    return !!this.templateIdControl.value;
+    const value = this.templateIdControl.value;
+    return !!value && this.templates().some((template) => template.id === value);
   }
 
   loadTemplates(): void {
@@ -205,8 +207,12 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
       next: (templates) => {
         this.templatesLoading.set(false);
         this.templates.set(templates);
-        // KTD8: keine Vorlage gewählt (frisches Profil) -> erste verfügbare vorbelegen.
-        if (!this.templateIdControl.value && templates.length > 0) {
+        // KTD10: gespeicherte Vorlage auf eine bekannte ID normalisieren - die
+        // erste verfügbare vorbelegen, wenn keine (oder eine unbekannte, z. B.
+        // das entfernte `modern`) gewählt war.
+        const current = this.templateIdControl.value;
+        const isKnown = current !== null && templates.some((template) => template.id === current);
+        if (!isKnown && templates.length > 0) {
           this.templateIdControl.setValue(templates[0].id);
         }
       },
@@ -282,6 +288,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
     return {
       template_id: templateId,
       summary: this.summaryControl.value,
+      berufsbezeichnung: this.berufsbezeichnungControl.value,
       experiences_json: this.experiencesArray.getRawValue() as ExperienceEntry[],
       education_json: this.educationArray.getRawValue() as EducationEntry[],
       skills_json: this.skillsArray.getRawValue() as SkillEntry[],

@@ -59,6 +59,7 @@ export interface MasterProfile {
   phone: string | null;
   address: string | null;
   summary: string | null;
+  berufsbezeichnung: string | null;
   experiences_json: ExperienceEntry[];
   education_json: EducationEntry[];
   skills_json: SkillEntry[];
@@ -131,6 +132,7 @@ export interface CvParseResponse {
  */
 export interface ProfileContentUpdate {
   summary?: string | null;
+  berufsbezeichnung?: string | null;
   experiences_json?: ExperienceEntry[];
   education_json?: EducationEntry[];
   skills_json?: SkillEntry[];
@@ -156,6 +158,7 @@ export interface CvTemplate {
 export interface CvRenderPayload {
   template_id: string;
   summary: string | null;
+  berufsbezeichnung: string | null;
   experiences_json: ExperienceEntry[];
   education_json: EducationEntry[];
   skills_json: SkillEntry[];

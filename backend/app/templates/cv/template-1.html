@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Lebenslauf - {{ full_name }}</title>
+<style>
+  @page {
+    size: A4;
+    margin: 0;
+    @bottom-center {
+      content: "Seite " counter(page) " von " counter(pages);
+      font-size: 8pt;
+      color: #999;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    color: #26262e;
+    margin: 0;
+  }
+
+  .cv { display: flex; min-height: 100%; font-size: 10pt; line-height: 1.45; }
+
+  /* Vorschau-Platzhalter (R8/KTD3). */
+  .ph { color: #8f97a3; font-style: italic; }
+
+  .sidebar {
+    width: 62mm;
+    background: #2b3544;
+    color: #e8eaee;
+    padding: 14mm 8mm;
+  }
+
+  .main { flex: 1; padding: 14mm 12mm; }
+
+  .photo {
+    width: 32mm;
+    height: 32mm;
+    object-fit: cover;
+    border-radius: 50%;
+    display: block;
+    margin: 0 auto 6mm;
+    border: 2pt solid #c9a24b;
+  }
+  .photo--placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #3a4557;
+    color: #9aa3b2;
+    font-size: 9pt;
+  }
+
+  .sidebar h2 {
+    font-size: 9.5pt;
+    text-transform: uppercase;
+    letter-spacing: 1pt;
+    color: #c9a24b;
+    margin: 7mm 0 2.5mm;
+  }
+  .sidebar h2:first-of-type { margin-top: 0; }
+
+  .contact-list, .tag-list { list-style: none; margin: 0; padding: 0; font-size: 8.8pt; color: #d9dce2; }
+  .contact-list li { margin-bottom: 1.5mm; word-break: break-word; }
+  .tag-list li { margin-bottom: 1.5mm; }
+
+  .skill-row { margin-bottom: 2mm; }
+  .skill-row__head { display: flex; justify-content: space-between; gap: 2mm; font-size: 8.8pt; }
+  .skill-row__level { color: #c9a24b; white-space: nowrap; }
+  .bar { height: 1.4mm; background: #4a5568; border-radius: 1mm; margin-top: 1mm; }
+  .bar span { display: block; height: 100%; background: #c9a24b; border-radius: 1mm; }
+
+  .lang-row { display: flex; justify-content: space-between; align-items: center; gap: 2mm; font-size: 8.8pt; margin-bottom: 1.5mm; }
+  .dots { white-space: nowrap; }
+  .dots i {
+    display: inline-block;
+    width: 2.4mm;
+    height: 2.4mm;
+    border-radius: 50%;
+    background: #c9a24b;
+    margin-left: 1mm;
+  }
+  .dots i.off { background: #4a5568; }
+
+  .edu-entry { font-size: 8.8pt; margin-bottom: 2mm; }
+  .edu-entry__date { color: #c9a24b; }
+
+  .header-band {
+    text-align: center;
+    border-bottom: 1pt solid #d9dce2;
+    padding-bottom: 4mm;
+    margin-bottom: 6mm;
+  }
+  .header-band__name {
+    font-family: 'Georgia', 'Times New Roman', serif;
+    font-size: 18pt;
+    letter-spacing: 1pt;
+    text-transform: uppercase;
+    color: #2b3544;
+  }
+  .header-band__title {
+    color: #c9a24b;
+    font-size: 10pt;
+    letter-spacing: 2pt;
+    text-transform: uppercase;
+    margin-top: 2mm;
+  }
+
+  .main h2 {
+    font-size: 11pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1pt;
+    color: #2b3544;
+    border-bottom: 1.5pt solid #c9a24b;
+    padding-bottom: 1mm;
+    margin: 6mm 0 3mm;
+  }
+  .main h2:first-child { margin-top: 0; }
+
+  .main p { margin: 0 0 3mm; }
+  .entry { margin-bottom: 4mm; }
+  .entry__title-row { display: flex; justify-content: space-between; gap: 4mm; font-weight: 700; }
+  .entry__date { font-weight: 400; color: #6b6470; white-space: nowrap; }
+  .entry__description { margin: 1mm 0 0; white-space: pre-line; color: #444; }
+  .entry__link { font-size: 9pt; color: #2b3544; }
+</style>
+</head>
+<body>
+  <section class="cv">
+    {% set level_widths = {'Grundkenntnisse': '25%', 'Gut': '50%', 'Sehr gut': '75%', 'Experte': '100%'} %}
+    {% set lang_dots = {'A1': 1, 'A2': 2, 'B1': 3, 'B2': 4, 'C1': 5, 'C2': 6} %}
+
+    <aside class="sidebar">
+      {% if photo_url %}
+      <img class="photo" src="{{ photo_url }}" alt="Profilfoto">
+      {% elif preview %}
+      <div class="photo photo--placeholder">Foto</div>
+      {% endif %}
+
+      <h2>Kontakt</h2>
+      <ul class="contact-list">
+        <li>{{ email }}</li>
+        {% if phone %}<li>{{ phone }}</li>
+        {% elif preview %}<li class="ph">{{ sample.phone }}</li>{% endif %}
+        {% if address %}<li>{{ address }}</li>
+        {% elif preview %}<li class="ph">{{ sample.address }}</li>{% endif %}
+      </ul>
+
+      {% if skills or preview %}
+      <h2>Skills</h2>
+      {% set skill_list = skills if skills else sample.skills %}
+      {% set skill_sample = not skills %}
+      {% for skill in skill_list %}
+      <div class="skill-row{% if skill_sample %} ph{% endif %}">
+        <div class="skill-row__head">
+          <span>{{ skill.name }}</span>
+          <span class="skill-row__level">{{ skill.level }}</span>
+        </div>
+        <div class="bar"><span style="width: {{ level_widths.get(skill.level, '50%') }}"></span></div>
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      {% if languages or preview %}
+      <h2>Sprachen</h2>
+      {% set lang_list = languages if languages else sample.languages %}
+      {% set lang_sample = not languages %}
+      {% for language in lang_list %}
+      <div class="lang-row{% if lang_sample %} ph{% endif %}">
+        <span>{{ language.name }}</span>
+        <span class="dots">
+          {%- set filled = lang_dots.get(language.level, 0) -%}
+          {%- for i in range(6) %}<i{% if i >= filled %} class="off"{% endif %}></i>{% endfor -%}
+        </span>
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      {% if education or preview %}
+      <h2>Ausbildung</h2>
+      {% set edu_list = education if education else sample.education %}
+      {% set edu_sample = not education %}
+      {% for edu in edu_list %}
+      <div class="edu-entry{% if edu_sample %} ph{% endif %}">
+        <div><strong>{{ edu.degree }}</strong>{% if edu.field_of_study %}, {{ edu.field_of_study }}{% endif %}</div>
+        <div>{{ edu.institution }}</div>
+        <div class="edu-entry__date">{{ edu.date_range }}</div>
+      </div>
+      {% endfor %}
+      {% endif %}
+    </aside>
+
+    <div class="main">
+      <div class="header-band">
+        <div class="header-band__name">{{ full_name }}</div>
+        <div class="header-band__title">
+          {%- if berufsbezeichnung %}{{ berufsbezeichnung }}
+          {%- elif preview %}<span class="ph">{{ sample.berufsbezeichnung }}</span>{% endif %}
+        </div>
+      </div>
+
+      {% if summary or preview %}
+      <h2>Profil</h2>
+      {% if summary %}<p>{{ summary }}</p>
+      {% elif preview %}<p class="ph">{{ sample.summary }}</p>{% endif %}
+      {% endif %}
+
+      {% if experiences or preview %}
+      <h2>Berufserfahrung</h2>
+      {% set exp_list = experiences if experiences else sample.experiences %}
+      {% set exp_sample = not experiences %}
+      {% for exp in exp_list %}
+      <div class="entry{% if exp_sample %} ph{% endif %}">
+        <div class="entry__title-row">
+          <span>{{ exp.role }}, {{ exp.company }}</span>
+          <span class="entry__date">{{ exp.date_range }}</span>
+        </div>
+        {% if exp.description %}<p class="entry__description">{{ exp.description }}</p>
+        {% elif preview %}<p class="entry__description ph">{{ sample.entry_description }}</p>{% endif %}
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      {% if projects or preview %}
+      <h2>Projekte</h2>
+      {% set project_list = projects if projects else sample.projects %}
+      {% set project_sample = not projects %}
+      {% for project in project_list %}
+      <div class="entry{% if project_sample %} ph{% endif %}">
+        <div class="entry__title-row">
+          <span>{{ project.title }}</span>
+          {% if project.date_range %}<span class="entry__date">{{ project.date_range }}</span>{% endif %}
+        </div>
+        {% if project.description %}<p class="entry__description">{{ project.description }}</p>
+        {% elif preview %}<p class="entry__description ph">{{ sample.project_description }}</p>{% endif %}
+        {% if project.link %}<p class="entry__link">{{ project.link }}</p>{% endif %}
+      </div>
+      {% endfor %}
+      {% endif %}
+    </div>
+  </section>
+</body>
+</html>

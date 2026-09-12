@@ -14,6 +14,7 @@ const baseProfile: MasterProfileRead = {
   phone: null,
   address: null,
   summary: null,
+  berufsbezeichnung: null,
   experiences_json: [],
   education_json: [],
   skills_json: [],
