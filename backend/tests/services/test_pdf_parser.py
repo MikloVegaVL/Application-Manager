@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.core.config import settings
-from app.schemas.master_profile import ParsedCvProfile
+from app.schemas.master_profile import ParsedCvProfile, ParsedSkill
 from app.services import pdf_parser
 from app.services.llm_client import LlmUnavailableError, LlmValidationError
 from app.services.pdf_parser import CvAnalysisError, PdfParsingError
@@ -24,7 +24,7 @@ VALID_PROFILE = ParsedCvProfile(
     summary="Erfahrener Entwickler.",
     experiences=[],
     education=[],
-    skills=["Python"],
+    skills=[ParsedSkill(name="Python", category="Backend")],
     projects=[],
 )
 
@@ -66,6 +66,17 @@ class TestAnalyzeCvTextHappyPath:
         pdf_parser.analyze_cv_text("Lebenslauf-Text von Max Mustermann.")
 
         assert mock_generate.call_args.kwargs["model"] == settings.OLLAMA_MODEL_CV_PARSING
+
+
+    def test_system_prompt_always_requests_english_output_and_skill_categories(self):
+        """Der CV wird immer auf Englisch erzeugt (ce-debug, 2026-09-12): das
+        Prompt muss die KI anweisen, alle Textwerte zu übersetzen, und für
+        Skills eine Kategorie aus dem festen Wertebereich verlangen."""
+        prompt = pdf_parser._SYSTEM_PROMPT
+
+        assert "ENGLISH" in prompt
+        for category in ("Frontend", "Backend", "Tools", "Soft Skills", "Other"):
+            assert category in prompt
 
 
 class TestAnalyzeCvTextValidationFailure:
@@ -151,7 +162,7 @@ class TestMissingFieldWarnings:
             summary="Erfahrener Entwickler.",
             experiences=[{"company": "Acme GmbH", "role": "Entwickler"}],
             education=[{"institution": "TU Berlin", "degree": "B.Sc. Informatik"}],
-            skills=["Python"],
+            skills=[ParsedSkill(name="Python")],
             projects=[{"title": "Portfolio-Website", "description": "Persönliche Portfolio-Seite."}],
         )
 
@@ -231,7 +242,7 @@ class TestAnalyzeCvTextProjectsStructuralFailureFallback:
             "summary": None,
             "experiences": json.dumps([]),
             "education": json.dumps([]),
-            "skills": [],
+            "skills": json.dumps([]),
             "projects": json.dumps(
                 [
                     {

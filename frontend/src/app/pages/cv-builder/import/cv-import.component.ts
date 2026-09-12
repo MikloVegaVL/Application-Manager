@@ -13,6 +13,7 @@ import {
   createExperienceGroup,
   createProjectGroup,
   createSkillGroup,
+  DEFAULT_SKILL_CATEGORY,
   replaceArray,
 } from '../cv-section-forms.util';
 import { sectionsEqual } from '../cv-section-diff.util';
@@ -38,8 +39,8 @@ const SECTION_LABELS: Record<ImportSectionKey, string> = {
 };
 
 /** KTD5: Default-Kompetenzgrad für aus dem CV-Import übernommene Skills - die
- * KI liefert nur Namen (`ParsedCvProfile.skills: string[]`), nie einen
- * Kompetenzgrad (R7, bewusst dem Nutzer überlassen). */
+ * KI liefert keinen Kompetenzgrad (R7, bewusst dem Nutzer überlassen), kann
+ * aber bereits eine Kategorie (`ParsedSkill.category`) zuordnen. */
 const IMPORTED_SKILL_LEVEL: SkillEntry['level'] = 'Grundkenntnisse';
 
 /**
@@ -356,7 +357,11 @@ export class CvImportComponent {
       replaceArray(this.educationArray, parsed.education, (entry) => createEducationGroup(this.formBuilder, entry));
     }
     if (keys.includes('skills_json')) {
-      const skillEntries: SkillEntry[] = parsed.skills.map((name) => ({ name, level: IMPORTED_SKILL_LEVEL }));
+      const skillEntries: SkillEntry[] = parsed.skills.map((skill) => ({
+        name: skill.name,
+        level: IMPORTED_SKILL_LEVEL,
+        category: skill.category ?? DEFAULT_SKILL_CATEGORY,
+      }));
       replaceArray(this.skillsArray, skillEntries, (entry) => createSkillGroup(this.formBuilder, entry));
     }
     if (keys.includes('projects_json')) {

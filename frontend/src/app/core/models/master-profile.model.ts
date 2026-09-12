@@ -25,10 +25,18 @@ export interface EducationEntry {
  */
 export type SkillLevel = 'Grundkenntnisse' | 'Gut' | 'Sehr gut' | 'Experte';
 
-/** Entspricht `SkillEntry`: ein Skill mit Kompetenzgrad. */
+/**
+ * Entspricht `SkillCategory` im Backend: Skills werden für den CV nach
+ * Domäne gruppiert (statt einer langen, flachen Liste). `Other` ist der
+ * Fallback für nicht zuordenbare/Altdaten.
+ */
+export type SkillCategory = 'Frontend' | 'Backend' | 'Tools' | 'Soft Skills' | 'Other';
+
+/** Entspricht `SkillEntry`: ein Skill mit Kompetenzgrad und Kategorie. */
 export interface SkillEntry {
   name: string;
   level: SkillLevel;
+  category?: SkillCategory | null;
 }
 
 /**
@@ -92,12 +100,21 @@ export interface MasterProfileRead extends MasterProfile {
 }
 
 /**
+ * Entspricht `ParsedSkill` im Backend: ein per KI aus dem CV extrahierter
+ * Skill. Die KI leitet keinen Kompetenzgrad ab (R7) - das Frontend ergänzt
+ * beim Übernehmen einen Default -, kann aber bereits eine Kategorie zuordnen.
+ */
+export interface ParsedSkill {
+  name: string;
+  category?: SkillCategory | null;
+}
+
+/**
  * Entspricht `ParsedCvProfile`: Ergebnis von `POST /cv-builder/parse`.
  * `full_name`/`email`/`phone`/`address` sind reine Anzeigefelder für den
  * CV-Builder-Import (KTD1) - werden im Formular nur read-only dargestellt
- * und NIE in den Save-Payload (`PATCH /profile`) übernommen. `skills` sind
- * bewusst reine Strings (kein `SkillEntry[]`): die KI leitet keinen
- * Kompetenzgrad ab (R7), das Frontend ergänzt beim Übernehmen einen
+ * und NIE in den Save-Payload (`PATCH /profile`) übernommen. `skills` tragen
+ * keinen Kompetenzgrad (R7), das Frontend ergänzt beim Übernehmen einen
  * Default-Level.
  */
 export interface ParsedCvProfile {
@@ -108,7 +125,7 @@ export interface ParsedCvProfile {
   summary: string | null;
   experiences: ExperienceEntry[];
   education: EducationEntry[];
-  skills: string[];
+  skills: ParsedSkill[];
   projects: ProjectEntry[];
 }
 

@@ -29,12 +29,20 @@ describe('SkillsSectionComponent', () => {
     expect(component['skillLevels']).toEqual(['Grundkenntnisse', 'Gut', 'Sehr gut', 'Experte']);
   });
 
-  it('adds a skill with a name and level to the form array', () => {
+  it('offers the five skill categories used for CV grouping', () => {
+    expect(component['skillCategories']).toEqual(['Frontend', 'Backend', 'Tools', 'Soft Skills', 'Other']);
+  });
+
+  it('adds a skill with a name, level and the default category to the form array', () => {
     component.add();
     formArray.at(0).patchValue({ name: 'TypeScript', level: 'Experte' });
 
     expect(formArray.length).toBe(1);
-    expect(formArray.at(0).getRawValue()).toEqual({ name: 'TypeScript', level: 'Experte' });
+    expect(formArray.at(0).getRawValue()).toEqual({
+      name: 'TypeScript',
+      level: 'Experte',
+      category: 'Other',
+    });
   });
 
   it('removes a skill from the form array', () => {

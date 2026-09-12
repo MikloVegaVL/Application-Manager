@@ -61,7 +61,7 @@ def test_patch_profile_updates_only_sent_content_fields(client, tmp_path, monkey
     assert response.status_code == 200
     body = response.json()
     assert body["summary"] == "Erfahrener Entwickler"
-    assert body["skills_json"] == [{"name": "Python", "level": "Experte"}]
+    assert body["skills_json"] == [{"name": "Python", "level": "Experte", "category": None}]
     # Identitätsfelder bleiben unangetastet.
     assert body["full_name"] == "Max Mustermann"
     assert body["email"] == "max@example.com"
@@ -169,7 +169,7 @@ def test_patch_profile_partial_payload_leaves_other_fields_untouched(client, tmp
 
     assert response.status_code == 200
     body = response.json()
-    assert body["skills_json"] == [{"name": "SQL", "level": "Gut"}]
+    assert body["skills_json"] == [{"name": "SQL", "level": "Gut", "category": None}]
     assert body["summary"] == "Ursprüngliche Zusammenfassung"
     assert body["experiences_json"] == [
         {"company": "Acme", "role": "Entwickler", "start_date": "2020", "end_date": None, "description": None}

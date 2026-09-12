@@ -75,7 +75,7 @@ def _sanitize_filename_component(value: str) -> str:
     unkodiert enthalten (z. B. Umlaute), daher werden auch diese ersetzt statt
     nur klassische Pfadtrenner."""
     sanitized = re.sub(r"[^A-Za-z0-9_-]+", "_", value.strip())
-    return sanitized.strip("_") or "lebenslauf"
+    return sanitized.strip("_") or "resume"
 
 
 def _render_cv_for_current_profile(
@@ -162,7 +162,7 @@ def preview_cv(payload: CvRenderRequest, db: Session = Depends(get_db)) -> Strea
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": 'inline; filename="lebenslauf-vorschau.pdf"'},
+        headers={"Content-Disposition": 'inline; filename="resume-preview.pdf"'},
     )
 
 
@@ -171,7 +171,7 @@ def export_cv(payload: CvRenderRequest, db: Session = Depends(get_db)) -> Stream
     """Rendert den Lebenslauf aus dem aktuellen Formularinhalt als PDF und
     liefert es als Download (R11)."""
     pdf_bytes, profile = _render_cv_for_current_profile(payload, db, preview=False)
-    filename = f"lebenslauf_{_sanitize_filename_component(profile.full_name)}.pdf"
+    filename = f"resume_{_sanitize_filename_component(profile.full_name)}.pdf"
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",

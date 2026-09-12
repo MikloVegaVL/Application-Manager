@@ -6,6 +6,7 @@ import {
   LanguageEntry,
   MasterProfileRead,
   ProjectEntry,
+  SkillCategory,
   SkillEntry,
 } from '../../core/models/master-profile.model';
 
@@ -38,6 +39,13 @@ export function createEducationGroup(fb: FormBuilder, entry?: EducationEntry): F
   });
 }
 
+/** Die Kategorien, nach denen der CV Skills gruppiert (siehe `SkillCategory`
+ * im Backend). `Other` ist der Default für neue bzw. nicht zugeordnete
+ * Skills - so ist das Kategorie-Feld nie leer und der Vergleich gegen den
+ * gespeicherten Stand bleibt stabil. */
+export const SKILL_CATEGORIES: SkillCategory[] = ['Frontend', 'Backend', 'Tools', 'Soft Skills', 'Other'];
+export const DEFAULT_SKILL_CATEGORY: SkillCategory = 'Other';
+
 /** KTD5: Default-Kompetenzgrad, den die Skills-Migration (U1) jedem
  * bestehenden Skill zuweist, sowie der Default für neu hinzugefügte bzw.
  * per CV-Import übernommene Skills (R7: die KI liefert keinen Kompetenzgrad). */
@@ -45,6 +53,7 @@ export function createSkillGroup(fb: FormBuilder, entry?: SkillEntry): FormGroup
   return fb.nonNullable.group({
     name: [entry?.name ?? '', Validators.required],
     level: [entry?.level ?? 'Grundkenntnisse', Validators.required],
+    category: [entry?.category ?? DEFAULT_SKILL_CATEGORY, Validators.required],
   });
 }
 
@@ -92,7 +101,13 @@ export function normalizeProfileSections(profile: MasterProfileRead): MasterProf
     ...profile,
     experiences_json: profile.experiences_json ?? [],
     education_json: profile.education_json ?? [],
-    skills_json: profile.skills_json ?? [],
+    // Skills ohne Kategorie (Altdaten) auf den Form-Default normalisieren -
+    // sonst vergleicht `sectionsEqual` ein `null` gegen das `Other` des
+    // Formulars und meldet fälschlich ungespeicherte Änderungen.
+    skills_json: (profile.skills_json ?? []).map((skill) => ({
+      ...skill,
+      category: skill.category ?? DEFAULT_SKILL_CATEGORY,
+    })),
     languages_json: profile.languages_json ?? [],
     projects_json: profile.projects_json ?? [],
   };

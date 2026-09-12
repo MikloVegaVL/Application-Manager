@@ -19,7 +19,7 @@ import {
 } from '../../../core/models/master-profile.model';
 import { ProfileService } from '../../../core/services/profile.service';
 
-const DEFAULT_EXPORT_FILENAME = 'lebenslauf.pdf';
+const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
 
 /**
  * Vorschau & Export-Sektion des CV Builders (R9-R11, U9).

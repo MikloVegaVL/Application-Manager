@@ -103,6 +103,64 @@ def _photo_file_uri(photo_path: str | Path | None) -> str | None:
     return path.resolve().as_uri()
 
 
+# Sortierschlüssel für den repräsentativen Kompetenzgrad einer Skill-Gruppe
+# (der höchste in der Gruppe vertretene Grad bestimmt die Balkenlänge).
+_SKILL_LEVEL_ORDER: dict[str, int] = {
+    "Grundkenntnisse": 0,
+    "Gut": 1,
+    "Sehr gut": 2,
+    "Experte": 3,
+}
+
+# Englische Anzeige-Labels für die intern deutsch gehaltenen `SkillLevel`-
+# Werte: der CV wird immer auf Englisch erzeugt (die Enum-Werte bleiben
+# unverändert, damit Schema/Migration/Frontend-Formular stabil bleiben).
+_SKILL_LEVEL_LABELS_EN: dict[str, str] = {
+    "Grundkenntnisse": "Basic",
+    "Gut": "Good",
+    "Sehr gut": "Very good",
+    "Experte": "Expert",
+}
+
+# Fallback-Kategorie für Skills ohne (oder mit unbekannter) `category` -
+# insbesondere Altdaten aus der Zeit vor der Kategorie-Einführung.
+_OTHER_SKILL_CATEGORY = "Other"
+
+
+def group_skills(skills: list[Any]) -> list[dict[str, Any]]:
+    """Gruppiert Skills nach `category` für die CV-Vorlagen.
+
+    Statt einer langen, flachen Liste rendert jede Vorlage je Kategorie eine
+    kompakte Zeile (siehe R9-Folge). Die Gruppen behalten die Reihenfolge des
+    ersten Auftretens bei; Skills ohne `category` landen in einer
+    `Other`-Gruppe. `level` ist der höchste in der Gruppe vertretene
+    Kompetenzgrad - die Vorlagen nutzen ihn als Balkenlänge (das per-Skill-
+    Niveau wird zugunsten der kompakten Darstellung nicht einzeln gezeigt);
+    `level_label` ist die englische Anzeigeform davon.
+    """
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for skill in skills:
+        entry = _entry_dict(skill)
+        category = entry.get("category") or _OTHER_SKILL_CATEGORY
+        groups.setdefault(category, []).append(entry)
+
+    grouped: list[dict[str, Any]] = []
+    for category, entries in groups.items():
+        representative = max(
+            entries, key=lambda entry: _SKILL_LEVEL_ORDER.get(entry.get("level"), 0)
+        )
+        level = representative.get("level")
+        grouped.append(
+            {
+                "category": category,
+                "skills": entries,
+                "level": level,
+                "level_label": _SKILL_LEVEL_LABELS_EN.get(level, level or ""),
+            }
+        )
+    return grouped
+
+
 def render_cv_pdf(
     *,
     template_id: str,
@@ -140,6 +198,11 @@ def render_cv_pdf(
     if preview and sample is None:
         sample = SAMPLE
 
+    sample_skill_groups = (
+        group_skills(list(sample.get("skills", []))) if (preview and sample) else []
+    )
+    skill_groups = group_skills(skills)
+
     experiences_ctx = [
         {**_entry_dict(exp), "date_range": _format_date_range(exp.start_date, exp.end_date)}
         for exp in experiences
@@ -163,6 +226,8 @@ def render_cv_pdf(
         experiences=experiences_ctx,
         education=education_ctx,
         skills=[_entry_dict(skill) for skill in skills],
+        skill_groups=skill_groups,
+        sample_skill_groups=sample_skill_groups,
         languages=[_entry_dict(lang) for lang in languages],
         projects=projects_ctx,
         photo_url=_photo_file_uri(photo_path),

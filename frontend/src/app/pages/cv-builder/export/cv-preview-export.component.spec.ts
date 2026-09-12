@@ -299,7 +299,7 @@ describe('CvPreviewExportComponent', () => {
       .flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
     fixture.detectChanges();
 
-    expect(downloadedFilename).toBe('lebenslauf.pdf');
+    expect(downloadedFilename).toBe('resume.pdf');
   });
 
   it('shows an error message when export fails', () => {

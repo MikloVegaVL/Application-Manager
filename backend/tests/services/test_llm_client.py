@@ -61,7 +61,7 @@ VALID_PROFILE = {
         }
     ],
     "education": [],
-    "skills": ["Python"],
+    "skills": [{"name": "Python", "category": "Backend"}],
 }
 
 
@@ -291,7 +291,7 @@ class TestStructuralFailureFallback:
                 ]
             ),
             "education": json.dumps([]),
-            "skills": ["Python"],
+            "skills": json.dumps([{"name": "Python", "category": "Backend"}]),
         }
 
         mock_client.chat.side_effect = [
@@ -307,7 +307,8 @@ class TestStructuralFailureFallback:
         assert len(result.experiences) == 1
         assert result.experiences[0].company == "Acme GmbH"
         assert result.education == []
-        assert result.skills == ["Python"]
+        assert result.skills[0].name == "Python"
+        assert result.skills[0].category == "Backend"
         assert mock_client.chat.call_count == 3
 
         # Der dritte Aufruf muss gegen ein anderes (abgeflachtes) Schema

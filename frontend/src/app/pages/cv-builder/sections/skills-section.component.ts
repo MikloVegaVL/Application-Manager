@@ -8,7 +8,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 
 import { SkillEntry, SkillLevel } from '../../../core/models/master-profile.model';
-import { createSkillGroup } from '../cv-section-forms.util';
+import { createSkillGroup, SKILL_CATEGORIES } from '../cv-section-forms.util';
 
 /**
  * KTD3: die vier zulässigen Kompetenzgrade, identisch zu
@@ -63,6 +63,15 @@ const MIGRATION_DEFAULT_LEVEL: SkillLevel = 'Grundkenntnisse';
             <input matInput formControlName="name" />
           </mat-form-field>
 
+          <mat-form-field appearance="outline" class="skill-row__category">
+            <mat-label>Kategorie</mat-label>
+            <mat-select formControlName="category">
+              @for (category of skillCategories; track category) {
+                <mat-option [value]="category">{{ category }}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+
           <mat-form-field appearance="outline" class="skill-row__level">
             <mat-label>Niveau</mat-label>
             <mat-select formControlName="level">
@@ -115,11 +124,12 @@ const MIGRATION_DEFAULT_LEVEL: SkillLevel = 'Grundkenntnisse';
 
     .skill-row {
       display: grid;
-      grid-template-columns: 2fr 1fr auto;
+      grid-template-columns: 2fr 1fr 1fr auto;
       align-items: start;
       column-gap: 12px;
 
       &__name,
+      &__category,
       &__level {
         width: 100%;
       }
@@ -152,9 +162,10 @@ export class SkillsSectionComponent {
   private readonly changeDetectorRef = inject(ChangeDetectorRef);
 
   protected readonly skillLevels = SKILL_LEVELS;
+  protected readonly skillCategories = SKILL_CATEGORIES;
   protected readonly migrationDefaultLevel = MIGRATION_DEFAULT_LEVEL;
 
-  /** FormArray von Skill-FormGroups (`{ name, level }`), verwaltet von der Elternform. */
+  /** FormArray von Skill-FormGroups (`{ name, level, category }`), verwaltet von der Elternform. */
   @Input({ required: true }) formArray!: FormArray<FormGroup>;
 
   createGroup(entry?: SkillEntry): FormGroup {

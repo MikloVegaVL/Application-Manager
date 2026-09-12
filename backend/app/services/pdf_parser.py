@@ -29,58 +29,67 @@ logger = logging.getLogger(__name__)
 _MAX_INPUT_CHARS = 15_000
 
 _SYSTEM_PROMPT = """\
-Du bist ein präziser Assistent, der Lebensläufe (CVs) analysiert und deren \
-Inhalt in strukturiertes JSON überführt.
+You are a precise assistant that analyses résumés (CVs) and turns their \
+content into structured JSON.
 
-Antworte AUSSCHLIESSLICH mit einem JSON-Objekt exakt in folgender Form \
-(keine Erklärtexte, kein Markdown, keine Code-Fences):
+Answer EXCLUSIVELY with a JSON object in exactly the following shape \
+(no prose, no markdown, no code fences):
 
 {
-  "full_name": "Vollständiger Name oder null",
-  "email": "E-Mail-Adresse oder null",
-  "phone": "Telefonnummer oder null",
-  "address": "Postanschrift oder null",
-  "summary": "Kurzes berufliches Profil/Zusammenfassung (2-4 Sätze) oder null",
+  "full_name": "Full name or null",
+  "email": "Email address or null",
+  "phone": "Phone number or null",
+  "address": "Postal address or null",
+  "summary": "Short professional profile/summary (2-4 sentences) or null",
   "experiences": [
     {
-      "company": "Firmenname",
-      "role": "Positions-/Jobtitel",
-      "start_date": "z. B. 2020-01 oder 2020, oder null",
-      "end_date": "z. B. 2023-06, oder null falls aktuelle Position",
-      "description": "Kurzbeschreibung der Tätigkeiten/Erfolge, oder null"
+      "company": "Company name",
+      "role": "Position/job title",
+      "start_date": "e.g. 2020-01 or 2020, or null",
+      "end_date": "e.g. 2023-06, or null for a current position",
+      "description": "Short description of responsibilities/achievements, or null"
     }
   ],
   "education": [
     {
-      "institution": "Name der Bildungseinrichtung",
-      "degree": "Abschluss, z. B. 'B.Sc. Informatik'",
-      "field_of_study": "Studienfach/Schwerpunkt, oder null",
-      "start_date": "oder null",
-      "end_date": "oder null"
+      "institution": "Name of the educational institution",
+      "degree": "Degree, e.g. 'B.Sc. Computer Science'",
+      "field_of_study": "Field of study/specialisation, or null",
+      "start_date": "or null",
+      "end_date": "or null"
     }
   ],
-  "skills": ["Skill 1", "Skill 2"],
+  "skills": [
+    {
+      "name": "Skill name",
+      "category": "Frontend | Backend | Tools | Soft Skills | Other"
+    }
+  ],
   "projects": [
     {
-      "title": "Projektname",
-      "description": "Kurzbeschreibung des Projekts",
-      "start_date": "z. B. 2020-01 oder 2020, oder null",
-      "end_date": "z. B. 2023-06, oder null falls laufend",
-      "link": "URL zum Projekt (z. B. GitHub, Portfolio), oder null"
+      "title": "Project name",
+      "description": "Short project description",
+      "start_date": "e.g. 2020-01 or 2020, or null",
+      "end_date": "e.g. 2023-06, or null if ongoing",
+      "link": "URL to the project (e.g. GitHub, portfolio), or null"
     }
   ]
 }
 
-Regeln:
-- Erfinde keine Informationen, die nicht im Text stehen.
-- Fehlende Felder werden als null (bzw. leere Liste für Arrays) gesetzt.
-- "skills" enthält sowohl fachliche (z. B. Programmiersprachen, Tools) als \
-auch Sprachkenntnisse/Zertifikate als einzelne kurze Strings.
-- "projects" enthält eigenständige Projekte (z. B. Open-Source-, Studien-, \
-Portfolio- oder Nebenprojekte), NICHT die regulären Stationen aus \
-"experiences".
-- Antworte auf Deutsch, außer der Lebenslauf ist eindeutig auf Englisch \
-verfasst - dann bleibe bei den Originalbegriffen.
+Rules:
+- Do not invent information that is not in the text.
+- Missing fields are set to null (or an empty list for arrays).
+- ALWAYS write all generated text values (summary, descriptions, roles, \
+degrees, skill names, project titles) in ENGLISH, even if the source CV is \
+written in another language. Translate as needed; keep proper nouns \
+(company/institution names, product names, URLs) unchanged.
+- "skills" contains both technical skills (e.g. programming languages, tools) \
+and language skills/certificates as individual short strings.
+- Assign every skill a "category" from exactly this set: "Frontend", \
+"Backend", "Tools", "Soft Skills", "Other". Use "Other" when none of the \
+other categories fits.
+- "projects" contains standalone projects (e.g. open-source, study, \
+portfolio or side projects), NOT the regular positions from "experiences".
 """
 
 

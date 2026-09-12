@@ -145,6 +145,80 @@ class TestRenderCvPdfTemplateContent:
             url_fetcher("https://example.com/x.png")
 
 
+class TestGroupSkills:
+    """`group_skills` verdichtet die flache Skill-Liste zu Kategorien (siehe
+    R9-Folge) - eine lange Liste wird so auf wenige Zeilen reduziert."""
+
+    def test_groups_by_category_preserving_first_appearance(self):
+        groups = pdf_service.group_skills(
+            [
+                SkillEntry(name="Angular", level="Experte", category="Frontend"),
+                SkillEntry(name="Python", level="Gut", category="Backend"),
+                SkillEntry(name="React", level="Gut", category="Frontend"),
+            ]
+        )
+
+        assert [group["category"] for group in groups] == ["Frontend", "Backend"]
+        assert [skill["name"] for skill in groups[0]["skills"]] == ["Angular", "React"]
+
+    def test_group_level_is_the_highest_in_the_group_and_gets_an_english_label(self):
+        groups = pdf_service.group_skills(
+            [
+                SkillEntry(name="A", level="Grundkenntnisse", category="Tools"),
+                SkillEntry(name="B", level="Experte", category="Tools"),
+                SkillEntry(name="C", level="Gut", category="Tools"),
+            ]
+        )
+
+        assert groups[0]["level"] == "Experte"
+        assert groups[0]["level_label"] == "Expert"
+
+    def test_skills_without_a_category_fall_into_other(self):
+        groups = pdf_service.group_skills([SkillEntry(name="Legacy", level="Gut")])
+
+        assert groups[0]["category"] == "Other"
+        assert groups[0]["level_label"] == "Good"
+
+    def test_empty_skill_list_yields_no_groups(self):
+        assert pdf_service.group_skills([]) == []
+
+
+class TestMultiPageFragmentation:
+    def test_template_1_keeps_the_name_on_page_1_when_the_sidebar_overflows(self):
+        """Regression (ce-debug, 2026-09-12): Template 1 nutzte `display:flex`
+        für die zwei Spalten. WeasyPrint fragmentiert ein Row-Flex-Container
+        nicht seitenweise - eine Sidebar, die länger als eine Seite ist, schob
+        die komplette Hauptspalte inkl. Name auf Seite 2. `display:table`
+        hält beide Spalten ab Seite 1 nebeneinander."""
+        content = _empty_content()
+        content["summary"] = "Summary text that belongs on the first page."
+        # Sidebar-Inhalt deutlich über eine Seite hinaus (Sprachen + Ausbildung).
+        content["languages"] = [
+            LanguageEntry(name=f"Language {i}", level="B2") for i in range(60)
+        ]
+        content["education"] = [
+            EducationEntry(
+                institution=f"University {i}",
+                degree="B.Sc.",
+                field_of_study="Computer Science",
+                start_date="2010",
+                end_date="2014",
+            )
+            for i in range(40)
+        ]
+
+        pdf_bytes = pdf_service.render_cv_pdf(template_id="template-1", **content)
+
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        reader = PdfReader(BytesIO(pdf_bytes))
+        assert len(reader.pages) > 1
+        first_page_text = reader.pages[0].extract_text() or ""
+        assert "erika musterfrau" in first_page_text.lower()
+
+
 class TestRenderCvPdfErrorHandling:
     def test_unknown_template_id_raises(self):
         with pytest.raises(Exception):
@@ -176,15 +250,15 @@ class TestRenderCvPdfPreviewMode:
     def test_preview_renders_all_canonical_sections(self, mocker, template_id):
         rendered = self._capture(mocker, template_id=template_id, preview=True, **_empty_content())
 
-        for heading in ("Profil", "Berufserfahrung", "Ausbildung", "Skills", "Sprachen", "Projekte"):
+        for heading in ("Profile", "Experience", "Education", "Skills", "Languages", "Projects"):
             assert heading in rendered
 
     @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
     def test_preview_fills_empty_sections_with_muted_sample_content(self, mocker, template_id):
         rendered = self._capture(mocker, template_id=template_id, preview=True, **_empty_content())
 
-        assert "Erfahrene Fachkraft" in rendered
-        assert "Beispiel GmbH" in rendered
+        assert "Experienced professional" in rendered
+        assert "Example GmbH" in rendered
         assert 'class="ph"' in rendered
 
     def test_export_omits_sample_content_even_when_a_sample_is_passed(self, mocker):
@@ -196,10 +270,10 @@ class TestRenderCvPdfPreviewMode:
             **_empty_content(),
         )
 
-        assert "Beispiel GmbH" not in rendered
-        assert "Berufserfahrung" not in rendered
-        # R9: auch die leere `Profil`-Überschrift fehlt im Export.
-        assert "Profil" not in rendered
+        assert "Example GmbH" not in rendered
+        assert "Experience" not in rendered
+        # R9: auch die leere `Profile`-Überschrift fehlt im Export.
+        assert "Profile" not in rendered
 
     def test_preview_keeps_real_entry_and_fills_only_a_blank_sub_field(self, mocker):
         content = _empty_content()
@@ -217,7 +291,7 @@ class TestRenderCvPdfPreviewMode:
 
         assert "Acme GmbH" in rendered
         assert "Entwickler" in rendered
-        assert "Beschreibung der Tätigkeit" in rendered
+        assert "Description of the role" in rendered
 
     @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
     def test_berufsbezeichnung_renders_under_the_name(self, mocker, template_id):

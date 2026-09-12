@@ -13,12 +13,22 @@ SkillLevel = Literal["Grundkenntnisse", "Gut", "Sehr gut", "Experte"]
 # (A1-C2), kein bespoke-Design nötig.
 LanguageLevel = Literal["A1", "A2", "B1", "B2", "C1", "C2"]
 
+# Gruppierung der Skills für den CV (R9-Folge): statt einer langen, flachen
+# Liste wird je Kategorie eine kompakte Zeile gerendert (siehe
+# `app.services.pdf_service.group_skills`). Fixer, geschlossener Wertebereich
+# wie bei `SkillLevel`/`LanguageLevel` - die KI ordnet beim CV-Parsen eine
+# dieser Kategorien zu, das Frontend bietet dieselben Optionen an.
+# `Other` ist der Fallback für nicht zuordenbare oder noch nicht kategorisierte
+# Skills (z. B. Altdaten ohne `category`).
+SkillCategory = Literal["Frontend", "Backend", "Tools", "Soft Skills", "Other"]
+
 
 class SkillEntry(BaseModel):
-    """Ein Skill mit Kompetenzgrad (siehe KTD3)."""
+    """Ein Skill mit Kompetenzgrad und optionaler Kategorie (siehe KTD3)."""
 
     name: str = Field(..., max_length=255)
     level: SkillLevel
+    category: SkillCategory | None = None
 
 
 class LanguageEntry(BaseModel):
@@ -138,6 +148,19 @@ class MasterProfileRead(MasterProfileBase):
     updated_at: datetime
 
 
+class ParsedSkill(BaseModel):
+    """Ein per KI aus dem CV extrahierter Skill (siehe `ParsedCvProfile`).
+
+    Anders als das gespeicherte `SkillEntry` trägt ein geparster Skill noch
+    keinen Kompetenzgrad - den leitet die KI bewusst nicht ab (R7), das
+    Frontend ergänzt beim Übernehmen einen Default. Die Kategorie hingegen
+    kann die KI bereits zuordnen, damit die CV-Vorlage Skills gruppieren kann.
+    """
+
+    name: str = Field(..., max_length=255)
+    category: SkillCategory | None = None
+
+
 class ParsedCvProfile(BaseModel):
     """Ergebnis der KI-gestützten CV-Analyse (siehe `app.services.pdf_parser`).
 
@@ -159,7 +182,7 @@ class ParsedCvProfile(BaseModel):
     summary: str | None = None
     experiences: list[ExperienceEntry] = Field(default_factory=list)
     education: list[EducationEntry] = Field(default_factory=list)
-    skills: list[str] = Field(default_factory=list)
+    skills: list[ParsedSkill] = Field(default_factory=list)
     projects: list[ProjectEntry] = Field(default_factory=list)
 
 

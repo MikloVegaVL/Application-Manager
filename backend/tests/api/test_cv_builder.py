@@ -110,7 +110,7 @@ def test_parse_cv_with_full_data_returns_no_warnings(client, mocker):
             {"company": "Acme GmbH", "role": "Entwickler", "start_date": "2020", "end_date": None}
         ],
         education=[{"institution": "TU Berlin", "degree": "B.Sc. Informatik"}],
-        skills=["Python"],
+        skills=[{"name": "Python", "category": "Backend"}],
         projects=[{"title": "Portfolio-Website", "description": "Persönliche Portfolio-Seite."}],
     )
 
@@ -127,6 +127,9 @@ def test_parse_cv_with_full_data_returns_no_warnings(client, mocker):
     assert len(body["parsed"]["experiences"]) == 1
     assert len(body["parsed"]["projects"]) == 1
     assert body["parsed"]["projects"][0]["title"] == "Portfolio-Website"
+    # Skills kommen als Objekte mit optionaler Kategorie zurück (R9-Folge),
+    # nicht mehr als reine Strings.
+    assert body["parsed"]["skills"] == [{"name": "Python", "category": "Backend"}]
 
 
 def test_parse_cv_with_no_identifiable_project_returns_empty_list_and_warning(client, mocker):
@@ -136,7 +139,7 @@ def test_parse_cv_with_no_identifiable_project_returns_empty_list_and_warning(cl
         experiences=[{"company": "Acme GmbH", "role": "Entwickler"}],
         education=[{"institution": "TU Berlin", "degree": "B.Sc. Informatik"}],
         summary="Erfahrener Entwickler.",
-        skills=["Python"],
+        skills=[{"name": "Python", "category": "Backend"}],
         projects=[],
     )
 
@@ -154,7 +157,7 @@ def test_parse_cv_with_missing_experience_and_education_reports_warnings(client,
         email="max@example.com",
         experiences=[],
         education=[],
-        skills=["Python"],
+        skills=[{"name": "Python", "category": "Backend"}],
         projects=[],
     )
 

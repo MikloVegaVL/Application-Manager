@@ -1,14 +1,14 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Lebenslauf - {{ full_name }}</title>
+<title>Resume - {{ full_name }}</title>
 <style>
   @page {
     size: A4;
     margin: 2.2cm;
     @bottom-center {
-      content: "Seite " counter(page) " von " counter(pages);
+      content: "Page " counter(page) " of " counter(pages);
       font-size: 8pt;
       color: #999;
     }
@@ -83,7 +83,8 @@
   .entry__link { font-size: 9pt; color: #666; }
 
   .tags { margin: 0; padding: 0; list-style: none; }
-  .tags li { margin-bottom: 1mm; }
+  .tags li { margin-bottom: 1.5mm; }
+  .tag__category { font-weight: 700; }
   .tag__level { color: #777; }
 </style>
 </head>
@@ -91,9 +92,9 @@
   <section class="cv">
     <div class="header">
       {% if photo_url %}
-      <img class="photo" src="{{ photo_url }}" alt="Profilfoto">
+      <img class="photo" src="{{ photo_url }}" alt="Profile photo">
       {% elif preview %}
-      <div class="photo photo--placeholder">Foto</div>
+      <div class="photo photo--placeholder">Photo</div>
       {% endif %}
       <div class="header__text">
         <h1 class="header__name">{{ full_name }}</h1>
@@ -114,7 +115,7 @@
         </div>
         <div class="dash"></div>
         {% if summary or preview %}
-        <h2 class="sec-label" style="margin-top: 4mm">Profil</h2>
+        <h2 class="sec-label" style="margin-top: 4mm">Profile</h2>
         <div class="rule"></div>
         {% endif %}
       </div>
@@ -126,7 +127,7 @@
 
     {% if experiences or preview %}
     <div class="section">
-      <div><h2 class="sec-label">Berufserfahrung</h2><div class="rule"></div></div>
+      <div><h2 class="sec-label">Experience</h2><div class="rule"></div></div>
       <div class="main">
         {% set exp_list = experiences if experiences else sample.experiences %}
         {% set exp_sample = not experiences %}
@@ -146,7 +147,7 @@
 
     {% if education or preview %}
     <div class="section">
-      <div><h2 class="sec-label">Ausbildung</h2><div class="rule"></div></div>
+      <div><h2 class="sec-label">Education</h2><div class="rule"></div></div>
       <div class="main">
         {% set edu_list = education if education else sample.education %}
         {% set edu_sample = not education %}
@@ -166,10 +167,15 @@
     <div class="section">
       <div><h2 class="sec-label">Skills</h2><div class="rule"></div></div>
       <div class="main">
-        {% set skill_list = skills if skills else sample.skills %}
-        <ul class="tags{% if not skills %} ph{% endif %}">
-          {% for skill in skill_list %}
-          <li>{{ skill.name }} <span class="tag__level">&mdash; {{ skill.level }}</span></li>
+        {% set group_list = skill_groups if skills else sample_skill_groups %}
+        {% set group_sample = not skills %}
+        <ul class="tags{% if group_sample %} ph{% endif %}">
+          {% for group in group_list %}
+          <li>
+            <span class="tag__category">{{ group.category }}</span>:
+            {{ group.skills | map(attribute='name') | join(', ') }}
+            <span class="tag__level">&mdash; {{ group.level_label }}</span>
+          </li>
           {% endfor %}
         </ul>
       </div>
@@ -178,7 +184,7 @@
 
     {% if languages or preview %}
     <div class="section">
-      <div><h2 class="sec-label">Sprachen</h2><div class="rule"></div></div>
+      <div><h2 class="sec-label">Languages</h2><div class="rule"></div></div>
       <div class="main">
         {% set lang_list = languages if languages else sample.languages %}
         <ul class="tags{% if not languages %} ph{% endif %}">
@@ -192,7 +198,7 @@
 
     {% if projects or preview %}
     <div class="section">
-      <div><h2 class="sec-label">Projekte</h2><div class="rule"></div></div>
+      <div><h2 class="sec-label">Projects</h2><div class="rule"></div></div>
       <div class="main">
         {% set project_list = projects if projects else sample.projects %}
         {% set project_sample = not projects %}
