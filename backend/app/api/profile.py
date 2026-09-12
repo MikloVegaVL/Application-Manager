@@ -1,6 +1,11 @@
-"""API-Router für das Master-Profil (Stammdaten, Werdegang, Skills) inkl.
-KI-gestütztem CV-Import, der Lebenslauf-Anhang-Datei sowie bis zu drei
-zusätzlichen PDF-Anhängen fürs E-Mail-Versenden."""
+"""API-Router für das Master-Profil (Stammdaten, Werdegang, Skills), die
+Lebenslauf-Anhang-Datei, das Profilfoto sowie bis zu drei zusätzlichen
+PDF-Anhängen fürs E-Mail-Versenden.
+
+Der frühere KI-gestützte CV-Import (`POST /profile/upload-cv`) ist mit U3
+entfallen - sein Nachfolger ist der reine Parse-Vorschau-Endpunkt
+`POST /cv-builder/parse` (siehe `app.api.cv_builder`), der nichts mehr
+direkt in die Datenbank schreibt (R6)."""
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -11,14 +16,17 @@ from app.core.config import settings
 from app.db.database import get_db
 from app.models.master_profile import MasterProfile
 from app.models.profile_attachment import ProfileAttachment
-from app.schemas.master_profile import (
-    CvUploadResponse,
-    MasterProfileCreate,
-    MasterProfileRead,
-)
-from app.services.pdf_parser import CvAnalysisError, ParsedCvProfile, PdfParsingError, parse_cv_pdf
+from app.schemas.master_profile import MasterProfileCreate, MasterProfileRead, MasterProfileUpdate
+from app.services.file_validation import _iter_file, _require_pdf
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
+
+# Detail-Text für alle 404-Fälle "es existiert noch kein `MasterProfile`"
+# (siehe u. a. `get_profile`, `update_profile_content`, `upload_cv_file`,
+# `upload_photo`, `upload_attachment` unten sowie
+# `app.api.cv_builder._render_cv_for_current_profile`) - an einer Stelle
+# gepflegt statt als mehrfach dupliziertes String-Literal.
+_NO_PROFILE_DETAIL = "Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen."
 
 # Maximale Anzahl zusätzlicher PDF-Anhänge (siehe `ProfileAttachment`) - über
 # den Lebenslauf hinaus, der weiterhin separat über `cv-file` verwaltet wird.
@@ -43,52 +51,59 @@ def _attachment_file_path_for(profile_id: int, attachment_id: int) -> Path:
     return Path(settings.PROFILE_FILES_DIR) / f"attachment_{profile_id}_{attachment_id}.pdf"
 
 
-def _require_pdf(file: UploadFile) -> bytes:
-    """Gemeinsame Validierung für alle PDF-Uploads dieses Routers: nur PDF,
-    nicht leer. Wirft `HTTPException` bei Verstoß, sonst die gelesenen Bytes."""
-    is_pdf = file.content_type == "application/pdf" or (file.filename or "").lower().endswith(".pdf")
-    if not is_pdf:
+def _photo_path_for(profile_id: int, ext: str) -> Path:
+    # Mirrors `_cv_file_path_for` exakt (KTD4) - die Dateiendung ist Teil des
+    # Dateinamens, damit ein Formatwechsel (z. B. JPEG -> PNG) unter einem
+    # anderen Pfad landet und `upload_photo` die alte Datei erkennen kann.
+    return Path(settings.PROFILE_FILES_DIR) / f"photo_{profile_id}.{ext}"
+
+
+# Erlaubte Profilfoto-Formate (KTD4): Content-Type -> (Magic-Bytes-Präfix,
+# Dateiendung). Die Magic-Bytes werden zusätzlich zum Content-Type-Header
+# geprüft, da der Header allein vom Client frei gesetzt wird und damit eine
+# z. B. als "image/png" deklarierte, tatsächlich andersartige Datei
+# durchrutschen könnte.
+_IMAGE_FORMATS: dict[str, tuple[bytes, str]] = {
+    "image/jpeg": (b"\xff\xd8\xff", "jpg"),
+    "image/png": (b"\x89PNG", "png"),
+}
+_IMAGE_MEDIA_TYPES: dict[str, str] = {ext: content_type for content_type, (_, ext) in _IMAGE_FORMATS.items()}
+
+# 5 MB Obergrenze für Profilfoto-Uploads (KTD4).
+MAX_PHOTO_SIZE_BYTES = 5 * 1024 * 1024
+
+
+def _require_image(file: UploadFile) -> tuple[bytes, str]:
+    """Validierung für Profilfoto-Uploads (siehe `_require_pdf` oben für das
+    analoge PDF-Pendant): nur JPEG/PNG, per Magic-Bytes gegen den
+    Client-Content-Type abgesichert, nicht leer, max. 5 MB (KTD4). Wirft
+    `HTTPException` (422) bei Verstoß, sonst (gelesene Bytes, Dateiendung)."""
+    image_format = _IMAGE_FORMATS.get(file.content_type or "")
+    if image_format is None:
         raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Nur PDF-Dateien werden unterstützt.",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Nur JPEG- oder PNG-Bilder werden unterstützt.",
         )
+    magic_bytes, ext = image_format
 
     file_bytes = file.file.read()
     if not file_bytes:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Die hochgeladene Datei ist leer.",
         )
-    return file_bytes
+    if len(file_bytes) > MAX_PHOTO_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Die Datei ist zu groß (maximal 5 MB).",
+        )
+    if not file_bytes.startswith(magic_bytes):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Der Dateiinhalt entspricht nicht dem angegebenen Bildformat.",
+        )
 
-
-def _iter_file(path: Path, chunk_size: int = 65_536):
-    """Streamt eine Datei chunkweise (gemeinsam genutzt von den
-    `cv-file`- und `attachments`-Download-Routen)."""
-    with path.open("rb") as f:
-        while chunk := f.read(chunk_size):
-            yield chunk
-
-
-# Felder, für die eine leere KI-Antwort dem Nutzer als Warnung gemeldet wird
-# (siehe CvUploadResponse.warnings) - bewusst nur die inhaltlich substanziellen
-# Felder, nicht Telefon/Adresse, die auf vielen Lebensläufen legitim fehlen.
-_WARNING_LABELS: dict[str, str] = {
-    "summary": "Kein Kurzprofil/Zusammenfassung gefunden.",
-    "experiences": "Keine Berufserfahrung gefunden - vorhandene Angaben blieben unverändert.",
-    "education": "Keine Ausbildung gefunden - vorhandene Angaben blieben unverändert.",
-    "skills": "Keine Skills gefunden.",
-}
-
-
-def _missing_field_warnings(parsed: ParsedCvProfile) -> list[str]:
-    """Baut die Warnungsliste für `CvUploadResponse` (siehe ce-debug-
-    Untersuchung, 2026-08-18): `upload_cv` übernimmt ein Feld nur, wenn die KI
-    dafür etwas gefunden hat, damit ein unvollständiger Parse ein bereits
-    gepflegtes Profil nicht mit leeren Werten überschreibt - das blieb bisher
-    aber komplett unsichtbar für den Nutzer, der einen unbedingten Erfolg
-    sah, obwohl z. B. keine Berufserfahrung übernommen wurde."""
-    return [message for field, message in _WARNING_LABELS.items() if not getattr(parsed, field)]
+    return file_bytes, ext
 
 
 @router.get("", response_model=MasterProfileRead)
@@ -99,7 +114,7 @@ def get_profile(db: Session = Depends(get_db)) -> MasterProfile:
     if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
+            detail=_NO_PROFILE_DETAIL,
         )
     return profile
 
@@ -123,71 +138,58 @@ def upsert_profile(payload: MasterProfileCreate, db: Session = Depends(get_db)) 
     return profile
 
 
-@router.post("/upload-cv", response_model=CvUploadResponse)
-def upload_cv(
-    file: UploadFile = File(..., description="Lebenslauf als PDF-Datei"),
-    db: Session = Depends(get_db),
-) -> CvUploadResponse:
-    """Nimmt eine Lebenslauf-PDF entgegen, extrahiert den Text und lässt die KI
-    (via Ollama) daraus ein strukturiertes Profil ableiten.
+# Identitätsfelder bleiben exklusiv `PUT /profile` vorbehalten (KTD2) - der
+# CV-Builder darf sie über `PATCH /profile` nicht mitändern, selbst wenn er
+# sie (versehentlich) im Payload mitschickt.
+_IDENTITY_FIELDS = {"full_name", "email", "phone", "address"}
 
-    Existiert noch kein Profil, wird eines angelegt (dafür müssen mindestens
-    Name und E-Mail aus dem CV extrahierbar sein). Existiert bereits ein
-    Profil, werden nur Felder überschrieben/ergänzt, die die KI tatsächlich
-    im Lebenslauf gefunden hat - vorhandene Daten gehen nicht verloren, aber
-    die Antwort benennt in `warnings`, welche Felder deshalb NICHT übernommen
-    wurden (siehe CvUploadResponse).
+
+@router.patch("", response_model=MasterProfileRead)
+def update_profile_content(payload: MasterProfileUpdate, db: Session = Depends(get_db)) -> MasterProfile:
+    """Partielles Update der CV-Builder-Inhaltsfelder (R2/R3/R4, KTD2).
+
+    Anders als `PUT /profile` (Upsert, vollständiges Überschreiben) ist dies
+    ein echtes partielles Update: nur die im Payload tatsächlich gesetzten
+    Felder werden geändert (`exclude_unset`), fehlende Felder bleiben
+    unangetastet. Identitätsfelder (`full_name`, `email`, `phone`, `address`)
+    bleiben `PUT` vorbehalten und werden hier mit 422 abgelehnt, sofern sie
+    überhaupt im Payload gesetzt sind - auch als explizites `null` (siehe
+    fix(review): `data.get(field) is not None` hätte ein absichtlich
+    gesendetes `{"email": null}` durchgelassen und wäre am NOT-NULL-
+    Constraint von `full_name`/`email` mit einem unbehandelten
+    IntegrityError statt der dokumentierten 422 gescheitert). `photo_path`
+    ist in `MasterProfileUpdate` gar nicht erst enthalten - das schreiben
+    ausschließlich die Foto-Endpunkte (`POST`/`DELETE /profile/photo`).
+
+    Setzt ein bereits existierendes Profil voraus (KTD9): der Builder legt
+    kein neues Profil an, das bleibt weiterhin `PUT /profile` vorbehalten.
     """
-    file_bytes = _require_pdf(file)
+    data = payload.model_dump(exclude_unset=True)
 
-    try:
-        parsed = parse_cv_pdf(file_bytes)
-    except PdfParsingError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    except CvAnalysisError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    identity_violations = [field for field in _IDENTITY_FIELDS if field in data]
+    if identity_violations:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Identitätsfelder (full_name, email, phone, address) können nicht über "
+                f"PATCH /profile geändert werden: {', '.join(sorted(identity_violations))}. "
+                "Bitte PUT /api/profile verwenden."
+            ),
+        )
 
     profile = db.query(MasterProfile).first()
-
     if profile is None:
-        if not parsed.full_name or not parsed.email:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    "Aus dem Lebenslauf konnten Name und/oder E-Mail-Adresse nicht "
-                    "extrahiert werden. Bitte lege das Profil zunächst manuell über "
-                    "PUT /api/profile an."
-                ),
-            )
-        profile = MasterProfile(full_name=parsed.full_name, email=parsed.email)
-        db.add(profile)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_NO_PROFILE_DETAIL,
+        )
 
-    # Vorhandene Daten nur ergänzen/überschreiben, wenn die KI dafür etwas
-    # gefunden hat - ein unvollständig gelesener CV darf ein bereits
-    # gepflegtes Profil nicht mit leeren Werten überschreiben.
-    if parsed.full_name:
-        profile.full_name = parsed.full_name
-    if parsed.email:
-        profile.email = parsed.email
-    if parsed.phone:
-        profile.phone = parsed.phone
-    if parsed.address:
-        profile.address = parsed.address
-    if parsed.summary:
-        profile.summary = parsed.summary
-    if parsed.experiences:
-        profile.experiences_json = [entry.model_dump() for entry in parsed.experiences]
-    if parsed.education:
-        profile.education_json = [entry.model_dump() for entry in parsed.education]
-    if parsed.skills:
-        # Bestehende und neue Skills zusammenführen, Duplikate entfernen,
-        # Reihenfolge (erstes Vorkommen) bleibt stabil erhalten.
-        merged_skills = list(dict.fromkeys([*(profile.skills_json or []), *parsed.skills]))
-        profile.skills_json = merged_skills
+    for field, value in data.items():
+        setattr(profile, field, value)
 
     db.commit()
     db.refresh(profile)
-    return CvUploadResponse(profile=profile, warnings=_missing_field_warnings(parsed))
+    return profile
 
 
 @router.post("/cv-file", response_model=MasterProfileRead)
@@ -208,7 +210,7 @@ def upload_cv_file(
     if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
+            detail=_NO_PROFILE_DETAIL,
         )
 
     file_bytes = _require_pdf(file)
@@ -269,6 +271,99 @@ def delete_cv_file(db: Session = Depends(get_db)) -> MasterProfile:
     return profile
 
 
+# --- Profilfoto (JPEG/PNG, siehe KTD4) -----------------------------------
+#
+# Mirrors `cv-file` oben exakt, nur mit Bild- statt PDF-Validierung
+# (`_require_image` statt `_require_pdf`) und dateiendungsabhängigem
+# Speicherpfad, da JPEG/PNG anders als das feste PDF-Format zwei mögliche
+# Endungen zulässt.
+
+
+@router.post("/photo", response_model=MasterProfileRead)
+def upload_photo(
+    file: UploadFile = File(..., description="Profilfoto als JPEG- oder PNG-Datei"),
+    db: Session = Depends(get_db),
+) -> MasterProfile:
+    """Speichert ein Profilfoto fürs Stammprofil (CV-Builder, R3).
+
+    Ein bereits existierendes Profil ist Voraussetzung, da die Datei am
+    Profil hängt. Wechselt das Bildformat gegenüber einem bereits
+    vorhandenen Foto (z. B. JPEG -> PNG), wird die alte Datei zuerst entfernt,
+    damit keine verwaiste Datei unter der alten Endung zurückbleibt; ein
+    Re-Upload im selben Format überschreibt die vorhandene Datei einfach
+    (wie bei `cv-file`).
+    """
+    profile = db.query(MasterProfile).first()
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_NO_PROFILE_DETAIL,
+        )
+
+    file_bytes, ext = _require_image(file)
+    photo_path = _photo_path_for(profile.id, ext)
+
+    if profile.photo_path:
+        old_path = Path(profile.photo_path)
+        if old_path != photo_path and old_path.exists():
+            old_path.unlink()
+
+    photo_path.parent.mkdir(parents=True, exist_ok=True)
+    photo_path.write_bytes(file_bytes)
+
+    profile.photo_path = str(photo_path)
+    profile.photo_filename = file.filename or f"foto.{ext}"
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+@router.get("/photo")
+def download_photo(db: Session = Depends(get_db)) -> StreamingResponse:
+    """Liefert das hochgeladene Profilfoto zurück (z. B. für die Vorschau im
+    CV-Builder)."""
+    profile = db.query(MasterProfile).first()
+    if profile is None or not profile.photo_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Es wurde noch kein Profilfoto hochgeladen.",
+        )
+
+    photo_path = Path(profile.photo_path)
+    if not photo_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profilfoto-Datei wurde nicht gefunden.")
+
+    media_type = _IMAGE_MEDIA_TYPES.get(photo_path.suffix.lstrip("."), "application/octet-stream")
+    filename = profile.photo_filename or photo_path.name
+    return StreamingResponse(
+        _iter_file(photo_path),
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.delete("/photo", response_model=MasterProfileRead)
+def delete_photo(db: Session = Depends(get_db)) -> MasterProfile:
+    """Entfernt das hochgeladene Profilfoto wieder (z. B. um es durch ein
+    anderes zu ersetzen)."""
+    profile = db.query(MasterProfile).first()
+    if profile is None or not profile.photo_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Es wurde noch kein Profilfoto hochgeladen.",
+        )
+
+    photo_path = Path(profile.photo_path)
+    if photo_path.exists():
+        photo_path.unlink()
+
+    profile.photo_path = None
+    profile.photo_filename = None
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
 # --- Zusätzliche Anhänge (bis zu MAX_PROFILE_ATTACHMENTS PDFs) ----------
 #
 # Getrennt vom Lebenslauf-Anhang oben: diese Dateien werden beim Versand
@@ -289,7 +384,7 @@ def upload_attachment(
     if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
+            detail=_NO_PROFILE_DETAIL,
         )
 
     if len(profile.attachments) >= MAX_PROFILE_ATTACHMENTS:

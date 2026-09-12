@@ -59,7 +59,16 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt exakt in folgender Form \
       "end_date": "oder null"
     }
   ],
-  "skills": ["Skill 1", "Skill 2"]
+  "skills": ["Skill 1", "Skill 2"],
+  "projects": [
+    {
+      "title": "Projektname",
+      "description": "Kurzbeschreibung des Projekts",
+      "start_date": "z. B. 2020-01 oder 2020, oder null",
+      "end_date": "z. B. 2023-06, oder null falls laufend",
+      "link": "URL zum Projekt (z. B. GitHub, Portfolio), oder null"
+    }
+  ]
 }
 
 Regeln:
@@ -67,9 +76,39 @@ Regeln:
 - Fehlende Felder werden als null (bzw. leere Liste für Arrays) gesetzt.
 - "skills" enthält sowohl fachliche (z. B. Programmiersprachen, Tools) als \
 auch Sprachkenntnisse/Zertifikate als einzelne kurze Strings.
+- "projects" enthält eigenständige Projekte (z. B. Open-Source-, Studien-, \
+Portfolio- oder Nebenprojekte), NICHT die regulären Stationen aus \
+"experiences".
 - Antworte auf Deutsch, außer der Lebenslauf ist eindeutig auf Englisch \
 verfasst - dann bleibe bei den Originalbegriffen.
 """
+
+
+# Felder, für die eine leere KI-Antwort dem Nutzer als Warnung gemeldet wird
+# (siehe `CvParseResponse.warnings`) - bewusst nur die inhaltlich substanziellen
+# Felder, nicht Telefon/Adresse, die auf vielen Lebensläufen legitim fehlen.
+# Ursprünglich Teil von `app.api.profile.upload_cv` (siehe ce-debug-
+# Untersuchung, 2026-08-18), hierher verschoben mit U3 (Wegfall des
+# Auto-Merge-Endpunkts) - `missing_field_warnings` ist jetzt reine
+# Parse-Diagnostik ohne jeden Merge-/Speicher-Bezug.
+_WARNING_LABELS: dict[str, str] = {
+    "summary": "Kein Kurzprofil/Zusammenfassung gefunden.",
+    "experiences": "Keine Berufserfahrung gefunden.",
+    "education": "Keine Ausbildung gefunden.",
+    "skills": "Keine Skills gefunden.",
+    "projects": "Keine Projekte gefunden.",
+}
+
+
+def missing_field_warnings(parsed: ParsedCvProfile) -> list[str]:
+    """Baut die Warnungsliste für `CvParseResponse` (siehe ce-debug-
+    Untersuchung, 2026-08-18): Ein unvollständiger Parse - z. B. keine
+    erkannte Berufserfahrung - blieb früher unsichtbar für den Nutzer. Da
+    `POST /cv-builder/parse` (anders als das frühere `upload_cv`) ohnehin
+    nichts speichert (R6), geht es hier nur noch darum, transparent zu
+    machen, welche Felder die KI leer zurückgab, damit der Nutzer im
+    Builder-Formular gezielt nachbessern kann."""
+    return [message for field, message in _WARNING_LABELS.items() if not getattr(parsed, field)]
 
 
 class PdfParsingError(Exception):

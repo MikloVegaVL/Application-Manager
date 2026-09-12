@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Lebenslauf - {{ full_name }}</title>
+<style>
+  @page {
+    size: A4;
+    margin: 2.2cm;
+    @bottom-center {
+      content: "Seite " counter(page) " von " counter(pages);
+      font-size: 8pt;
+      color: #999;
+    }
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: 'Georgia', 'Times New Roman', serif;
+    color: #1a1a1a;
+    margin: 0;
+  }
+
+  .cv {
+    font-size: 10.5pt;
+    line-height: 1.45;
+  }
+
+  .cv .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8mm;
+    border-bottom: 1.5pt solid #2b2b2b;
+    padding-bottom: 4mm;
+    margin-bottom: 8mm;
+  }
+
+  .cv .header__text {
+    flex: 1;
+  }
+
+  .cv .photo {
+    width: 30mm;
+    height: 30mm;
+    object-fit: cover;
+    border-radius: 1mm;
+  }
+
+  .cv h1 {
+    font-size: 21pt;
+    font-weight: 400;
+    letter-spacing: 0.5pt;
+    margin: 0 0 2mm;
+    color: #1a1a1a;
+  }
+
+  .cv .contact-line {
+    font-size: 9.5pt;
+    color: #555;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+  }
+
+  .cv .contact-line span:not(:last-child)::after {
+    content: " \00b7 ";
+  }
+
+  .cv h2 {
+    font-size: 11.5pt;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 1pt;
+    color: #2b2b2b;
+    border-bottom: 0.75pt solid #b8b0a0;
+    padding-bottom: 1mm;
+    margin: 7mm 0 3.5mm;
+  }
+
+  .cv .summary {
+    margin: 0;
+  }
+
+  .cv .entry {
+    margin-bottom: 5mm;
+  }
+
+  .cv .entry__title-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 4mm;
+    font-weight: 700;
+  }
+
+  .cv .entry__subtitle {
+    font-style: italic;
+    color: #444;
+  }
+
+  .cv .entry__description {
+    margin: 1mm 0 0;
+    white-space: pre-line;
+    font-weight: 400;
+    color: #333;
+  }
+
+  .cv .entry__link {
+    font-size: 9pt;
+    color: #555;
+  }
+
+  .cv .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2mm 5mm;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 9.5pt;
+  }
+
+  .cv .tag {
+    color: #2b2b2b;
+  }
+
+  .cv .tag__level {
+    color: #777;
+  }
+</style>
+</head>
+<body>
+  <section class="cv">
+    <div class="header">
+      <div class="header__text">
+        <h1>{{ full_name }}</h1>
+        <div class="contact-line">
+          {% if address %}<span>{{ address }}</span>{% endif %}
+          {% if phone %}<span>{{ phone }}</span>{% endif %}
+          <span>{{ email }}</span>
+        </div>
+      </div>
+      {% if photo_url %}<img class="photo" src="{{ photo_url }}" alt="Profilfoto">{% endif %}
+    </div>
+
+    {% if summary %}
+    <h2>Profil</h2>
+    <p class="summary">{{ summary }}</p>
+    {% endif %}
+
+    {% if experiences %}
+    <h2>Berufserfahrung</h2>
+    {% for exp in experiences %}
+    <div class="entry">
+      <div class="entry__title-row">
+        <span>{{ exp.role }}, {{ exp.company }}</span>
+        <span>{{ exp.date_range }}</span>
+      </div>
+      {% if exp.description %}<p class="entry__description">{{ exp.description }}</p>{% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if education %}
+    <h2>Ausbildung</h2>
+    {% for edu in education %}
+    <div class="entry">
+      <div class="entry__title-row">
+        <span>{{ edu.degree }}{% if edu.field_of_study %} &middot; {{ edu.field_of_study }}{% endif %}, {{ edu.institution }}</span>
+        <span>{{ edu.date_range }}</span>
+      </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if projects %}
+    <h2>Projekte</h2>
+    {% for project in projects %}
+    <div class="entry">
+      <div class="entry__title-row">
+        <span>{{ project.title }}</span>
+        {% if project.date_range %}<span>{{ project.date_range }}</span>{% endif %}
+      </div>
+      {% if project.description %}<p class="entry__description">{{ project.description }}</p>{% endif %}
+      {% if project.link %}<p class="entry__link">{{ project.link }}</p>{% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if skills %}
+    <h2>Skills</h2>
+    <div class="tags">
+      {% for skill in skills %}<span class="tag">{{ skill.name }} <span class="tag__level">&mdash; {{ skill.level }}</span></span>{% endfor %}
+    </div>
+    {% endif %}
+
+    {% if languages %}
+    <h2>Sprachen</h2>
+    <div class="tags">
+      {% for language in languages %}<span class="tag">{{ language.name }} <span class="tag__level">&mdash; {{ language.level }}</span></span>{% endfor %}
+    </div>
+    {% endif %}
+  </section>
+</body>
+</html>

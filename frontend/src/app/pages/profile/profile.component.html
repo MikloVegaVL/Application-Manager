@@ -1,7 +1,10 @@
 <div class="profile-page">
   <header class="profile-page__intro">
     <h1>{{ 'profile.title' | translate: i18n.language() }}</h1>
-    <p>{{ 'profile.intro' | translate: i18n.language() }}</p>
+    <!-- Bewusst nicht per Übersetzungsschlüssel: der eingebettete Link zum CV
+         Builder lässt sich mit dem aktuellen (reinen Text-Interpolation)
+         TranslationService nicht sauber abbilden. -->
+    <p>Stammdaten und Dokumente - die Basis für automatisch generierte Bewerbungen. Berufserfahrung, Ausbildung, Skills & Co. pflegst du im <a routerLink="/cv-builder">Lebenslauf-Editor</a>.</p>
   </header>
 
   @if (loading()) {
@@ -43,211 +46,11 @@
                 <mat-label>{{ 'profile.address' | translate: i18n.language() }}</mat-label>
                 <input matInput formControlName="address" />
               </mat-form-field>
-
-              <mat-form-field appearance="outline" class="form-grid__full">
-                <mat-label>{{ 'profile.summary' | translate: i18n.language() }}</mat-label>
-                <textarea matInput formControlName="summary" rows="4"></textarea>
-              </mat-form-field>
             </div>
           </div>
         </mat-tab>
 
-        <!-- Tab 2: Berufserfahrung & Ausbildung -->
-        <mat-tab [label]="'profile.tab.experience' | translate: i18n.language()">
-          <div class="tab-content">
-            <section class="form-array-section">
-              <div class="form-array-section__header">
-                <h3>{{ 'profile.workExperience' | translate: i18n.language() }}</h3>
-                <button mat-stroked-button type="button" (click)="addExperience()">
-                  <mat-icon>add</mat-icon>
-                  {{ 'common.addStation' | translate: i18n.language() }}
-                </button>
-              </div>
-
-              @if (experiencesArray.length === 0) {
-                <p class="form-array-section__empty">{{ 'profile.noExperience' | translate: i18n.language() }}</p>
-              }
-
-              <div formArrayName="experiences">
-                @for (group of experiencesArray.controls; track $index) {
-                  <mat-card class="entry-card" appearance="outlined" [formGroupName]="$index">
-                    <mat-card-content class="entry-card__grid">
-                      <mat-form-field appearance="outline">
-                        <mat-label>{{ 'profile.company' | translate: i18n.language() }}</mat-label>
-                        <input matInput formControlName="company" />
-                      </mat-form-field>
-                      <mat-form-field appearance="outline">
-                        <mat-label>{{ 'profile.position' | translate: i18n.language() }}</mat-label>
-                        <input matInput formControlName="role" />
-                      </mat-form-field>
-                      <mat-form-field appearance="outline">
-                        <mat-label>{{ 'profile.start' | translate: i18n.language() }}</mat-label>
-                        <input
-                          matInput
-                          formControlName="start_date"
-                          [placeholder]="'profile.startPlaceholderExperience' | translate: i18n.language()"
-                        />
-                      </mat-form-field>
-                      <mat-form-field appearance="outline">
-                        <mat-label>{{ 'profile.end' | translate: i18n.language() }}</mat-label>
-                        <input
-                          matInput
-                          formControlName="end_date"
-                          [placeholder]="'profile.endPlaceholder' | translate: i18n.language()"
-                        />
-                      </mat-form-field>
-                      <mat-form-field appearance="outline" class="entry-card__description">
-                        <mat-label>{{ 'profile.description' | translate: i18n.language() }}</mat-label>
-                        <textarea matInput formControlName="description" rows="2"></textarea>
-                      </mat-form-field>
-                    </mat-card-content>
-                    <mat-card-actions align="end">
-                      <button mat-button color="warn" type="button" (click)="removeExperience($index)">
-                        <mat-icon>delete</mat-icon>
-                        {{ 'common.remove' | translate: i18n.language() }}
-                      </button>
-                    </mat-card-actions>
-                  </mat-card>
-                }
-              </div>
-            </section>
-
-            <section class="form-array-section">
-              <div class="form-array-section__header">
-                <h3>{{ 'profile.education' | translate: i18n.language() }}</h3>
-                <button mat-stroked-button type="button" (click)="addEducation()">
-                  <mat-icon>add</mat-icon>
-                  {{ 'common.addStation' | translate: i18n.language() }}
-                </button>
-              </div>
-
-              @if (educationArray.length === 0) {
-                <p class="form-array-section__empty">{{ 'profile.noEducation' | translate: i18n.language() }}</p>
-              }
-
-              <div formArrayName="education">
-                @for (group of educationArray.controls; track $index) {
-                  <mat-card class="entry-card" appearance="outlined" [formGroupName]="$index">
-                    <mat-card-content class="entry-card__grid">
-                      <mat-form-field appearance="outline">
-                        <mat-label>{{ 'profile.institution' | translate: i18n.language() }}</mat-label>
-                        <input matInput formControlName="institution" />
-                      </mat-form-field>
-                      <mat-form-field appearance="outline">
-                        <mat-label>{{ 'profile.degree' | translate: i18n.language() }}</mat-label>
-                        <input matInput formControlName="degree" />
-                      </mat-form-field>
-                      <mat-form-field appearance="outline">
-                        <mat-label>{{ 'profile.fieldOfStudy' | translate: i18n.language() }}</mat-label>
-                        <input matInput formControlName="field_of_study" />
-                      </mat-form-field>
-                      <mat-form-field appearance="outline">
-                        <mat-label>{{ 'profile.start' | translate: i18n.language() }}</mat-label>
-                        <input
-                          matInput
-                          formControlName="start_date"
-                          [placeholder]="'profile.startPlaceholderEducation' | translate: i18n.language()"
-                        />
-                      </mat-form-field>
-                      <mat-form-field appearance="outline">
-                        <mat-label>{{ 'profile.end' | translate: i18n.language() }}</mat-label>
-                        <input
-                          matInput
-                          formControlName="end_date"
-                          [placeholder]="'profile.startPlaceholderExperience' | translate: i18n.language()"
-                        />
-                      </mat-form-field>
-                    </mat-card-content>
-                    <mat-card-actions align="end">
-                      <button mat-button color="warn" type="button" (click)="removeEducation($index)">
-                        <mat-icon>delete</mat-icon>
-                        {{ 'common.remove' | translate: i18n.language() }}
-                      </button>
-                    </mat-card-actions>
-                  </mat-card>
-                }
-              </div>
-            </section>
-          </div>
-        </mat-tab>
-
-        <!-- Tab 3: Skills & Zertifikate -->
-        <mat-tab [label]="'profile.tab.skills' | translate: i18n.language()">
-          <div class="tab-content">
-            <mat-form-field appearance="outline" class="skills-field">
-              <mat-label>{{ 'profile.skillsLabel' | translate: i18n.language() }}</mat-label>
-              <mat-chip-grid #chipGrid [attr.aria-label]="'profile.skillsInputAria' | translate: i18n.language()">
-                @for (skill of skills(); track skill) {
-                  <mat-chip-row (removed)="removeSkill(skill)" [editable]="true" (edited)="editSkill(skill, $event)">
-                    {{ skill }}
-                    <button matChipRemove [attr.aria-label]="'profile.removeSkillAria' | translate: i18n.language(): { skill }">
-                      <mat-icon>cancel</mat-icon>
-                    </button>
-                  </mat-chip-row>
-                }
-              </mat-chip-grid>
-              <input
-                [placeholder]="'profile.skillPlaceholder' | translate: i18n.language()"
-                [matChipInputFor]="chipGrid"
-                [matChipInputSeparatorKeyCodes]="separatorKeysCodes"
-                (matChipInputTokenEnd)="addSkill($event)"
-              />
-            </mat-form-field>
-            @if (skills().length === 0) {
-              <p class="form-array-section__empty">{{ 'profile.noSkills' | translate: i18n.language() }}</p>
-            }
-          </div>
-        </mat-tab>
-
-        <!-- Tab 4: CV-Import -->
-        <mat-tab [label]="'profile.tab.cvImport' | translate: i18n.language()">
-          <div class="tab-content">
-            <p class="cv-import__hint">{{ 'profile.cvImportHint' | translate: i18n.language() }}</p>
-
-            <div
-              class="cv-dropzone"
-              [class.cv-dropzone--dragover]="isDragOver()"
-              (dragover)="onDragOver($event)"
-              (dragleave)="onDragLeave($event)"
-              (drop)="onDrop($event)"
-              (click)="fileInput.click()"
-            >
-              <mat-icon>upload_file</mat-icon>
-              <p>{{ 'profile.dropzone' | translate: i18n.language() }}</p>
-              @if (selectedFile(); as file) {
-                <p class="cv-dropzone__filename">
-                  {{ file.name }}
-                  <button mat-icon-button type="button" (click)="clearSelectedFile(); $event.stopPropagation()">
-                    <mat-icon>close</mat-icon>
-                  </button>
-                </p>
-              }
-            </div>
-            <input #fileInput type="file" accept="application/pdf,.pdf" hidden (change)="onFileSelected($event)" />
-
-            <button
-              mat-raised-button
-              color="primary"
-              type="button"
-              class="cv-import__submit"
-              [disabled]="!selectedFile() || uploading()"
-              (click)="uploadCv()"
-            >
-              @if (uploading()) {
-                <mat-progress-spinner mode="indeterminate" diameter="18" />
-              } @else {
-                <mat-icon>auto_awesome</mat-icon>
-              }
-              {{ 'profile.analyzeCv' | translate: i18n.language() }}
-            </button>
-
-            @if (uploading()) {
-              <p class="cv-import__hint">{{ 'profile.analyzingHint' | translate: i18n.language() }}</p>
-            }
-          </div>
-        </mat-tab>
-
-        <!-- Tab 5: Lebenslauf-Anhang -->
+        <!-- Tab 2: Lebenslauf-Anhang -->
         <mat-tab [label]="'profile.tab.cvAttachment' | translate: i18n.language()">
           <div class="tab-content">
             <p class="cv-import__hint">{{ 'profile.cvAttachmentHint' | translate: i18n.language() }}</p>
@@ -316,7 +119,7 @@
           </div>
         </mat-tab>
 
-        <!-- Tab 6: Weitere Anhänge -->
+        <!-- Tab 3: Weitere Anhänge -->
         <mat-tab [label]="'profile.tab.attachments' | translate: i18n.language()">
           <div class="tab-content">
             <p class="cv-import__hint">

@@ -1,7 +1,12 @@
-"""Tests für `app.services.pdf_parser` (siehe U3 des Plans:
+"""Tests für `app.services.pdf_parser` (siehe U3 des CV-Builder-Plans:
+docs/plans/2026-09-10-001-feat-cv-builder-editor-plan.md, sowie U3 des
+früheren Ollama-Migrations-Plans:
 docs/plans/2026-08-17-001-refactor-openai-to-ollama-migration-plan.md).
 """
 from __future__ import annotations
+
+import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -20,6 +25,7 @@ VALID_PROFILE = ParsedCvProfile(
     experiences=[],
     education=[],
     skills=["Python"],
+    projects=[],
 )
 
 
@@ -130,3 +136,128 @@ class TestExtractTextFromPdf:
         # extrahierbarer Text, was den "leeres PDF"-Fehlerpfad abdeckt.
         with pytest.raises(PdfParsingError):
             pdf_parser.extract_text_from_pdf(buffer.getvalue())
+
+
+class TestMissingFieldWarnings:
+    """`missing_field_warnings` ersetzt das frühere, gleichnamige `_`-Helfer-
+    Pendant in `app.api.profile` (dort für `upload_cv`) - mit U3 hierher
+    verschoben und um `projects` erweitert, da der neue Parse-Endpunkt
+    (`POST /cv-builder/parse`) Projekte mit ausgibt (R5)."""
+
+    def test_full_profile_yields_no_warnings(self):
+        full_profile = ParsedCvProfile(
+            full_name="Max Mustermann",
+            email="max@example.com",
+            summary="Erfahrener Entwickler.",
+            experiences=[{"company": "Acme GmbH", "role": "Entwickler"}],
+            education=[{"institution": "TU Berlin", "degree": "B.Sc. Informatik"}],
+            skills=["Python"],
+            projects=[{"title": "Portfolio-Website", "description": "Persönliche Portfolio-Seite."}],
+        )
+
+        assert pdf_parser.missing_field_warnings(full_profile) == []
+
+    def test_empty_profile_names_every_substantial_field_including_projects(self):
+        empty = ParsedCvProfile(full_name="Max Mustermann", email="max@example.com")
+
+        warnings = pdf_parser.missing_field_warnings(empty)
+
+        assert "Kein Kurzprofil/Zusammenfassung gefunden." in warnings
+        assert "Keine Berufserfahrung gefunden." in warnings
+        assert "Keine Ausbildung gefunden." in warnings
+        assert "Keine Skills gefunden." in warnings
+        assert "Keine Projekte gefunden." in warnings
+
+    def test_present_projects_suppress_only_the_projects_warning(self):
+        parsed = ParsedCvProfile(
+            full_name="Max Mustermann",
+            email="max@example.com",
+            projects=[{"title": "Portfolio-Website", "description": "Persönliche Portfolio-Seite."}],
+        )
+
+        warnings = pdf_parser.missing_field_warnings(parsed)
+
+        assert "Keine Projekte gefunden." not in warnings
+        # Andere leere Felder bleiben weiterhin gemeldet.
+        assert "Keine Berufserfahrung gefunden." in warnings
+
+
+class TestAnalyzeCvTextProjectsStructuralFailureFallback:
+    """Regressionstest für `projects` als drittes `list[SubModel]`-Feld auf
+    `ParsedCvProfile` (siehe docs/solutions/integration-issues/
+    ollama-structured-output-nested-list-schema-validation-failure.md): Der
+    generische Abflach-Fallback in `llm_client.generate_structured` deckt
+    neue verschachtelte Listenfelder bereits ab, ohne dass `pdf_parser.py`
+    dafür etwas Eigenes braucht - hier über `analyze_cv_text` (statt direkt
+    über `generate_structured`, das test_llm_client.py bereits für
+    `experiences`/`education` abdeckt) end-to-end gegen einen gemockten
+    Ollama-Client geprüft, um sicherzustellen, dass die Verdrahtung über
+    `pdf_parser.py` den Fallback nicht versehentlich umgeht."""
+
+    def _response(self, payload: dict) -> SimpleNamespace:
+        return SimpleNamespace(message=SimpleNamespace(content=json.dumps(payload)))
+
+    def test_same_nested_projects_field_triggers_flattened_fallback(self, mocker):
+        first_invalid = {
+            "full_name": "Max Mustermann",
+            "email": None,
+            "phone": None,
+            "address": None,
+            "summary": None,
+            "experiences": [],
+            "education": [],
+            "skills": [],
+            "projects": [{"description": "Persönliche Portfolio-Seite."}],  # "title" fehlt
+        }
+        second_invalid = {
+            "full_name": "Max Mustermann",
+            "email": None,
+            "phone": None,
+            "address": None,
+            "summary": None,
+            "experiences": [],
+            "education": [],
+            "skills": [],
+            "projects": [
+                {"title": "Portfolio-Website", "description": "Persönliche Portfolio-Seite."},
+                {"title": "Zweites Projekt"},  # "description" fehlt
+            ],
+        }
+        flat_payload = {
+            "full_name": "Max Mustermann",
+            "email": None,
+            "phone": None,
+            "address": None,
+            "summary": None,
+            "experiences": json.dumps([]),
+            "education": json.dumps([]),
+            "skills": [],
+            "projects": json.dumps(
+                [
+                    {
+                        "title": "Portfolio-Website",
+                        "description": "Persönliche Portfolio-Seite.",
+                        "start_date": None,
+                        "end_date": None,
+                        "link": None,
+                    }
+                ]
+            ),
+        }
+
+        client_instance = mocker.MagicMock()
+        client_instance.__enter__.return_value = client_instance
+        client_instance.__exit__.return_value = False
+        client_instance.chat.side_effect = [
+            self._response(first_invalid),
+            self._response(second_invalid),
+            self._response(flat_payload),
+        ]
+        mocker.patch.object(pdf_parser.llm_client.ollama, "Client", return_value=client_instance)
+
+        result = pdf_parser.analyze_cv_text("Lebenslauf-Text von Max Mustermann.")
+
+        assert isinstance(result, ParsedCvProfile)
+        assert len(result.projects) == 1
+        assert result.projects[0].title == "Portfolio-Website"
+        assert client_instance.chat.call_count == 3

@@ -23,4 +23,11 @@ describe('NavLayoutComponent', () => {
   it('should create', () => {
     expect(component).toBeTruthy();
   });
+
+  it('shows a CV Builder nav entry that links to /cv-builder', () => {
+    const compiled = fixture.nativeElement as HTMLElement;
+    const link = compiled.querySelector('a[href="/cv-builder"]');
+    expect(link).toBeTruthy();
+    expect(link?.textContent).toContain('Lebenslauf');
+  });
 });

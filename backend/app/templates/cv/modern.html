@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Lebenslauf - {{ full_name }}</title>
+<style>
+  @page {
+    size: A4;
+    margin: 0;
+    @bottom-center {
+      content: "Seite " counter(page) " von " counter(pages);
+      font-size: 8pt;
+      color: #999;
+    }
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    color: #26262e;
+    margin: 0;
+  }
+
+  .cv {
+    display: flex;
+    min-height: 100%;
+    font-size: 10pt;
+    line-height: 1.45;
+  }
+
+  .cv .sidebar {
+    width: 62mm;
+    background: #2f2354;
+    color: #f3f1fa;
+    padding: 14mm 8mm;
+  }
+
+  .cv .main {
+    flex: 1;
+    padding: 14mm 12mm;
+  }
+
+  .cv .photo {
+    width: 32mm;
+    height: 32mm;
+    object-fit: cover;
+    border-radius: 50%;
+    display: block;
+    margin: 0 auto 6mm;
+    border: 2pt solid #7fdba0;
+  }
+
+  .cv .sidebar h1 {
+    font-size: 15pt;
+    font-weight: 600;
+    text-align: center;
+    margin: 0 0 6mm;
+    color: #ffffff;
+  }
+
+  .cv .sidebar h2 {
+    font-size: 9.5pt;
+    text-transform: uppercase;
+    letter-spacing: 1pt;
+    color: #7fdba0;
+    margin: 7mm 0 2.5mm;
+  }
+
+  .cv .sidebar h2:first-of-type {
+    margin-top: 0;
+  }
+
+  .cv .contact-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 8.8pt;
+    color: #d9d4ee;
+  }
+
+  .cv .contact-list li {
+    margin-bottom: 1.5mm;
+    word-break: break-word;
+  }
+
+  .cv .tag-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .cv .tag-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 2mm;
+    font-size: 8.8pt;
+    color: #d9d4ee;
+    margin-bottom: 1.5mm;
+  }
+
+  .cv .tag-list .level {
+    color: #7fdba0;
+    white-space: nowrap;
+  }
+
+  .cv .main h2 {
+    font-size: 12pt;
+    font-weight: 600;
+    color: #2f2354;
+    border-bottom: 1.5pt solid #7fdba0;
+    padding-bottom: 1mm;
+    margin: 7mm 0 3.5mm;
+  }
+
+  .cv .main h2:first-child {
+    margin-top: 0;
+  }
+
+  .cv .summary {
+    margin: 0;
+  }
+
+  .cv .entry {
+    margin-bottom: 5mm;
+  }
+
+  .cv .entry__title-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 4mm;
+    font-weight: 700;
+    color: #26262e;
+  }
+
+  .cv .entry__title-row .date-range {
+    color: #6b6470;
+    font-weight: 400;
+    white-space: nowrap;
+  }
+
+  .cv .entry__description {
+    margin: 1mm 0 0;
+    white-space: pre-line;
+    color: #444;
+  }
+
+  .cv .entry__link {
+    font-size: 9pt;
+    color: #5b4fa3;
+  }
+</style>
+</head>
+<body>
+  <section class="cv">
+    <aside class="sidebar">
+      {% if photo_url %}<img class="photo" src="{{ photo_url }}" alt="Profilfoto">{% endif %}
+      <h1>{{ full_name }}</h1>
+
+      <h2>Kontakt</h2>
+      <ul class="contact-list">
+        <li>{{ email }}</li>
+        {% if phone %}<li>{{ phone }}</li>{% endif %}
+        {% if address %}<li>{{ address }}</li>{% endif %}
+      </ul>
+
+      {% if skills %}
+      <h2>Skills</h2>
+      <ul class="tag-list">
+        {% for skill in skills %}<li><span>{{ skill.name }}</span><span class="level">{{ skill.level }}</span></li>{% endfor %}
+      </ul>
+      {% endif %}
+
+      {% if languages %}
+      <h2>Sprachen</h2>
+      <ul class="tag-list">
+        {% for language in languages %}<li><span>{{ language.name }}</span><span class="level">{{ language.level }}</span></li>{% endfor %}
+      </ul>
+      {% endif %}
+    </aside>
+
+    <div class="main">
+      {% if summary %}
+      <h2>Profil</h2>
+      <p class="summary">{{ summary }}</p>
+      {% endif %}
+
+      {% if experiences %}
+      <h2>Berufserfahrung</h2>
+      {% for exp in experiences %}
+      <div class="entry">
+        <div class="entry__title-row">
+          <span>{{ exp.role }}, {{ exp.company }}</span>
+          <span class="date-range">{{ exp.date_range }}</span>
+        </div>
+        {% if exp.description %}<p class="entry__description">{{ exp.description }}</p>{% endif %}
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      {% if education %}
+      <h2>Ausbildung</h2>
+      {% for edu in education %}
+      <div class="entry">
+        <div class="entry__title-row">
+          <span>{{ edu.degree }}{% if edu.field_of_study %} &middot; {{ edu.field_of_study }}{% endif %}, {{ edu.institution }}</span>
+          <span class="date-range">{{ edu.date_range }}</span>
+        </div>
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      {% if projects %}
+      <h2>Projekte</h2>
+      {% for project in projects %}
+      <div class="entry">
+        <div class="entry__title-row">
+          <span>{{ project.title }}</span>
+          {% if project.date_range %}<span class="date-range">{{ project.date_range }}</span>{% endif %}
+        </div>
+        {% if project.description %}<p class="entry__description">{{ project.description }}</p>{% endif %}
+        {% if project.link %}<p class="entry__link">{{ project.link }}</p>{% endif %}
+      </div>
+      {% endfor %}
+      {% endif %}
+    </div>
+  </section>
+</body>
+</html>

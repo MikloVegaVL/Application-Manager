@@ -16,6 +16,7 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
 
     'nav.jobSearch': 'Jobsuche',
     'nav.profile': 'Profil',
+    'nav.cvBuilder': 'Lebenslauf',
     'nav.applications': 'Bewerbungen',
     'nav.editor': 'Editor',
     'nav.themeLabel': 'Farbschema auswählen',
@@ -203,6 +204,7 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
 
     'nav.jobSearch': 'Job search',
     'nav.profile': 'Profile',
+    'nav.cvBuilder': 'CV Builder',
     'nav.applications': 'Applications',
     'nav.editor': 'Editor',
     'nav.themeLabel': 'Select color scheme',

@@ -49,6 +49,7 @@ export class NavLayoutComponent {
   protected readonly navItems: NavItem[] = [
     { path: '/job-search', labelKey: 'nav.jobSearch', icon: 'search' },
     { path: '/profile', labelKey: 'nav.profile', icon: 'person' },
+    { path: '/cv-builder', labelKey: 'nav.cvBuilder', icon: 'description' },
     { path: '/applications', labelKey: 'nav.applications', icon: 'work_outline' },
     { path: '/editor', labelKey: 'nav.editor', icon: 'edit_document' },
   ];
