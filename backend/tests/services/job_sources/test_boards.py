@@ -1,4 +1,4 @@
-"""Tests für die acht HTML-Board-Quellen (U6).
+"""Tests für die sieben HTML-Board-Quellen (U6).
 
 Siehe backend/app/services/job_sources/boards.py und den Plan
 docs/plans/2026-09-11-001-feat-job-search-broader-source-coverage-plan.md
@@ -26,7 +26,6 @@ BOARD_KEYS = (
     "stepstone",
     "germantechjobs",
     "indeed",
-    "jobware",
     "programmiererjobboerse",
     "it-entwickler-jobs",
 )
@@ -38,7 +37,6 @@ BOARD_FLAGS = (
     "JOB_SEARCH_STEPSTONE_ENABLED",
     "JOB_SEARCH_GERMANTECHJOBS_ENABLED",
     "JOB_SEARCH_INDEED_ENABLED",
-    "JOB_SEARCH_JOBWARE_ENABLED",
     "JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED",
     "JOB_SEARCH_IT_ENTWICKLER_JOBS_ENABLED",
 )
@@ -119,13 +117,13 @@ NO_RESULTS_HTML = """
 # --- Deskriptoren -----------------------------------------------------------
 
 
-def test_eight_distinct_board_platform_keys():
-    """Verification: alle acht Plattform-Schlüssel sind eindeutig und keiner
+def test_seven_distinct_board_platform_keys():
+    """Verification: alle sieben Plattform-Schlüssel sind eindeutig und keiner
     ist der generische "web-scraper" (R4/R6)."""
     keys = [descriptor.source_platform for descriptor in BOARD_DESCRIPTORS]
 
-    assert len(keys) == 8
-    assert len(set(keys)) == 8
+    assert len(keys) == 7
+    assert len(set(keys)) == 7
     assert set(keys) == set(BOARD_KEYS)
     assert "web-scraper" not in keys
 
@@ -142,7 +140,7 @@ def test_search_url_builder_derives_a_public_url_with_keyword_and_location():
     "descriptor", BOARD_DESCRIPTORS, ids=lambda d: d.source_platform
 )
 def test_each_descriptor_yields_offers_tagged_with_its_own_platform(requests_mock, descriptor):
-    """Happy path: jeder der acht Deskriptoren liefert Angebote mit SEINEM
+    """Happy path: jeder der sieben Deskriptoren liefert Angebote mit SEINEM
     Plattform-Schlüssel - gemockt über requests_mock mit JSON-LD-Fixture."""
     requests_mock.get(ANY, text=JSON_LD_HTML)
 
@@ -254,8 +252,8 @@ def test_one_malformed_card_does_not_discard_the_whole_board(requests_mock):
 # --- Error-Isolation über den Orchestrator ---------------------------------
 
 
-def test_one_board_fetch_failure_leaves_the_other_seven_unaffected(requests_mock):
-    """Error: fällt der Abruf eines Boards aus, liefern die übrigen sieben
+def test_one_board_fetch_failure_leaves_the_other_six_unaffected(requests_mock):
+    """Error: fällt der Abruf eines Boards aus, liefern die übrigen sechs
     weiterhin Treffer und `ok`-Status."""
     # ANY zuerst registrieren, die konkrete Fehler-URL danach - requests_mock
     # prüft die zuletzt registrierten Matcher zuerst.
@@ -279,7 +277,7 @@ def test_one_board_fetch_failure_leaves_the_other_seven_unaffected(requests_mock
     assert indeed_status.status == "unavailable"
     assert indeed_status.reason == "empty"
 
-    # Nur die sieben gesunden Boards tragen zu den Ergebnissen bei.
+    # Nur die sechs gesunden Boards tragen zu den Ergebnissen bei.
     assert {offer.source_platform for offer in response.results} == ok_platforms
     assert "web-scraper" not in {offer.source_platform for offer in response.results}
 
@@ -287,7 +285,7 @@ def test_one_board_fetch_failure_leaves_the_other_seven_unaffected(requests_mock
 # --- Registry-Wiring (KTD7) -------------------------------------------------
 
 
-def test_registry_registers_all_eight_boards_with_distinct_platforms(monkeypatch):
+def test_registry_registers_all_seven_boards_with_distinct_platforms(monkeypatch):
     for flag in BOARD_FLAGS:
         monkeypatch.setattr(settings, flag, True)
 

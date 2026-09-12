@@ -95,7 +95,7 @@ def test_search_returns_envelope_with_results_and_sources(client):
 # --- U8: End-to-end multi-source verification (2026-09-11 plan) -------------
 #
 # These tests override `get_job_search_service` with a REAL `JobSearchService`
-# wired to a fake 13-source registry through the U2 injection seam
+# wired to a fake 12-source registry through the U2 injection seam
 # (`sources=`). Reusing `_FakeJobSearchService` above would make the envelope
 # assertions tautological - U8 exists to exercise the real fan-out, deadline
 # participation, and per-source status mapping (KTD3/KTD8/KTD9/KTD11).
@@ -109,7 +109,6 @@ _ALL_SOURCE_PLATFORMS = (
     "stepstone",
     "germantechjobs",
     "indeed",
-    "jobware",
     "programmiererjobboerse",
     "it-entwickler-jobs",
     "adzuna",
@@ -163,7 +162,7 @@ def _source_offer(platform: str) -> JobOfferCreate:
 
 
 def _mixed_multi_source_service(deadline_seconds: float = 5.0):
-    """Ein echter `JobSearchService` über alle 13 Quellen mit gemischten
+    """Ein echter `JobSearchService` über alle 12 Quellen mit gemischten
     Ergebnissen: ok / empty / error / not-configured (U8)."""
     registrations: list[SourceRegistration] = []
     clients: dict[str, _FakeSourceClient] = {}
@@ -181,7 +180,7 @@ def _mixed_multi_source_service(deadline_seconds: float = 5.0):
     return JobSearchService(sources=registrations, deadline_seconds=deadline_seconds), clients
 
 
-def test_real_service_fans_out_over_all_13_sources_with_per_source_status(client):
+def test_real_service_fans_out_over_all_12_sources_with_per_source_status(client):
     service, clients = _mixed_multi_source_service()
     app.dependency_overrides[get_job_search_service] = lambda: service
 

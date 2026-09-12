@@ -337,7 +337,6 @@ class JobSearchService:
             "stepstone": settings.JOB_SEARCH_STEPSTONE_ENABLED,
             "germantechjobs": settings.JOB_SEARCH_GERMANTECHJOBS_ENABLED,
             "indeed": settings.JOB_SEARCH_INDEED_ENABLED,
-            "jobware": settings.JOB_SEARCH_JOBWARE_ENABLED,
             "programmiererjobboerse": settings.JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED,
             "it-entwickler-jobs": settings.JOB_SEARCH_IT_ENTWICKLER_JOBS_ENABLED,
             "adzuna": settings.JOB_SEARCH_ADZUNA_ENABLED,
@@ -388,7 +387,7 @@ class JobSearchService:
                     )
                 )
             )
-        # U6: die acht benannten HTML-Boards laufen alle über den geteilten
+        # U6: die sieben benannten HTML-Boards laufen alle über den geteilten
         # generischen Extraktionspfad (KD4/KTD2) - je Board ein eigener
         # Deskriptor/Plattform-Schlüssel, kein "web-scraper" (R4/R6). Auch ein
         # Board ohne lesbare Seite bleibt registriert und meldet `unavailable`,
