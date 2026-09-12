@@ -91,15 +91,6 @@ BOARD_DESCRIPTORS: tuple[BoardDescriptor, ...] = (
         ),
     ),
     BoardDescriptor(
-        source_platform="jobware",
-        # Jobware nutzt historisch `was`/`wo` statt `q`/`l`.
-        build_search_url=make_search_url_builder(
-            "https://www.jobware.de/jobs",
-            keyword_param="was",
-            location_param="wo",
-        ),
-    ),
-    BoardDescriptor(
         source_platform="programmiererjobboerse",
         # Bestätigtes Muster nicht verfügbar - best-known Query-Parameter.
         build_search_url=make_search_url_builder(

@@ -1,8 +1,11 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { By } from '@angular/platform-browser';
 import { provideRouter, Router } from '@angular/router';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+
+import { MatChipOption } from '@angular/material/chips';
 
 import { JobSearchComponent } from './job-search.component';
 import { JobSearchResponse } from '../../core/models/job-offer.model';
@@ -368,6 +371,108 @@ describe('JobSearchComponent', () => {
       text = fixture.nativeElement.textContent as string;
       expect(text).toContain('GermanTechJobs');
       expect(text).toContain('nicht konfiguriert');
+    });
+  });
+
+  describe('source filtering via the status chips', () => {
+    function flushTwoSourceSearch(): void {
+      triggerSearch();
+      flushSearch({
+        results: [
+          {
+            title: 'Angular Developer',
+            company: 'Acme',
+            location: 'Berlin',
+            source_url: 'https://example.com/job/1',
+            description_text: null,
+            source_platform: 'arbeitsagentur',
+          },
+          {
+            title: 'Backend Engineer',
+            company: 'Beta AG',
+            location: 'Munich',
+            source_url: 'https://example.com/job/2',
+            description_text: null,
+            source_platform: 'linkedin',
+          },
+        ],
+        sources: [
+          { platform: 'arbeitsagentur', status: 'ok', reason: null },
+          { platform: 'linkedin', status: 'ok', reason: null },
+        ],
+      });
+    }
+
+    it('shows every result until a source chip is selected', () => {
+      flushTwoSourceSearch();
+
+      expect(component['filteredResults']().length).toBe(2);
+      expect(component['hasActiveSourceFilter']()).toBeFalse();
+    });
+
+    it('narrows the displayed results to the selected sources', () => {
+      flushTwoSourceSearch();
+
+      component.onSourceFilterChange(['linkedin']);
+      fixture.detectChanges();
+
+      expect(component['filteredResults']().map((job) => job.source_platform)).toEqual(['linkedin']);
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('Backend Engineer');
+      expect(text).not.toContain('Angular Developer');
+    });
+
+    it('shows the filter-no-match message when the selected source has no results', () => {
+      flushTwoSourceSearch();
+
+      component.onSourceFilterChange(['xing']);
+      fixture.detectChanges();
+
+      expect(component['filteredResults']().length).toBe(0);
+      expect(fixture.nativeElement.textContent).toContain('Keine Treffer für die gewählten Quellen');
+    });
+
+    it('clears the filter and shows all results again', () => {
+      flushTwoSourceSearch();
+      component.onSourceFilterChange(['linkedin']);
+      expect(component['hasActiveSourceFilter']()).toBeTrue();
+
+      component.clearSourceFilter();
+      fixture.detectChanges();
+
+      expect(component['hasActiveSourceFilter']()).toBeFalse();
+      expect(component['filteredResults']().length).toBe(2);
+    });
+
+    it('resets the filter when a new search starts', () => {
+      flushTwoSourceSearch();
+      component.onSourceFilterChange(['linkedin']);
+      expect(component['hasActiveSourceFilter']()).toBeTrue();
+
+      triggerSearch();
+      expect(component['hasActiveSourceFilter']()).toBeFalse();
+
+      httpMock.expectOne((request) => request.url === `${environment.apiBaseUrl}/jobs/search`).flush({
+        results: [],
+        sources: [],
+      });
+    });
+
+    it('does not offer unavailable sources as selectable filters', () => {
+      triggerSearch();
+      flushSearch({
+        results: [],
+        sources: [
+          { platform: 'linkedin', status: 'unavailable', reason: 'timeout' },
+          { platform: 'arbeitsagentur', status: 'ok', reason: null },
+        ],
+      });
+
+      const options = fixture.debugElement.queryAll(By.directive(MatChipOption));
+      const byValue = new Map(options.map((option) => [option.componentInstance.value, option.componentInstance]));
+
+      expect(byValue.get('linkedin')?.disabled).toBeTrue();
+      expect(byValue.get('arbeitsagentur')?.disabled).toBeFalse();
     });
   });
 });

@@ -36,6 +36,9 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'jobSearch.loading': 'Stellenangebote werden geladen ...',
     'jobSearch.unavailable': 'nicht verfügbar',
     'jobSearch.notConfigured': 'nicht konfiguriert',
+    'jobSearch.filterLabel': 'Nach Quelle filtern',
+    'jobSearch.clearFilter': 'Filter zurücksetzen',
+    'jobSearch.noFilterMatch': 'Keine Treffer für die gewählten Quellen.',
     'jobSearch.allSourcesUnavailable':
       'Alle Quellen waren gerade nicht erreichbar. Bitte versuche es in ein paar Minuten erneut.',
     'jobSearch.noResults':
@@ -223,6 +226,9 @@ export const TRANSLATIONS: Record<Language, Record<string, string>> = {
     'jobSearch.loading': 'Loading job offers ...',
     'jobSearch.unavailable': 'unavailable',
     'jobSearch.notConfigured': 'not configured',
+    'jobSearch.filterLabel': 'Filter by source',
+    'jobSearch.clearFilter': 'Clear filter',
+    'jobSearch.noFilterMatch': 'No results for the selected sources.',
     'jobSearch.allSourcesUnavailable':
       'All sources were unreachable just now. Please try again in a few minutes.',
     'jobSearch.noResults': 'No job offers found. Try a different search term or location.',

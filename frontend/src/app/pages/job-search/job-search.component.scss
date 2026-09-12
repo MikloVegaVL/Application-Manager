@@ -51,15 +51,29 @@
   }
 
   &__source-status {
-    mat-icon {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+
+    mat-chip-option mat-icon {
       color: var(--app-success);
+    }
+
+    mat-chip-option.job-search__source-chip--unavailable mat-icon {
+      color: var(--app-error);
     }
   }
 
-  &__source-chip--unavailable {
-    mat-icon {
-      color: var(--app-error);
-    }
+  &__source-filter-title {
+    color: var(--app-muted-text);
+    font-size: 0.875rem;
+  }
+
+  &__source-filter-reset {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
 
   &__empty {

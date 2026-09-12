@@ -60,17 +60,40 @@
 
   @if (!loading() && hasSearched() && !errorMessage() && sourceStatuses().length > 0) {
     <div class="job-search__source-status">
-      <mat-chip-set>
+      <span class="job-search__source-filter-title">
+        {{ 'jobSearch.filterLabel' | translate: i18n.language() }}
+      </span>
+      <mat-chip-listbox
+        multiple
+        [value]="selectedSources()"
+        (change)="onSourceFilterChange($event.value)"
+        [attr.aria-label]="'jobSearch.filterLabel' | translate: i18n.language()"
+      >
         @for (source of sourceStatuses(); track source.platform) {
-          <mat-chip [class.job-search__source-chip--unavailable]="source.status === 'unavailable'">
+          <mat-chip-option
+            [value]="source.platform"
+            [disabled]="source.status === 'unavailable'"
+            [class.job-search__source-chip--unavailable]="source.status === 'unavailable'"
+          >
             <mat-icon matChipAvatar>{{ source.status === 'ok' ? 'check_circle' : 'error_outline' }}</mat-icon>
             {{ sourceLabel(source.platform) }}
             @if (source.status === 'unavailable') {
               · {{ (source.reason === 'not-configured' ? 'jobSearch.notConfigured' : 'jobSearch.unavailable') | translate: i18n.language() }}
             }
-          </mat-chip>
+          </mat-chip-option>
         }
-      </mat-chip-set>
+      </mat-chip-listbox>
+      @if (hasActiveSourceFilter()) {
+        <button
+          mat-button
+          type="button"
+          class="job-search__source-filter-reset"
+          (click)="clearSourceFilter()"
+        >
+          <mat-icon>filter_alt_off</mat-icon>
+          {{ 'jobSearch.clearFilter' | translate: i18n.language() }}
+        </button>
+      }
     </div>
   }
 
@@ -82,9 +105,13 @@
     }
   }
 
-  @if (!loading() && results().length > 0) {
+  @if (!loading() && hasSearched() && !errorMessage() && results().length > 0 && filteredResults().length === 0) {
+    <p class="job-search__empty">{{ 'jobSearch.noFilterMatch' | translate: i18n.language() }}</p>
+  }
+
+  @if (!loading() && filteredResults().length > 0) {
     <div class="job-search__results">
-      @for (job of results(); track job.source_url) {
+      @for (job of filteredResults(); track job.source_url) {
         <mat-card class="job-card" appearance="outlined">
           <mat-card-header>
             <mat-card-title>{{ job.title }}</mat-card-title>
