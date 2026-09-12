@@ -13,6 +13,7 @@ import {
   createExperienceGroup,
   createProjectGroup,
   createSkillGroup,
+  replaceArray,
 } from '../cv-section-forms.util';
 import { sectionsEqual } from '../cv-section-diff.util';
 
@@ -349,27 +350,18 @@ export class CvImportComponent {
 
   private applySections(parsed: ParsedCvProfile, keys: ImportSectionKey[]): void {
     if (keys.includes('experiences_json')) {
-      this.replaceArray(this.experiencesArray, parsed.experiences, (entry) =>
-        createExperienceGroup(this.formBuilder, entry),
-      );
+      replaceArray(this.experiencesArray, parsed.experiences, (entry) => createExperienceGroup(this.formBuilder, entry));
     }
     if (keys.includes('education_json')) {
-      this.replaceArray(this.educationArray, parsed.education, (entry) =>
-        createEducationGroup(this.formBuilder, entry),
-      );
+      replaceArray(this.educationArray, parsed.education, (entry) => createEducationGroup(this.formBuilder, entry));
     }
     if (keys.includes('skills_json')) {
       const skillEntries: SkillEntry[] = parsed.skills.map((name) => ({ name, level: IMPORTED_SKILL_LEVEL }));
-      this.replaceArray(this.skillsArray, skillEntries, (entry) => createSkillGroup(this.formBuilder, entry));
+      replaceArray(this.skillsArray, skillEntries, (entry) => createSkillGroup(this.formBuilder, entry));
     }
     if (keys.includes('projects_json')) {
-      this.replaceArray(this.projectsArray, parsed.projects, (entry) => createProjectGroup(this.formBuilder, entry));
+      replaceArray(this.projectsArray, parsed.projects, (entry) => createProjectGroup(this.formBuilder, entry));
     }
-  }
-
-  private replaceArray<T>(array: FormArray<FormGroup>, entries: T[], factory: (entry: T) => FormGroup): void {
-    array.clear();
-    entries.forEach((entry) => array.push(factory(entry)));
   }
 
   private currentSectionValue(key: ImportSectionKey): unknown {

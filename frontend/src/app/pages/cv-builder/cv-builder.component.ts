@@ -24,6 +24,8 @@ import {
   createLanguageGroup,
   createProjectGroup,
   createSkillGroup,
+  normalizeProfileSections,
+  replaceArray,
 } from './cv-section-forms.util';
 import { sectionsEqual } from './cv-section-diff.util';
 import { CvPreviewExportComponent } from './export/cv-preview-export.component';
@@ -312,7 +314,7 @@ export class CvBuilderComponent implements OnInit {
     this.profileService.patchProfile(payload).subscribe({
       next: (profile) => {
         this.saving.set(false);
-        this.lastSavedProfile.set(profile);
+        this.lastSavedProfile.set(normalizeProfileSections(profile));
       },
       error: () => {
         this.saving.set(false);
@@ -360,7 +362,13 @@ export class CvBuilderComponent implements OnInit {
     this.profileService.getProfile().subscribe({
       next: (profile) => {
         this.applyProfileToArrays(profile);
-        this.lastSavedProfile.set(profile);
+        // fix(review): `lastSavedProfile` must carry the same []-defaulted
+        // section values `applyProfileToArrays` just put on the FormArrays -
+        // otherwise hasUnsavedChanges()'s sectionsEqual([], undefined) is
+        // false right after load (undefined normalizes to null, [] stays
+        // []), tripping the CanDeactivate guard/beforeunload with zero user
+        // edits for exactly the version-skewed-backend case this fixes.
+        this.lastSavedProfile.set(normalizeProfileSections(profile));
         this.state.set('ready');
       },
       error: (error: HttpErrorResponse) => {
@@ -373,21 +381,15 @@ export class CvBuilderComponent implements OnInit {
     this.summaryControl.setValue(profile.summary ?? '');
     this.templateIdControl.setValue(profile.template_id);
 
-    this.experiencesArray.clear();
-    profile.experiences_json.forEach((entry) =>
-      this.experiencesArray.push(createExperienceGroup(this.formBuilder, entry)),
+    // `replaceArray` tolerates a missing field - a version-skewed backend
+    // (see ce-debug, 2026-09-12) can send a profile without a newer section
+    // entirely, and the section should render empty rather than crash.
+    replaceArray(this.experiencesArray, profile.experiences_json, (entry) =>
+      createExperienceGroup(this.formBuilder, entry),
     );
-
-    this.educationArray.clear();
-    profile.education_json.forEach((entry) => this.educationArray.push(createEducationGroup(this.formBuilder, entry)));
-
-    this.skillsArray.clear();
-    profile.skills_json.forEach((entry) => this.skillsArray.push(createSkillGroup(this.formBuilder, entry)));
-
-    this.languagesArray.clear();
-    profile.languages_json.forEach((entry) => this.languagesArray.push(createLanguageGroup(this.formBuilder, entry)));
-
-    this.projectsArray.clear();
-    profile.projects_json.forEach((entry) => this.projectsArray.push(createProjectGroup(this.formBuilder, entry)));
+    replaceArray(this.educationArray, profile.education_json, (entry) => createEducationGroup(this.formBuilder, entry));
+    replaceArray(this.skillsArray, profile.skills_json, (entry) => createSkillGroup(this.formBuilder, entry));
+    replaceArray(this.languagesArray, profile.languages_json, (entry) => createLanguageGroup(this.formBuilder, entry));
+    replaceArray(this.projectsArray, profile.projects_json, (entry) => createProjectGroup(this.formBuilder, entry));
   }
 }
