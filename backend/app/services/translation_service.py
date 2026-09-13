@@ -27,7 +27,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict
 
 from app.schemas.master_profile import DocumentLanguage
 from app.services import llm_client
@@ -53,9 +53,17 @@ _BATCH_OPTIONS: dict[str, int] = {"num_ctx": 8192, "num_predict": 2048}
 class _BatchTranslation(BaseModel):
     """Struktur der schema-eingeschränkten KI-Antwort für den gesamten
     Feld-Batch: Feldname -> übersetzter Text (siehe
-    `llm_client.generate_structured`)."""
+    `llm_client.generate_structured`).
 
-    translations: dict[str, str] = Field(default_factory=dict)
+    `translations` ist bewusst pflichtig und zusätzliche Top-Level-Schlüssel
+    sind verboten: Eine Antwort ohne den `translations`-Wrapper (z. B. die
+    flache Feldmap direkt) soll die Validierung verletzen und den Retry
+    auslösen, statt still als leere Map durchzugehen und alle Felder als
+    Fehler zu werten."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    translations: dict[str, str]
 
 
 @dataclass
@@ -82,11 +90,11 @@ def _build_system_prompt(
         f"{source_name} into {target_name}.\n\n"
         "Answer EXCLUSIVELY with a JSON object in exactly the following shape "
         "(no prose, no markdown, no code fences):\n\n"
-        '{\n  "translations": {\n    "<field name>": "<translated text>"\n  }\n}\n\n'
+        '{\n  "translations": {\n    "<field name from the input>": "<translated text>"\n  }\n}\n\n'
         "Rules:\n"
         f"- Write every translation in {target_name}.\n"
-        "- Reproduce every field name from the input exactly as its key; never "
-        "rename, add, or drop a field.\n"
+        "- Use exactly the field names from the input JSON as keys; never "
+        "rename, add, drop, or echo an example placeholder.\n"
         "- Keep proper nouns (person, company and institution names, product "
         "names, URLs, email addresses) unchanged.\n"
         "- Preserve the original meaning, tone and line breaks.\n"

@@ -130,11 +130,18 @@ class TestTranslateFieldsErrorIsolation:
         assert result.translations == {"summary": "Experienced developer."}
         assert result.errors == {}
 
-    def test_whole_batch_validation_failure_errors_every_field(self, mocker):
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            LlmValidationError("schema mismatch"),
+            LlmUnavailableError("Ollama ist nicht erreichbar"),
+        ],
+    )
+    def test_whole_batch_failure_errors_every_field(self, mocker, exc):
         mocker.patch.object(
             translation_service.llm_client,
             "generate_structured",
-            side_effect=LlmValidationError("schema mismatch"),
+            side_effect=exc,
         )
 
         result = translate_fields(
@@ -146,7 +153,7 @@ class TestTranslateFieldsErrorIsolation:
         assert result.translations == {}
         assert set(result.errors) == {"a", "b"}
 
-    def test_whole_batch_unavailable_errors_every_field(self, mocker):
+    def test_whole_batch_failure_keeps_blank_passthrough_out_of_errors(self, mocker):
         mocker.patch.object(
             translation_service.llm_client,
             "generate_structured",
@@ -154,13 +161,15 @@ class TestTranslateFieldsErrorIsolation:
         )
 
         result = translate_fields(
-            {"a": "eins", "b": "zwei"},
+            {"summary": "Erfahrener Entwickler.", "berufsbezeichnung": "   "},
             source_language="de",
             target_language="en",
         )
 
-        assert result.translations == {}
-        assert set(result.errors) == {"a", "b"}
+        # Nur der nicht-leere Batch-Eintrag ist ein Fehler; der leere Wert
+        # wurde vor dem Modellaufruf unverändert durchgereicht (R4).
+        assert result.translations == {"berufsbezeichnung": "   "}
+        assert set(result.errors) == {"summary"}
 
     def test_blank_and_non_blank_are_partitioned_in_one_call(self, mocker):
         mock_generate = mocker.patch.object(
