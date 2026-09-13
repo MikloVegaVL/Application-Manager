@@ -33,6 +33,14 @@ class _NestedSubmodelResult(BaseModel):
     cv_content: _NestedSubmodelContent
 
 
+class _BatchMap(BaseModel):
+    """Test-lokales Modell für den flachen `{feldname: text}`-Batch (KTD1 des
+    CV-Translation-Batching-Plans). `translations` ist pflichtig, damit eine
+    Antwort ohne den Wrapper die Validierung verletzt und den Retry auslöst."""
+
+    translations: dict[str, str]
+
+
 def _response(payload: dict) -> SimpleNamespace:
     """Baut ein Fake-`ChatResponse`-Objekt mit `.message.content`."""
     return SimpleNamespace(message=SimpleNamespace(content=json.dumps(payload)))
@@ -92,6 +100,82 @@ class TestHappyPath:
         assert result.full_name == "Max Mustermann"
         assert result.experiences[0].company == "Acme GmbH"
         assert mock_client.chat.call_count == 1
+
+
+class TestChatOptions:
+    """U2 des CV-Translation-Batching-Plans: der Aufrufer kann ein explizites
+    Kontext-/Ausgabebudget mitgeben; ohne Budget bleibt Ollamas Standardverhalten
+    unverändert."""
+
+    def test_options_are_forwarded_to_chat_when_provided(self, mock_client):
+        mock_client.chat.return_value = _response(VALID_PROFILE)
+
+        llm_client.generate_structured(
+            ParsedCvProfile, _messages(), options={"num_ctx": 8192, "num_predict": 2048}
+        )
+
+        assert mock_client.chat.call_args.kwargs["options"] == {"num_ctx": 8192, "num_predict": 2048}
+
+    def test_no_options_key_when_not_provided(self, mock_client):
+        mock_client.chat.return_value = _response(VALID_PROFILE)
+
+        llm_client.generate_structured(ParsedCvProfile, _messages())
+
+        assert "options" not in mock_client.chat.call_args.kwargs
+
+    def test_keep_alive_stays_zero_with_options(self, mock_client):
+        mock_client.chat.return_value = _response(VALID_PROFILE)
+
+        llm_client.generate_structured(ParsedCvProfile, _messages(), options={"num_ctx": 8192})
+
+        assert mock_client.chat.call_args.kwargs["keep_alive"] == 0
+
+    def test_options_are_forwarded_on_retry(self, mock_client):
+        invalid_payload = {
+            "full_name": "Max Mustermann",
+            "email": None,
+            "phone": None,
+            "address": None,
+            "summary": None,
+            "experiences": [{"role": "Entwickler"}],
+            "education": [],
+            "skills": [],
+        }
+        mock_client.chat.side_effect = [
+            _response(invalid_payload),
+            _response(VALID_PROFILE),
+        ]
+
+        llm_client.generate_structured(ParsedCvProfile, _messages(), options={"num_ctx": 8192})
+
+        assert mock_client.chat.call_args_list[1].kwargs["options"] == {"num_ctx": 8192}
+
+
+class TestBatchMapSchema:
+    """KTD1 des CV-Translation-Batching-Plans: ein flaches `dict[str, str]`
+    validiert gegen echtes `generate_structured` (kein `$defs`/`$ref`), und eine
+    Antwort ohne `translations`-Wrapper wird abgelehnt und erneut versucht."""
+
+    def test_flat_dict_map_parses_through_generate_structured(self, mock_client):
+        mock_client.chat.return_value = _response(
+            {"translations": {"summary": "Experienced developer."}}
+        )
+
+        result = llm_client.generate_structured(_BatchMap, _messages())
+
+        assert result.translations == {"summary": "Experienced developer."}
+        assert mock_client.chat.call_count == 1
+
+    def test_missing_wrapper_fails_validation_and_retries(self, mock_client):
+        mock_client.chat.side_effect = [
+            _response({"summary": "Experienced developer."}),
+            _response({"translations": {"summary": "Experienced developer."}}),
+        ]
+
+        result = llm_client.generate_structured(_BatchMap, _messages())
+
+        assert result.translations == {"summary": "Experienced developer."}
+        assert mock_client.chat.call_count == 2
 
 
 class TestModelResidency:

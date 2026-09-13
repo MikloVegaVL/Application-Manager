@@ -1,12 +1,16 @@
-"""Tests für `app.services.translation_service` (U1 des Global-Language-
-Unification-Plans: docs/plans/2026-09-13-003-feat-global-language-unification-plan.md).
+"""Tests für `app.services.translation_service` (U3 des CV-Translation-
+Batching-Plans: docs/plans/2026-09-13-004-perf-cv-translation-batching-plan.md).
 
-Deckt die per-Feld-Fehlertoleranz ab: Ein fehlgeschlagenes Feld landet in
-`errors`, erfolgreiche Felder in `translations` - der Originaltext geht nie
-verloren (R9). Übersetzt wird ausschließlich de<->en über den bestehenden
-Ollama-Client.
+Seit dem Batching übersetzt der Service die gesamte Feldzuordnung in EINEM
+`generate_structured`-Aufruf (statt einem pro Feld) und rekonstruiert die
+per-Feld-Ergebnisse durch Abgleich der zurückgegebenen Schlüssel mit den
+angefragten. Ein fehlgeschlagenes Feld landet weiterhin in `errors` - der
+Originaltext geht nie verloren (R4). Übersetzt wird ausschließlich de<->en
+über den bestehenden Ollama-Client.
 """
 from __future__ import annotations
+
+import json
 
 import pytest
 
@@ -14,21 +18,26 @@ from app.services import translation_service
 from app.services.llm_client import LlmUnavailableError, LlmValidationError
 from app.services.translation_service import (
     TranslationResult,
-    _TranslatedText,
+    _BatchTranslation,
     translate_fields,
 )
 
 
-def _translated(text: str) -> _TranslatedText:
-    return _TranslatedText(translation=text)
+def _batch(translations: dict[str, str]) -> _BatchTranslation:
+    return _BatchTranslation(translations=translations)
 
 
-class TestTranslateFieldsHappyPath:
-    def test_translates_each_field_and_returns_per_field_results(self, mocker):
+class TestTranslateFieldsBatching:
+    def test_translates_whole_map_in_one_call(self, mocker):
         mock_generate = mocker.patch.object(
             translation_service.llm_client,
             "generate_structured",
-            side_effect=[_translated("Experienced developer."), _translated("Developer")],
+            return_value=_batch(
+                {
+                    "summary": "Experienced developer.",
+                    "berufsbezeichnung": "Developer",
+                }
+            ),
         )
 
         result = translate_fields(
@@ -43,35 +52,47 @@ class TestTranslateFieldsHappyPath:
             "berufsbezeichnung": "Developer",
         }
         assert result.errors == {}
-        assert mock_generate.call_count == 2
+        assert mock_generate.call_count == 1
 
-    def test_prompt_targets_the_requested_language_and_keeps_proper_nouns(self, mocker):
+    def test_prompt_targets_language_keeps_proper_nouns_and_sends_field_map(self, mocker):
         mock_generate = mocker.patch.object(
             translation_service.llm_client,
             "generate_structured",
-            return_value=_translated("Max works at Beispiel GmbH."),
+            return_value=_batch({"summary": "Max works at Beispiel GmbH."}),
         )
 
-        translate_fields({"summary": "Max arbeitet bei Beispiel GmbH."}, source_language="de", target_language="en")
+        translate_fields(
+            {"summary": "Max arbeitet bei Beispiel GmbH."},
+            source_language="de",
+            target_language="en",
+        )
 
         model_cls, messages = mock_generate.call_args.args
-        assert model_cls is _TranslatedText
+        assert model_cls is _BatchTranslation
         system_prompt = messages[0]["content"]
         assert "German" in system_prompt
         assert "English" in system_prompt
         assert "proper nouns" in system_prompt
-        assert messages[1] == {"role": "user", "content": "Max arbeitet bei Beispiel GmbH."}
+        assert json.loads(messages[1]["content"]) == {"summary": "Max arbeitet bei Beispiel GmbH."}
+
+    def test_batch_call_passes_context_and_output_budget(self, mocker):
+        mock_generate = mocker.patch.object(
+            translation_service.llm_client,
+            "generate_structured",
+            return_value=_batch({"summary": "Experienced developer."}),
+        )
+
+        translate_fields({"summary": "Erfahrener Entwickler."}, source_language="de", target_language="en")
+
+        assert mock_generate.call_args.kwargs["options"] == {"num_ctx": 8192, "num_predict": 2048}
 
 
 class TestTranslateFieldsErrorIsolation:
-    def test_failed_field_appears_in_errors_and_other_fields_still_translate(self, mocker):
+    def test_missing_key_is_an_error_and_other_fields_translate(self, mocker):
         mocker.patch.object(
             translation_service.llm_client,
             "generate_structured",
-            side_effect=[
-                _translated("Experienced developer."),
-                LlmUnavailableError("Ollama ist nicht erreichbar"),
-            ],
+            return_value=_batch({"summary": "Experienced developer."}),
         )
 
         result = translate_fields(
@@ -85,11 +106,11 @@ class TestTranslateFieldsErrorIsolation:
         # Ein fehlgeschlagenes Feld darf nie in beiden Maps stehen.
         assert "berufsbezeichnung" not in result.translations
 
-    def test_validation_failure_is_isolated_to_the_field(self, mocker):
+    def test_blank_value_is_an_error(self, mocker):
         mocker.patch.object(
             translation_service.llm_client,
             "generate_structured",
-            side_effect=LlmValidationError("schema mismatch"),
+            return_value=_batch({"summary": "   "}),
         )
 
         result = translate_fields({"summary": "Erfahrener Entwickler."}, source_language="de", target_language="en")
@@ -97,25 +118,30 @@ class TestTranslateFieldsErrorIsolation:
         assert result.translations == {}
         assert "summary" in result.errors
 
-    def test_empty_model_translation_is_treated_as_a_field_error(self, mocker):
-        # P2: Eine leere/whitespace-only Modellantwort darf das Originalfeld
-        # nicht leeren - sie zählt als fehlgeschlagenes Feld (R9).
+    def test_unknown_extra_key_is_ignored(self, mocker):
         mocker.patch.object(
             translation_service.llm_client,
             "generate_structured",
-            return_value=_translated("   "),
+            return_value=_batch({"summary": "Experienced developer.", "bogus": "ignored"}),
         )
 
         result = translate_fields({"summary": "Erfahrener Entwickler."}, source_language="de", target_language="en")
 
-        assert result.translations == {}
-        assert "summary" in result.errors
+        assert result.translations == {"summary": "Experienced developer."}
+        assert result.errors == {}
 
-    def test_every_field_can_fail_independently(self, mocker):
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            LlmValidationError("schema mismatch"),
+            LlmUnavailableError("Ollama ist nicht erreichbar"),
+        ],
+    )
+    def test_whole_batch_failure_errors_every_field(self, mocker, exc):
         mocker.patch.object(
             translation_service.llm_client,
             "generate_structured",
-            side_effect=LlmUnavailableError("Ollama ist nicht erreichbar"),
+            side_effect=exc,
         )
 
         result = translate_fields(
@@ -126,6 +152,45 @@ class TestTranslateFieldsErrorIsolation:
 
         assert result.translations == {}
         assert set(result.errors) == {"a", "b"}
+
+    def test_whole_batch_failure_keeps_blank_passthrough_out_of_errors(self, mocker):
+        mocker.patch.object(
+            translation_service.llm_client,
+            "generate_structured",
+            side_effect=LlmUnavailableError("Ollama ist nicht erreichbar"),
+        )
+
+        result = translate_fields(
+            {"summary": "Erfahrener Entwickler.", "berufsbezeichnung": "   "},
+            source_language="de",
+            target_language="en",
+        )
+
+        # Nur der nicht-leere Batch-Eintrag ist ein Fehler; der leere Wert
+        # wurde vor dem Modellaufruf unverändert durchgereicht (R4).
+        assert result.translations == {"berufsbezeichnung": "   "}
+        assert set(result.errors) == {"summary"}
+
+    def test_blank_and_non_blank_are_partitioned_in_one_call(self, mocker):
+        mock_generate = mocker.patch.object(
+            translation_service.llm_client,
+            "generate_structured",
+            return_value=_batch({"summary": "Experienced developer."}),
+        )
+
+        result = translate_fields(
+            {"summary": "Erfahrener Entwickler.", "berufsbezeichnung": "   "},
+            source_language="de",
+            target_language="en",
+        )
+
+        assert result.translations == {
+            "summary": "Experienced developer.",
+            "berufsbezeichnung": "   ",
+        }
+        assert result.errors == {}
+        assert mock_generate.call_count == 1
+        assert json.loads(mock_generate.call_args.args[1][1]["content"]) == {"summary": "Erfahrener Entwickler."}
 
 
 class TestTranslateFieldsShortCircuits:
@@ -138,7 +203,7 @@ class TestTranslateFieldsShortCircuits:
         assert result.errors == {}
         mock_generate.assert_not_called()
 
-    def test_empty_and_whitespace_values_pass_through_without_ollama(self, mocker):
+    def test_all_blank_values_pass_through_without_ollama(self, mocker):
         mock_generate = mocker.patch.object(translation_service.llm_client, "generate_structured")
 
         result = translate_fields(
