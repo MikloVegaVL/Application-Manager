@@ -198,6 +198,7 @@ class TestDocumentLanguageLocalization:
 
     def test_doc_chrome_defines_every_key_for_both_languages(self):
         expected = {
+            "lang",
             "title",
             "page_prefix",
             "page_of",
@@ -238,6 +239,7 @@ class TestDocumentLanguageLocalization:
         assert 'lang="de"' in rendered
         assert "Lebenslauf -" in rendered
         assert "Seite " in rendered
+        assert " von " in rendered
         for heading in ("Profil", "Berufserfahrung", "Ausbildung", "Sprachen", "Projekte"):
             assert heading in rendered
         for english_only in ("Profile", "Experience", "Education", "Languages", "Projects"):
@@ -249,8 +251,55 @@ class TestDocumentLanguageLocalization:
 
         assert 'lang="en"' in rendered
         assert "Resume -" in rendered
+        assert "Page " in rendered
+        assert " of " in rendered
         for heading in ("Profile", "Experience", "Education", "Skills", "Languages", "Projects"):
             assert heading in rendered
+
+    def test_german_photo_alt_and_placeholder_localize(self, mocker, tmp_path):
+        photo_path = tmp_path / "photo.png"
+        photo_path.write_bytes(
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0"
+            b"\x00\x00\x03\x01\x01\x00\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        content = _full_content()
+        content["photo_path"] = str(photo_path)
+
+        with_photo = _rendered_html(mocker, template_id="classic", document_language="de", **content)
+        assert 'alt="Profilfoto"' in with_photo
+
+        preview = _rendered_html(
+            mocker, template_id="classic", document_language="de", preview=True, **_empty_content()
+        )
+        assert 'class="photo photo--placeholder">Foto</div>' in preview
+
+    def test_open_ended_user_entry_localizes_date_wording(self, mocker):
+        content = _full_content()
+        content["experiences"] = [
+            ExperienceEntry(
+                company="Acme GmbH",
+                role="Entwickler",
+                start_date="2021",
+                end_date=None,
+                description=None,
+            )
+        ]
+
+        german = _rendered_html(mocker, template_id="classic", document_language="de", **content)
+        english = _rendered_html(mocker, template_id="classic", **content)
+
+        assert "seit 2021" in german
+        assert "2021 – present" in english
+
+    def test_german_render_produces_a_real_pdf(self):
+        """KTD1: die deutschen Chrome-Strings (inkl. Umlaute) laufen durch die
+        echte WeasyPrint-Pipeline, nicht nur durch den gemockten HTML-String."""
+        pdf_bytes = pdf_service.render_cv_pdf(
+            template_id="classic", document_language="de", **_full_content()
+        )
+
+        assert pdf_bytes.startswith(b"%PDF")
 
     def test_user_content_is_never_translated(self, mocker):
         content = _full_content()

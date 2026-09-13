@@ -41,6 +41,11 @@ import { SummarySectionComponent } from './sections/summary-section.component';
 
 type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
 
+/** R3: ein gespeichertes `null` (noch keine Wahl) rendert Englisch - derselbe
+ * Default, den die Control beim Laden erhält und den der Vergleich in
+ * `hasUnsavedChanges()` verwendet. */
+const DEFAULT_DOCUMENT_LANGUAGE: DocumentLanguage = 'en';
+
 /**
  * CV Builder-Seite (Lebenslauf-Editor). Baut auf dem bestehenden Master-
  * Profil auf (`GET /api/profile`) - siehe KTD9: existiert noch kein Profil
@@ -293,7 +298,7 @@ export class CvBuilderComponent implements OnInit {
    * Profil wird beim Laden zu `'en'` normalisiert, damit der Vergleich in
    * `hasUnsavedChanges()` direkt nach dem Laden sauber ist. */
   protected readonly documentLanguageControl: FormControl<DocumentLanguage | null> =
-    this.formBuilder.control<DocumentLanguage | null>('en');
+    this.formBuilder.control<DocumentLanguage | null>(DEFAULT_DOCUMENT_LANGUAGE);
 
   ngOnInit(): void {
     this.loadProfile();
@@ -365,7 +370,7 @@ export class CvBuilderComponent implements OnInit {
       // A stored `null` document_language renders English, so compare against
       // the same `'en'` default the control is set to on load - otherwise a
       // fresh profile would report unsaved changes with zero edits.
-      !sectionsEqual(this.documentLanguageControl.value, saved.document_language ?? 'en')
+      !sectionsEqual(this.documentLanguageControl.value, saved.document_language ?? DEFAULT_DOCUMENT_LANGUAGE)
     );
   }
 
@@ -403,7 +408,7 @@ export class CvBuilderComponent implements OnInit {
     this.summaryControl.setValue(profile.summary ?? '');
     this.berufsbezeichnungControl.setValue(profile.berufsbezeichnung ?? '');
     this.templateIdControl.setValue(profile.template_id);
-    this.documentLanguageControl.setValue(profile.document_language ?? 'en');
+    this.documentLanguageControl.setValue(profile.document_language ?? DEFAULT_DOCUMENT_LANGUAGE);
 
     // `replaceArray` tolerates a missing field - a version-skewed backend
     // (see ce-debug, 2026-09-12) can send a profile without a newer section

@@ -365,6 +365,23 @@ describe('CvPreviewExportComponent', () => {
     req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
   });
 
+  it('sends the selected document language on export (R4)', () => {
+    setInputs();
+    flushTemplates();
+    documentLanguageControl.setValue('de');
+    fixture.detectChanges();
+
+    spyOn(HTMLAnchorElement.prototype, 'click');
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const exportButton = compiled.querySelectorAll('.cv-preview-export__actions button')[1] as HTMLButtonElement;
+    exportButton.click();
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/export') && r.method === 'POST');
+    expect(req.request.body.document_language).toBe('de');
+    req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+  });
+
   it('keeps the document-language control visible while templates are loading (R1)', () => {
     setInputs();
 

@@ -72,7 +72,7 @@ class PdfRenderError(Exception):
 _LOCAL_ONLY_URL_FETCHER = URLFetcher(allowed_protocols=("file", "data"))
 
 
-def _format_date_range(start: str | None, end: str | None, language: str = "en") -> str:
+def _format_date_range(start: str | None, end: str | None, language: DocumentLanguage) -> str:
     """Formatiert einen Start-/End-Zeitraum als lesbaren String, z. B.
     '2021 – 2024', '2021 – present' (Englisch) oder 'seit 2021' (Deutsch).
     Nur die offene Wortwahl lokalisiert; die Datumswerte selbst bleiben
@@ -96,6 +96,18 @@ def _entry_dict(entry: Any) -> dict[str, Any]:
     return dict(entry)
 
 
+def _entries_with_date_range(entries: list[Any], language: DocumentLanguage) -> list[dict[str, Any]]:
+    """Reichert Erfahrung/Ausbildung/Projekt-Einträge mit dem sprachabhängig
+    formatierten `date_range` an - dieselbe Form für alle drei Listen."""
+    return [
+        {
+            **_entry_dict(entry),
+            "date_range": _format_date_range(entry.start_date, entry.end_date, language),
+        }
+        for entry in entries
+    ]
+
+
 def _photo_file_uri(photo_path: str | Path | None) -> str | None:
     """Liefert eine `file://`-URI für das gespeicherte Profilfoto, oder
     `None`, wenn kein Foto existiert bzw. die Datei nicht (mehr) auf der
@@ -110,8 +122,9 @@ def _photo_file_uri(photo_path: str | Path | None) -> str | None:
 
 
 # Englische Anzeige-Labels für die intern deutsch gehaltenen `SkillLevel`-
-# Werte: der CV wird immer auf Englisch erzeugt (die Enum-Werte bleiben
-# unverändert, damit Schema/Migration/Frontend-Formular stabil bleiben).
+# Werte. Die Enum-Werte bleiben unverändert, damit Schema/Migration/Frontend-
+# Formular stabil bleiben; auf Deutsch sind sie selbst das Label (KTD4), auf
+# Englisch greift diese Zuordnung.
 _SKILL_LEVEL_LABELS_EN: dict[str, str] = {
     "Grundkenntnisse": "Basic",
     "Gut": "Good",
@@ -148,8 +161,9 @@ _LANGUAGE_LEVEL_DOTS: dict[str, int] = {
 # (`<title>{{ doc.title }} - {{ full_name }}</title>`), `page_prefix`/`page_of`
 # bilden den `@page`-Footer. Die Nutzerinhalte werden nie übersetzt (R6).
 _DEFAULT_DOCUMENT_LANGUAGE: DocumentLanguage = "en"
-_DOC_CHROME: dict[str, dict[str, str]] = {
+_DOC_CHROME: dict[DocumentLanguage, dict[str, str]] = {
     "en": {
+        "lang": "en",
         "title": "Resume",
         "page_prefix": "Page",
         "page_of": "of",
@@ -164,6 +178,7 @@ _DOC_CHROME: dict[str, dict[str, str]] = {
         "projects": "Projects",
     },
     "de": {
+        "lang": "de",
         "title": "Lebenslauf",
         "page_prefix": "Seite",
         "page_of": "von",
@@ -180,7 +195,7 @@ _DOC_CHROME: dict[str, dict[str, str]] = {
 }
 
 
-def _skills_ctx(skills: list[Any], language: str = "en") -> list[dict[str, Any]]:
+def _skills_ctx(skills: list[Any], language: DocumentLanguage) -> list[dict[str, Any]]:
     """Normalisiert eine flache Skill-Liste für R3/R4: jede Vorlage außer
     Classic rendert jeden Skill als eigene Zeile mit einem 5-Block-Balken
     (`level_blocks`); Classic zeigt stattdessen die Textform des Kompetenzgrads
@@ -278,27 +293,9 @@ def render_cv_pdf(
         _languages_ctx(list(sample.get("languages", []))) if (preview and sample) else []
     )
 
-    experiences_ctx = [
-        {
-            **_entry_dict(exp),
-            "date_range": _format_date_range(exp.start_date, exp.end_date, resolved_language),
-        }
-        for exp in experiences
-    ]
-    education_ctx = [
-        {
-            **_entry_dict(edu),
-            "date_range": _format_date_range(edu.start_date, edu.end_date, resolved_language),
-        }
-        for edu in education
-    ]
-    projects_ctx = [
-        {
-            **_entry_dict(proj),
-            "date_range": _format_date_range(proj.start_date, proj.end_date, resolved_language),
-        }
-        for proj in projects
-    ]
+    experiences_ctx = _entries_with_date_range(experiences, resolved_language)
+    education_ctx = _entries_with_date_range(education, resolved_language)
+    projects_ctx = _entries_with_date_range(projects, resolved_language)
 
     html_content = template.render(
         full_name=full_name,
@@ -316,7 +313,6 @@ def render_cv_pdf(
         projects=projects_ctx,
         photo_url=_photo_file_uri(photo_path),
         doc=doc,
-        doc_lang=resolved_language,
         preview=preview,
         sample=sample,
     )

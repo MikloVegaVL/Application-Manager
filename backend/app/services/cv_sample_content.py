@@ -18,6 +18,19 @@ from __future__ import annotations
 
 from typing import Any
 
+# Sprachunabhängige Beispieldaten: Skill-Namen sind Eigennamen und die
+# Kompetenzgrade sind in beiden Sprachen dieselben `SkillLevel`-Enum-Werte,
+# daher teilen sich `SAMPLE_EN` und `SAMPLE_DE` diese Liste.
+_SAMPLE_SKILLS: list[dict[str, str]] = [
+    {"name": "JavaScript", "level": "Experte"},
+    {"name": "TypeScript", "level": "Sehr gut"},
+    {"name": "Angular", "level": "Sehr gut"},
+    {"name": "Node.js", "level": "Gut"},
+    {"name": "PostgreSQL", "level": "Gut"},
+    {"name": "Docker", "level": "Gut"},
+    {"name": "Git", "level": "Sehr gut"},
+]
+
 SAMPLE_EN: dict[str, Any] = {
     "summary": (
         "Experienced professional focused on modern web applications and "
@@ -53,15 +66,7 @@ SAMPLE_EN: dict[str, Any] = {
             "date_range": "2017 – 2020",
         }
     ],
-    "skills": [
-        {"name": "JavaScript", "level": "Experte"},
-        {"name": "TypeScript", "level": "Sehr gut"},
-        {"name": "Angular", "level": "Sehr gut"},
-        {"name": "Node.js", "level": "Gut"},
-        {"name": "PostgreSQL", "level": "Gut"},
-        {"name": "Docker", "level": "Gut"},
-        {"name": "Git", "level": "Sehr gut"},
-    ],
+    "skills": _SAMPLE_SKILLS,
     "languages": [
         {"name": "German", "level": "C2"},
         {"name": "English", "level": "B2"},
@@ -109,15 +114,7 @@ SAMPLE_DE: dict[str, Any] = {
             "date_range": "2017 – 2020",
         }
     ],
-    "skills": [
-        {"name": "JavaScript", "level": "Experte"},
-        {"name": "TypeScript", "level": "Sehr gut"},
-        {"name": "Angular", "level": "Sehr gut"},
-        {"name": "Node.js", "level": "Gut"},
-        {"name": "PostgreSQL", "level": "Gut"},
-        {"name": "Docker", "level": "Gut"},
-        {"name": "Git", "level": "Sehr gut"},
-    ],
+    "skills": _SAMPLE_SKILLS,
     "languages": [
         {"name": "Deutsch", "level": "C2"},
         {"name": "Englisch", "level": "B2"},

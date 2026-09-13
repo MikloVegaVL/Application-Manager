@@ -337,6 +337,19 @@ def test_preview_forwards_request_document_language(client_with_session, mocker)
     assert render_spy.call_args.kwargs["document_language"] == "de"
 
 
+def test_export_forwards_request_document_language(client_with_session, mocker):
+    """R4/U4: auch der Export reicht die Dokumentsprache an den Renderer weiter."""
+    test_client, session_local = client_with_session
+    _create_profile(session_local)
+    render_spy = mocker.spy(cv_builder_module, "render_cv_pdf")
+    payload = {**_RENDER_PAYLOAD, "document_language": "de"}
+
+    response = test_client.post("/api/cv-builder/export", json=payload)
+
+    assert response.status_code == 200
+    assert render_spy.call_args.kwargs["document_language"] == "de"
+
+
 def test_render_language_falls_back_to_stored_profile_language(client_with_session, mocker):
     """KTD3: fehlt die Sprache im Request, gilt die auf dem Profil gespeicherte
     Wahl."""
