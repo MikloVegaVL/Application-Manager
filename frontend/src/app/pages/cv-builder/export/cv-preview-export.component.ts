@@ -8,10 +8,10 @@ import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 import {
   CvRenderPayload,
   CvTemplate,
-  DocumentLanguage,
   EducationEntry,
   ExperienceEntry,
   LanguageEntry,
@@ -19,6 +19,7 @@ import {
   SkillEntry,
 } from '../../../core/models/master-profile.model';
 import { ProfileService } from '../../../core/services/profile.service';
+import { TranslationService } from '../../../core/services/translation.service';
 
 const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
 
@@ -47,41 +48,41 @@ const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
 @Component({
   selector: 'app-cv-preview-export',
   standalone: true,
-  imports: [ReactiveFormsModule, MatButtonModule, MatButtonToggleModule, MatIconModule, MatProgressSpinnerModule],
+  imports: [
+    ReactiveFormsModule,
+    MatButtonModule,
+    MatButtonToggleModule,
+    MatIconModule,
+    MatProgressSpinnerModule,
+    TranslatePipe,
+  ],
   template: `
     <section class="cv-preview-export">
-      <h3>Vorschau & Export</h3>
-      <p>
-        Wähle eine Vorlage und erzeuge eine Vorschau oder einen PDF-Download - basierend auf dem aktuellen
-        Formularinhalt, auch wenn er noch nicht gespeichert wurde.
-      </p>
+      <h3>{{ 'cvBuilder.preview.heading' | translate: i18n.language() }}</h3>
+      <p>{{ 'cvBuilder.preview.intro' | translate: i18n.language() }}</p>
 
       <div class="cv-preview-export__picker-row">
         <div class="cv-preview-export__control">
-          <span class="cv-preview-export__control-label">Dokumentsprache</span>
-          <mat-button-toggle-group
-            [formControl]="documentLanguageControl"
-            aria-label="Dokumentsprache wählen"
-          >
-            <mat-button-toggle value="de">Deutsch</mat-button-toggle>
-            <mat-button-toggle value="en">English</mat-button-toggle>
-          </mat-button-toggle-group>
-        </div>
-
-        <div class="cv-preview-export__control">
-          <span class="cv-preview-export__control-label">Vorlage</span>
+          <span class="cv-preview-export__control-label">{{
+            'cvBuilder.preview.template' | translate: i18n.language()
+          }}</span>
           @if (templatesLoading()) {
             <div class="cv-preview-export__templates-loading">
               <mat-progress-spinner mode="indeterminate" diameter="24" />
-              <p>Vorlagen werden geladen ...</p>
+              <p>{{ 'cvBuilder.preview.templatesLoading' | translate: i18n.language() }}</p>
             </div>
           } @else if (templatesError()) {
             <div class="cv-preview-export__error">
               <p>{{ templatesError() }}</p>
-              <button mat-stroked-button type="button" (click)="loadTemplates()">Erneut versuchen</button>
+              <button mat-stroked-button type="button" (click)="loadTemplates()">
+                {{ 'cvBuilder.retry' | translate: i18n.language() }}
+              </button>
             </div>
           } @else {
-            <mat-button-toggle-group [formControl]="templateIdControl" aria-label="Vorlage wählen">
+            <mat-button-toggle-group
+              [formControl]="templateIdControl"
+              [attr.aria-label]="'cvBuilder.preview.templateAria' | translate: i18n.language()"
+            >
               @for (template of templates(); track template.id) {
                 <mat-button-toggle [value]="template.id">{{ template.label }}</mat-button-toggle>
               }
@@ -103,7 +104,7 @@ const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
           } @else {
             <mat-icon>visibility</mat-icon>
           }
-          Vorschau
+          {{ 'cvBuilder.preview.preview' | translate: i18n.language() }}
         </button>
         <button
           mat-stroked-button
@@ -116,7 +117,7 @@ const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
           } @else {
             <mat-icon>download</mat-icon>
           }
-          Als PDF exportieren
+          {{ 'cvBuilder.preview.export' | translate: i18n.language() }}
         </button>
       </div>
 
@@ -198,6 +199,7 @@ const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
 export class CvPreviewExportComponent implements OnInit, OnDestroy {
   private readonly profileService = inject(ProfileService);
   private readonly sanitizer = inject(DomSanitizer);
+  protected readonly i18n = inject(TranslationService);
 
   @Input({ required: true }) summaryControl!: FormControl<string>;
   @Input({ required: true }) berufsbezeichnungControl!: FormControl<string>;
@@ -208,8 +210,6 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
   @Input({ required: true }) projectsArray!: FormArray<FormGroup>;
   /** Von der Elternform gehaltene FormControl (KTD8) - round-tripped über `save()`/`PATCH /profile`. */
   @Input({ required: true }) templateIdControl!: FormControl<string | null>;
-  /** Von der Elternform gehaltene FormControl: die gewählte Dokumentsprache. */
-  @Input({ required: true }) documentLanguageControl!: FormControl<DocumentLanguage | null>;
 
   protected readonly templates = signal<CvTemplate[]>([]);
   protected readonly templatesLoading = signal(true);
@@ -257,7 +257,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
       },
       error: () => {
         this.templatesLoading.set(false);
-        this.templatesError.set('Vorlagen konnten nicht geladen werden.');
+        this.templatesError.set(this.i18n.translate('cvBuilder.preview.templatesFailed'));
       },
     });
   }
@@ -277,7 +277,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
         const blob = response.body;
         if (!blob) {
           this.previewUrl.set(null);
-          this.previewError.set('Vorschau konnte nicht geladen werden.');
+          this.previewError.set(this.i18n.translate('cvBuilder.preview.previewFailed'));
           return;
         }
         const objectUrl = URL.createObjectURL(blob);
@@ -306,7 +306,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
         this.exporting.set(false);
         const blob = response.body;
         if (!blob) {
-          this.exportError.set('Export fehlgeschlagen. Bitte erneut versuchen.');
+          this.exportError.set(this.i18n.translate('cvBuilder.preview.exportFailed'));
           return;
         }
         this.triggerDownload(blob, this.resolveFilename(response.headers.get('Content-Disposition')));
@@ -326,7 +326,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
 
     return {
       template_id: templateId,
-      document_language: this.documentLanguageControl.value,
+      document_language: this.i18n.language(),
       summary: this.summaryControl.value,
       berufsbezeichnung: this.berufsbezeichnungControl.value,
       experiences_json: this.experiencesArray.getRawValue() as ExperienceEntry[],
@@ -357,13 +357,13 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
   private resolveErrorMessage(error: HttpErrorResponse): string {
     switch (error.status) {
       case 404:
-        return 'Es wurde noch kein Profil angelegt.';
+        return this.i18n.translate('cvBuilder.preview.noProfile');
       case 422:
-        return 'Die gewählte Vorlage ist ungültig.';
+        return this.i18n.translate('cvBuilder.preview.invalidTemplate');
       case 500:
-        return 'Der Lebenslauf konnte nicht als PDF erzeugt werden.';
+        return this.i18n.translate('cvBuilder.preview.renderFailed');
       default:
-        return 'Etwas ist schiefgelaufen. Bitte erneut versuchen.';
+        return this.i18n.translate('cvBuilder.preview.unknownError');
     }
   }
 

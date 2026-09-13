@@ -7,7 +7,9 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 import { ExperienceEntry } from '../../../core/models/master-profile.model';
+import { TranslationService } from '../../../core/services/translation.service';
 import { createExperienceGroup } from '../cv-section-forms.util';
 
 /**
@@ -26,49 +28,58 @@ import { createExperienceGroup } from '../cv-section-forms.util';
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
+    TranslatePipe,
   ],
   template: `
     <section class="form-array-section">
       <div class="form-array-section__header">
-        <h3>Berufserfahrung</h3>
+        <h3>{{ 'cvBuilder.experience.heading' | translate: i18n.language() }}</h3>
         <button mat-stroked-button type="button" (click)="add()">
           <mat-icon>add</mat-icon>
-          Station hinzufügen
+          {{ 'common.addStation' | translate: i18n.language() }}
         </button>
       </div>
 
       @if (formArray.length === 0) {
-        <p class="form-array-section__empty">Noch keine Berufserfahrung erfasst.</p>
+        <p class="form-array-section__empty">{{ 'cvBuilder.experience.empty' | translate: i18n.language() }}</p>
       }
 
       @for (group of formArray.controls; track $index) {
         <mat-card class="entry-card" appearance="outlined" [formGroup]="group">
           <mat-card-content class="entry-card__grid">
             <mat-form-field appearance="outline">
-              <mat-label>Unternehmen</mat-label>
+              <mat-label>{{ 'cvBuilder.experience.company' | translate: i18n.language() }}</mat-label>
               <input matInput formControlName="company" />
             </mat-form-field>
             <mat-form-field appearance="outline">
-              <mat-label>Position</mat-label>
+              <mat-label>{{ 'cvBuilder.experience.position' | translate: i18n.language() }}</mat-label>
               <input matInput formControlName="role" />
             </mat-form-field>
             <mat-form-field appearance="outline">
-              <mat-label>Start</mat-label>
-              <input matInput formControlName="start_date" placeholder="z. B. 2021" />
+              <mat-label>{{ 'cvBuilder.start' | translate: i18n.language() }}</mat-label>
+              <input
+                matInput
+                formControlName="start_date"
+                [placeholder]="'cvBuilder.experience.startPlaceholder' | translate: i18n.language()"
+              />
             </mat-form-field>
             <mat-form-field appearance="outline">
-              <mat-label>Ende</mat-label>
-              <input matInput formControlName="end_date" placeholder="leer = aktuell" />
+              <mat-label>{{ 'cvBuilder.end' | translate: i18n.language() }}</mat-label>
+              <input
+                matInput
+                formControlName="end_date"
+                [placeholder]="'cvBuilder.endPlaceholder' | translate: i18n.language()"
+              />
             </mat-form-field>
             <mat-form-field appearance="outline" class="entry-card__description">
-              <mat-label>Beschreibung</mat-label>
+              <mat-label>{{ 'cvBuilder.description' | translate: i18n.language() }}</mat-label>
               <textarea matInput formControlName="description" rows="2"></textarea>
             </mat-form-field>
           </mat-card-content>
           <mat-card-actions align="end">
             <button mat-button color="warn" type="button" (click)="remove($index)">
               <mat-icon>delete</mat-icon>
-              Entfernen
+              {{ 'common.remove' | translate: i18n.language() }}
             </button>
           </mat-card-actions>
         </mat-card>
@@ -128,6 +139,7 @@ import { createExperienceGroup } from '../cv-section-forms.util';
 export class ExperienceSectionComponent {
   private readonly formBuilder = inject(FormBuilder);
   private readonly changeDetectorRef = inject(ChangeDetectorRef);
+  protected readonly i18n = inject(TranslationService);
 
   /** FormArray von Berufserfahrungs-FormGroups, verwaltet von der Elternform. */
   @Input({ required: true }) formArray!: FormArray<FormGroup>;

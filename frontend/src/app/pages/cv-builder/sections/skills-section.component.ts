@@ -7,7 +7,9 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 import { SkillEntry, SkillLevel } from '../../../core/models/master-profile.model';
+import { TranslationService } from '../../../core/services/translation.service';
 import { createSkillGroup } from '../cv-section-forms.util';
 
 /**
@@ -15,6 +17,18 @@ import { createSkillGroup } from '../cv-section-forms.util';
  * `SkillLevel` in `backend/app/schemas/master_profile.py`.
  */
 const SKILL_LEVELS: SkillLevel[] = ['Grundkenntnisse', 'Gut', 'Sehr gut', 'Experte'];
+
+/**
+ * KTD5: ordnet die gespeicherten deutschen Enum-Werte den übersetzten
+ * Anzeige-Labels zu - der `[value]` der Option bleibt der Enum-Wert, nur der
+ * sichtbare Text folgt der globalen Sprache.
+ */
+const SKILL_LEVEL_LABEL_KEYS: Record<SkillLevel, string> = {
+  Grundkenntnisse: 'cvBuilder.skillLevel.basic',
+  Gut: 'cvBuilder.skillLevel.good',
+  'Sehr gut': 'cvBuilder.skillLevel.veryGood',
+  Experte: 'cvBuilder.skillLevel.expert',
+};
 
 /**
  * Der Default-Wert, den die Skills-Migration (U1) jedem bestehenden Skill
@@ -41,33 +55,36 @@ const MIGRATION_DEFAULT_LEVEL: SkillLevel = 'Grundkenntnisse';
     MatIconModule,
     MatInputModule,
     MatSelectModule,
+    TranslatePipe,
   ],
   template: `
     <section class="form-array-section">
       <div class="form-array-section__header">
-        <h3>Skills & Zertifikate</h3>
+        <h3>{{ 'cvBuilder.skills.heading' | translate: i18n.language() }}</h3>
         <button mat-stroked-button type="button" (click)="add()">
           <mat-icon>add</mat-icon>
-          Skill hinzufügen
+          {{ 'cvBuilder.skills.add' | translate: i18n.language() }}
         </button>
       </div>
 
       @if (formArray.length === 0) {
-        <p class="form-array-section__empty">Noch keine Skills erfasst.</p>
+        <p class="form-array-section__empty">{{ 'cvBuilder.skills.empty' | translate: i18n.language() }}</p>
       }
 
       @for (group of formArray.controls; track $index) {
         <div class="skill-row" [formGroup]="group">
           <mat-form-field appearance="outline" class="skill-row__name">
-            <mat-label>Skill</mat-label>
+            <mat-label>{{ 'cvBuilder.skills.skill' | translate: i18n.language() }}</mat-label>
             <input matInput formControlName="name" />
           </mat-form-field>
 
           <mat-form-field appearance="outline" class="skill-row__level">
-            <mat-label>Niveau</mat-label>
+            <mat-label>{{ 'cvBuilder.level' | translate: i18n.language() }}</mat-label>
             <mat-select formControlName="level">
               @for (level of skillLevels; track level) {
-                <mat-option [value]="level">{{ level }}</mat-option>
+                <mat-option [value]="level">{{
+                  skillLevelLabelKey(level) | translate: i18n.language()
+                }}</mat-option>
               }
             </mat-select>
           </mat-form-field>
@@ -77,14 +94,14 @@ const MIGRATION_DEFAULT_LEVEL: SkillLevel = 'Grundkenntnisse';
             color="warn"
             type="button"
             class="skill-row__remove"
-            [attr.aria-label]="'Skill entfernen'"
+            [attr.aria-label]="'cvBuilder.skills.removeAria' | translate: i18n.language()"
             (click)="remove($index)"
           >
             <mat-icon>delete</mat-icon>
           </button>
 
           @if (group.get('level')?.value === migrationDefaultLevel) {
-            <p class="skill-row__hint">Auto-migriert auf niedrigstem Niveau - vor dem Export prüfen.</p>
+            <p class="skill-row__hint">{{ 'cvBuilder.skills.migrationHint' | translate: i18n.language() }}</p>
           }
         </div>
       }
@@ -150,9 +167,15 @@ const MIGRATION_DEFAULT_LEVEL: SkillLevel = 'Grundkenntnisse';
 export class SkillsSectionComponent {
   private readonly formBuilder = inject(FormBuilder);
   private readonly changeDetectorRef = inject(ChangeDetectorRef);
+  protected readonly i18n = inject(TranslationService);
 
   protected readonly skillLevels = SKILL_LEVELS;
   protected readonly migrationDefaultLevel = MIGRATION_DEFAULT_LEVEL;
+
+  /** KTD5: Anzeige-Übersetzungsschlüssel für den gespeicherten Enum-Wert. */
+  protected skillLevelLabelKey(level: SkillLevel): string {
+    return SKILL_LEVEL_LABEL_KEYS[level];
+  }
 
   /** FormArray von Skill-FormGroups (`{ name, level }`), verwaltet von der Elternform. */
   @Input({ required: true }) formArray!: FormArray<FormGroup>;

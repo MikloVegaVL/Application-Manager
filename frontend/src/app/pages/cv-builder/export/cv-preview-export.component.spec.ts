@@ -5,7 +5,7 @@ import { FormArray, FormBuilder, FormControl, FormGroup } from '@angular/forms';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 
 import { CvPreviewExportComponent } from './cv-preview-export.component';
-import { DocumentLanguage } from '../../../core/models/master-profile.model';
+import { TranslationService } from '../../../core/services/translation.service';
 
 const templatesFixture = [
   { id: 'classic', label: 'Classic' },
@@ -26,7 +26,7 @@ describe('CvPreviewExportComponent', () => {
   let languagesArray: FormArray<FormGroup>;
   let projectsArray: FormArray<FormGroup>;
   let templateIdControl: FormControl<string | null>;
-  let documentLanguageControl: FormControl<DocumentLanguage | null>;
+  let i18n: TranslationService;
 
   const setInputs = (): void => {
     fixture.componentRef.setInput('summaryControl', summaryControl);
@@ -37,7 +37,6 @@ describe('CvPreviewExportComponent', () => {
     fixture.componentRef.setInput('languagesArray', languagesArray);
     fixture.componentRef.setInput('projectsArray', projectsArray);
     fixture.componentRef.setInput('templateIdControl', templateIdControl);
-    fixture.componentRef.setInput('documentLanguageControl', documentLanguageControl);
     fixture.detectChanges();
   };
 
@@ -50,7 +49,7 @@ describe('CvPreviewExportComponent', () => {
 
   const expectedPayload = (overrides: Record<string, unknown> = {}) => ({
     template_id: 'classic',
-    document_language: 'en',
+    document_language: 'de',
     summary: '',
     berufsbezeichnung: '',
     experiences_json: [],
@@ -71,6 +70,8 @@ describe('CvPreviewExportComponent', () => {
     component = fixture.componentInstance;
     httpMock = TestBed.inject(HttpTestingController);
     formBuilder = TestBed.inject(FormBuilder);
+    i18n = TestBed.inject(TranslationService);
+    i18n.setLanguage('de');
 
     summaryControl = formBuilder.nonNullable.control('');
     berufsbezeichnungControl = formBuilder.nonNullable.control('');
@@ -80,10 +81,10 @@ describe('CvPreviewExportComponent', () => {
     languagesArray = formBuilder.array<FormGroup>([]);
     projectsArray = formBuilder.array<FormGroup>([]);
     templateIdControl = new FormControl<string | null>(null);
-    documentLanguageControl = new FormControl<DocumentLanguage | null>('en');
   });
 
   afterEach(() => {
+    i18n.setLanguage('de');
     httpMock.verify();
   });
 
@@ -343,32 +344,39 @@ describe('CvPreviewExportComponent', () => {
     req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
   });
 
-  it('renders a labelled document-language control and sends the selected language (R1, R4)', () => {
+  it('has no document-language control (R1)', () => {
     setInputs();
     flushTemplates();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    const languageGroup = compiled.querySelector(
-      'mat-button-toggle-group[aria-label="Dokumentsprache wählen"]',
-    );
-    expect(languageGroup).toBeTruthy();
-    expect(compiled.textContent).toContain('Dokumentsprache');
+    // Only the Vorlage picker remains - a language toggle group would make
+    // this two.
+    const toggleGroups = compiled.querySelectorAll('mat-button-toggle-group');
+    expect(toggleGroups.length).toBe(1);
+    expect(toggleGroups[0].getAttribute('aria-label')).toBe('Vorlage wählen');
+  });
 
-    documentLanguageControl.setValue('de');
+  it('sends the current global selector language on preview (R2)', () => {
+    setInputs();
+    flushTemplates();
+
+    i18n.setLanguage('en');
     fixture.detectChanges();
 
+    const compiled = fixture.nativeElement as HTMLElement;
     const previewButton = compiled.querySelectorAll('.cv-preview-export__actions button')[0] as HTMLButtonElement;
     previewButton.click();
 
     const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/preview') && r.method === 'POST');
-    expect(req.request.body.document_language).toBe('de');
+    expect(req.request.body.document_language).toBe('en');
     req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
   });
 
-  it('sends the selected document language on export (R4)', () => {
+  it('sends the current global selector language on export (R2)', () => {
     setInputs();
     flushTemplates();
-    documentLanguageControl.setValue('de');
+
+    i18n.setLanguage('en');
     fixture.detectChanges();
 
     spyOn(HTMLAnchorElement.prototype, 'click');
@@ -378,15 +386,7 @@ describe('CvPreviewExportComponent', () => {
     exportButton.click();
 
     const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/export') && r.method === 'POST');
-    expect(req.request.body.document_language).toBe('de');
+    expect(req.request.body.document_language).toBe('en');
     req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
-  });
-
-  it('keeps the document-language control visible while templates are loading (R1)', () => {
-    setInputs();
-
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('mat-button-toggle-group[aria-label="Dokumentsprache wählen"]')).toBeTruthy();
-    flushTemplates();
   });
 });

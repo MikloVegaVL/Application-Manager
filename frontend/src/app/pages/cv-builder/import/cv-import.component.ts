@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, Input, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormArray, FormBuilder, FormControl, FormGroup } from '@angular/forms';
 
@@ -6,8 +6,10 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 import { MasterProfileRead, ParsedCvProfile, SkillEntry } from '../../../core/models/master-profile.model';
 import { ProfileService } from '../../../core/services/profile.service';
+import { TranslationService } from '../../../core/services/translation.service';
 import {
   createEducationGroup,
   createExperienceGroup,
@@ -27,14 +29,17 @@ type ImportSectionKey = 'experiences_json' | 'education_json' | 'skills_json' | 
 
 interface ImportSectionConflict {
   key: ImportSectionKey;
-  label: string;
 }
 
-const SECTION_LABELS: Record<ImportSectionKey, string> = {
-  experiences_json: 'Berufserfahrung',
-  education_json: 'Ausbildung',
-  skills_json: 'Skills',
-  projects_json: 'Projekte',
+/**
+ * R3/KTD5: übersetzte Anzeige-Labels für die vier Konflikt-Sektionen - die
+ * gespeicherten Sektionsschlüssel (`ImportSectionKey`) bleiben unverändert.
+ */
+const SECTION_LABEL_KEYS: Record<ImportSectionKey, string> = {
+  experiences_json: 'cvBuilder.tab.experience',
+  education_json: 'cvBuilder.tab.education',
+  skills_json: 'cvBuilder.tab.skills',
+  projects_json: 'cvBuilder.tab.projects',
 };
 
 /** KTD5: Default-Kompetenzgrad für aus dem CV-Import übernommene Skills - die
@@ -58,15 +63,11 @@ const IMPORTED_SKILL_LEVEL: SkillEntry['level'] = 'Grundkenntnisse';
 @Component({
   selector: 'app-cv-import',
   standalone: true,
-  imports: [MatButtonModule, MatIconModule, MatProgressSpinnerModule],
+  imports: [MatButtonModule, MatIconModule, MatProgressSpinnerModule, TranslatePipe],
   template: `
     <section class="cv-import">
-      <h3>Lebenslauf importieren</h3>
-      <p>
-        Lade eine Lebenslauf-PDF hoch, um Zusammenfassung, Berufserfahrung, Ausbildung, Skills und
-        Projekte automatisch vorzubefüllen. Foto und Sprachen werden dabei nicht verändert - Name-
-        und Kontaktdaten dienen nur zur Kontrolle und werden nicht übernommen.
-      </p>
+      <h3>{{ 'cvBuilder.import.heading' | translate: i18n.language() }}</h3>
+      <p>{{ 'cvBuilder.import.intro' | translate: i18n.language() }}</p>
 
       <div
         class="cv-import__dropzone"
@@ -78,10 +79,10 @@ const IMPORTED_SKILL_LEVEL: SkillEntry['level'] = 'Grundkenntnisse';
       >
         @if (uploading()) {
           <mat-progress-spinner mode="indeterminate" diameter="32" />
-          <p>Lebenslauf wird analysiert ...</p>
+          <p>{{ 'cvBuilder.import.analyzing' | translate: i18n.language() }}</p>
         } @else {
           <mat-icon>upload_file</mat-icon>
-          <p>Lebenslauf-PDF hierher ziehen oder klicken zum Auswählen</p>
+          <p>{{ 'cvBuilder.import.dropzone' | translate: i18n.language() }}</p>
         }
       </div>
       <input #fileInput type="file" accept="application/pdf" hidden (change)="onFileSelected($event)" />
@@ -89,20 +90,26 @@ const IMPORTED_SKILL_LEVEL: SkillEntry['level'] = 'Grundkenntnisse';
       @if (errorMessage(); as message) {
         <div class="cv-import__error">
           <p>{{ message }}</p>
-          <button mat-stroked-button type="button" (click)="retry()">Erneut versuchen</button>
+          <button mat-stroked-button type="button" (click)="retry()">
+            {{ 'cvBuilder.retry' | translate: i18n.language() }}
+          </button>
         </div>
       }
 
       @if (conflicts().length > 0) {
         <div class="cv-import__conflict">
           <p>
-            Diese Bereiche enthalten noch nicht gespeicherte Änderungen und werden beim Übernehmen
-            des neuen Imports ersetzt: {{ conflictLabels() }}.
+            {{
+              'cvBuilder.import.conflict'
+                | translate: i18n.language() : { sections: conflictLabels() }
+            }}
           </p>
           <div class="cv-import__conflict-actions">
-            <button mat-stroked-button type="button" (click)="cancelReplace()">Abbrechen</button>
+            <button mat-stroked-button type="button" (click)="cancelReplace()">
+              {{ 'common.cancel' | translate: i18n.language() }}
+            </button>
             <button mat-flat-button color="primary" type="button" (click)="confirmReplace()">
-              Übernehmen
+              {{ 'cvBuilder.import.confirm' | translate: i18n.language() }}
             </button>
           </div>
         </div>
@@ -110,15 +117,15 @@ const IMPORTED_SKILL_LEVEL: SkillEntry['level'] = 'Grundkenntnisse';
 
       @if (parsedResult(); as parsed) {
         <div class="cv-import__identity">
-          <h4>Erkannte Kontaktdaten (nur zur Anzeige, wird nicht gespeichert)</h4>
+          <h4>{{ 'cvBuilder.import.detectedContacts' | translate: i18n.language() }}</h4>
           <dl>
-            <dt>Name</dt>
+            <dt>{{ 'cvBuilder.import.name' | translate: i18n.language() }}</dt>
             <dd>{{ parsed.full_name || '—' }}</dd>
-            <dt>E-Mail</dt>
+            <dt>{{ 'cvBuilder.import.email' | translate: i18n.language() }}</dt>
             <dd>{{ parsed.email || '—' }}</dd>
-            <dt>Telefon</dt>
+            <dt>{{ 'cvBuilder.import.phone' | translate: i18n.language() }}</dt>
             <dd>{{ parsed.phone || '—' }}</dd>
-            <dt>Adresse</dt>
+            <dt>{{ 'cvBuilder.import.address' | translate: i18n.language() }}</dt>
             <dd>{{ parsed.address || '—' }}</dd>
           </dl>
         </div>
@@ -224,6 +231,7 @@ const IMPORTED_SKILL_LEVEL: SkillEntry['level'] = 'Grundkenntnisse';
 export class CvImportComponent {
   private readonly profileService = inject(ProfileService);
   private readonly formBuilder = inject(FormBuilder);
+  protected readonly i18n = inject(TranslationService);
 
   @Input({ required: true }) summaryControl!: FormControl<string>;
   @Input({ required: true }) experiencesArray!: FormArray<FormGroup>;
@@ -233,6 +241,12 @@ export class CvImportComponent {
   /** Zuletzt gespeicherter Profilstand (KTD12-Vergleichsbasis) - `null`, solange
    * noch nie gespeichert wurde bzw. das Profil noch nicht geladen ist. */
   @Input({ required: true }) lastSavedProfile: MasterProfileRead | null = null;
+
+  /** P2: Der Import hat den Inhalt ersetzt. Der Eltern-Builder muss daraufhin
+   * seine aktive Inhaltssprache auf die aktuelle Header-Sprache setzen und den
+   * Snapshot der anderen Sprache verwerfen (der Parse-Aufruf wurde bereits mit
+   * `i18n.language()` gesendet). */
+  @Output() readonly contentReplaced = new EventEmitter<void>();
 
   protected readonly isDragOver = signal(false);
   protected readonly uploading = signal(false);
@@ -288,6 +302,7 @@ export class CvImportComponent {
     );
     this.pendingParse = null;
     this.conflicts.set([]);
+    this.contentReplaced.emit();
   }
 
   cancelReplace(): void {
@@ -299,20 +314,20 @@ export class CvImportComponent {
 
   protected conflictLabels(): string {
     return this.conflicts()
-      .map((conflict) => conflict.label)
+      .map((conflict) => this.i18n.translate(SECTION_LABEL_KEYS[conflict.key]))
       .join(', ');
   }
 
   private startUpload(file: File): void {
     if (file.type && file.type !== 'application/pdf') {
-      this.errorMessage.set('Bitte eine PDF-Datei auswählen.');
+      this.errorMessage.set(this.i18n.translate('cvBuilder.import.pdfOnly'));
       return;
     }
 
     this.lastFile = file;
     this.errorMessage.set(null);
     this.uploading.set(true);
-    this.profileService.parseCv(file).subscribe({
+    this.profileService.parseCv(file, this.i18n.language()).subscribe({
       next: (response) => {
         this.uploading.set(false);
         this.parsedResult.set(response.parsed);
@@ -330,11 +345,13 @@ export class CvImportComponent {
     // R13/KTD12: `summary` ist bewusst nicht Teil des Konfliktchecks (siehe
     // `ImportSectionKey`) - wird bei jedem Import direkt übernommen.
     this.summaryControl.setValue(parsed.summary ?? '');
+    // P2: Inhalt stammt jetzt aus dem Parse in der aktuellen Header-Sprache.
+    this.contentReplaced.emit();
 
     const allKeys: ImportSectionKey[] = ['experiences_json', 'education_json', 'skills_json', 'projects_json'];
     const conflicts = allKeys
       .filter((key) => !sectionsEqual(this.currentSectionValue(key), this.savedSectionValue(key)))
-      .map((key) => ({ key, label: SECTION_LABELS[key] }));
+      .map((key) => ({ key }));
 
     if (conflicts.length === 0) {
       this.applySections(parsed, allKeys);
@@ -386,11 +403,8 @@ export class CvImportComponent {
   private resolveErrorMessage(error: HttpErrorResponse): string {
     const detail = typeof error.error?.detail === 'string' ? (error.error.detail as string) : null;
     if (error.status === 502) {
-      return (
-        detail ??
-        'Der Lebenslauf konnte nicht automatisch analysiert werden (KI-Dienst nicht erreichbar). Bitte später erneut versuchen.'
-      );
+      return detail ?? this.i18n.translate('cvBuilder.import.analysisFailed');
     }
-    return detail ?? 'Der Import ist fehlgeschlagen. Bitte die Datei prüfen und erneut versuchen.';
+    return detail ?? this.i18n.translate('cvBuilder.import.failed');
   }
 }

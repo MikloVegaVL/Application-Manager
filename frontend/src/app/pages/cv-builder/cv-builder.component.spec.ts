@@ -6,6 +6,7 @@ import { provideRouter } from '@angular/router';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 
 import { CvBuilderComponent } from './cv-builder.component';
+import { TranslationService } from '../../core/services/translation.service';
 
 const templatesFixture = [
   { id: 'classic', label: 'Classic' },
@@ -27,7 +28,8 @@ const baseProfileResponse = {
   projects_json: [],
   photo_filename: null,
   template_id: null,
-  document_language: null,
+  content_language: 'de',
+  content_translations_json: {},
   cv_filename: null,
   attachments: [],
   created_at: new Date().toISOString(),
@@ -38,6 +40,7 @@ describe('CvBuilderComponent', () => {
   let component: CvBuilderComponent;
   let fixture: ComponentFixture<CvBuilderComponent>;
   let httpMock: HttpTestingController;
+  let i18n: TranslationService;
 
   const flushProfileRequest = (status: number, body: object = { detail: 'error' }): void => {
     const req = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'GET');
@@ -57,9 +60,12 @@ describe('CvBuilderComponent', () => {
     fixture = TestBed.createComponent(CvBuilderComponent);
     component = fixture.componentInstance;
     httpMock = TestBed.inject(HttpTestingController);
+    i18n = TestBed.inject(TranslationService);
+    i18n.setLanguage('de');
   });
 
   afterEach(() => {
+    i18n.setLanguage('de');
     httpMock.verify();
   });
 
@@ -159,6 +165,51 @@ describe('CvBuilderComponent', () => {
     ]);
   });
 
+  it('renders English UI labels when the global language is English (R3)', () => {
+    i18n.setLanguage('en');
+    goToReady();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const labels = Array.from(compiled.querySelectorAll('.mat-mdc-tab .mdc-tab__text-label')).map(
+      (el) => el.textContent?.trim(),
+    );
+    expect(labels).toEqual([
+      'Summary',
+      'Work experience',
+      'Education',
+      'Skills',
+      'Languages',
+      'Projects',
+      'Photo',
+      'Import',
+      'Preview & export',
+    ]);
+
+    const saveButton = compiled.querySelector('.cv-builder-page__save-bar button') as HTMLButtonElement;
+    expect(saveButton.textContent).toContain('Save');
+
+    // Grobe Hardcoded-German-Scan: keine der deutschen Sektions-/Aktionslabels
+    // darf im englischen UI übrig bleiben (R3/R4).
+    const germanLeftovers = [
+      'Zusammenfassung',
+      'Berufserfahrung',
+      'Ausbildung',
+      'Projekte',
+      'Sprachen',
+      'Speichern',
+      'Unternehmen',
+      'Position',
+      'Beschreibung',
+      'Niveau',
+      'Noch keine',
+      'Vorlage',
+      'Vorschau',
+    ];
+    for (const german of germanLeftovers) {
+      expect(compiled.textContent).not.toContain(german);
+    }
+  });
+
   // ce-debug 2026-09-12: reproduces the crash seen against a backend running
   // pre-CV-Builder code (or a not-yet-migrated database) - its `GET /profile`
   // response simply doesn't have these fields at all, unlike a null/empty
@@ -214,8 +265,10 @@ describe('CvBuilderComponent', () => {
       // KTD8: `template_id` war auf dem Profil `null` -> `CvPreviewExportComponent`
       // hat beim Laden der Vorlagenliste (`templatesFixture`) die erste Vorlage vorbelegt.
       template_id: 'classic',
-      // R2: `document_language` war `null` -> der Control-Default `'en'` wird gesendet.
-      document_language: 'en',
+      // KTD1: die aktive Sprache (globaler Selektor) plus der bestehende
+      // Übersetzungs-Snapshot aus dem geladenen Profil.
+      content_language: 'de',
+      content_translations_json: {},
     });
     expect(Object.keys(req.request.body)).not.toContain('full_name');
     expect(Object.keys(req.request.body)).not.toContain('photo_path');
@@ -267,22 +320,33 @@ describe('CvBuilderComponent', () => {
     expect(component.hasUnsavedChanges()).toBeTrue();
   });
 
-  it('defaults document_language to English and reports no unsaved changes after load (R3)', () => {
-    goToReady({ template_id: 'classic', document_language: null });
+  it('sends the active content language as content_language on save (R2)', () => {
+    goToReady({ template_id: 'classic' });
+    i18n.setLanguage('en');
+    // P1: der Save schickt die aktive Inhaltssprache - der Sprachwechsel muss
+    // also erst abgeschlossen sein (leeres Profil: kein Übersetzungsaufruf).
+    fixture.detectChanges();
 
-    expect(component['documentLanguageControl'].value).toBe('en');
-    expect(component.hasUnsavedChanges()).toBeFalse();
+    component['summaryControl'].setValue('Neue Zusammenfassung');
+    component['save']();
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'PATCH');
+    expect(req.request.body.content_language).toBe('en');
+    expect(Object.keys(req.request.body)).not.toContain('document_language');
+    req.flush({ ...baseProfileResponse, template_id: 'classic', content_language: 'en' });
+    fixture.detectChanges();
   });
 
-  it('restores a stored document_language and treats a change as unsaved (R2)', () => {
-    goToReady({ template_id: 'classic', document_language: 'de' });
+  it('preserves a fresh inactive-language snapshot on save (KTD1)', () => {
+    const snapshot = { summary: 'Experienced developer.' };
+    goToReady({ template_id: 'classic', content_translations_json: snapshot });
 
-    expect(component['documentLanguageControl'].value).toBe('de');
-    expect(component.hasUnsavedChanges()).toBeFalse();
+    component['save']();
 
-    component['documentLanguageControl'].setValue('en');
-
-    expect(component.hasUnsavedChanges()).toBeTrue();
+    const req = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'PATCH');
+    expect(req.request.body.content_translations_json).toEqual(snapshot);
+    req.flush({ ...baseProfileResponse, template_id: 'classic', content_translations_json: snapshot });
+    fixture.detectChanges();
   });
 
   it('populates berufsbezeichnungControl from the loaded profile (R5)', () => {
@@ -324,5 +388,280 @@ describe('CvBuilderComponent', () => {
     component.onBeforeUnload(event);
 
     expect(event.preventDefault).not.toHaveBeenCalled();
+  });
+
+  // --- U5: zweisprachiger Inhalt mit automatischer Übersetzung (R5-R9) -----
+
+  const flushTranslation = (body: {
+    translations?: Record<string, string>;
+    errors?: Record<string, string>;
+  }): void => {
+    const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/translate') && r.method === 'POST');
+    req.flush({ translations: body.translations ?? {}, errors: body.errors ?? {} });
+  };
+
+  it('switching language generates the other version and preserves the original (AE3, R5/R6)', () => {
+    goToReady({ template_id: 'classic', summary: 'Hallo', berufsbezeichnung: 'Entwickler' });
+    expect(component['summaryControl'].value).toBe('Hallo');
+
+    i18n.setLanguage('en');
+    fixture.detectChanges();
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/translate') && r.method === 'POST');
+    expect(req.request.body.source_language).toBe('de');
+    expect(req.request.body.target_language).toBe('en');
+    expect(req.request.body.fields.summary).toBe('Hallo');
+    expect(req.request.body.fields.berufsbezeichnung).toBe('Entwickler');
+    req.flush({
+      translations: { summary: 'Hello', berufsbezeichnung: 'Developer' },
+      errors: {},
+    });
+    fixture.detectChanges();
+
+    expect(component['summaryControl'].value).toBe('Hello');
+    expect(component['berufsbezeichnungControl'].value).toBe('Developer');
+    expect(component['translationError']()).toBeNull();
+
+    // Zurückschalten nutzt den deutschen Snapshot, ohne erneut zu übersetzen.
+    i18n.setLanguage('de');
+    fixture.detectChanges();
+
+    expect(component['summaryControl'].value).toBe('Hallo');
+    expect(component['berufsbezeichnungControl'].value).toBe('Entwickler');
+    httpMock.expectNone((r) => r.url.endsWith('/cv-builder/translate'));
+  });
+
+  it('editing a prose field marks the other language stale and re-translates on switch (AE4, R7)', () => {
+    goToReady({ template_id: 'classic', summary: 'Hallo' });
+
+    i18n.setLanguage('en');
+    fixture.detectChanges();
+    flushTranslation({ translations: { summary: 'Hello' } });
+    fixture.detectChanges();
+    expect(component['summaryControl'].value).toBe('Hello');
+
+    i18n.setLanguage('de');
+    fixture.detectChanges();
+    expect(component['summaryControl'].value).toBe('Hallo');
+
+    // Nutzereingabe in der aktiven Sprache invalidiert den EN-Snapshot.
+    component['summaryControl'].setValue('Neue Zusammenfassung');
+
+    i18n.setLanguage('en');
+    fixture.detectChanges();
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/translate') && r.method === 'POST');
+    expect(req.request.body.fields.summary).toBe('Neue Zusammenfassung');
+    req.flush({ translations: { summary: 'New summary' }, errors: {} });
+    fixture.detectChanges();
+
+    expect(component['summaryControl'].value).toBe('New summary');
+  });
+
+  it('a failed translation keeps the original text and surfaces a non-blocking error (AE6, R9)', () => {
+    goToReady({ template_id: 'classic', summary: 'Hallo' });
+
+    i18n.setLanguage('en');
+    fixture.detectChanges();
+    flushTranslation({ errors: { summary: 'Ollama nicht erreichbar' } });
+    fixture.detectChanges();
+
+    expect(component['summaryControl'].value).toBe('Hallo');
+    expect(component['translationError']()).toBeTruthy();
+    expect(component['translating']()).toBeFalse();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.cv-builder-page__translate-error')).toBeTruthy();
+  });
+
+  it('applies the stored other-language snapshot on load when the global language differs (U5)', () => {
+    i18n.setLanguage('en');
+    goToReady({
+      template_id: 'classic',
+      content_language: 'de',
+      summary: 'Hallo',
+      content_translations_json: { summary: 'Hello' },
+    });
+
+    expect(component['summaryControl'].value).toBe('Hello');
+    httpMock.expectNone((r) => r.url.endsWith('/cv-builder/translate'));
+  });
+
+  it('translates the loaded content when the global language differs and no snapshot exists (U5, R6)', () => {
+    i18n.setLanguage('en');
+    goToReady({ template_id: 'classic', content_language: 'de', summary: 'Hallo' });
+
+    flushTranslation({ translations: { summary: 'Hello' } });
+    fixture.detectChanges();
+
+    expect(component['summaryControl'].value).toBe('Hello');
+  });
+
+  it('sends the inactive-language snapshot and the active language on save (U5, KTD1)', () => {
+    goToReady({ template_id: 'classic', summary: 'Hallo' });
+
+    i18n.setLanguage('en');
+    fixture.detectChanges();
+    flushTranslation({ translations: { summary: 'Hello' } });
+    fixture.detectChanges();
+
+    component['save']();
+    const req = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'PATCH');
+    expect(req.request.body.content_language).toBe('en');
+    expect(req.request.body.summary).toBe('Hello');
+    expect(req.request.body.content_translations_json.summary).toBe('Hallo');
+    req.flush({
+      ...baseProfileResponse,
+      template_id: 'classic',
+      summary: 'Hello',
+      content_language: 'en',
+      content_translations_json: { summary: 'Hallo' },
+    });
+    fixture.detectChanges();
+  });
+
+  it('a language switch alone does not trip hasUnsavedChanges(), but a later edit does (U5)', () => {
+    goToReady({ template_id: 'classic', summary: 'Hallo' });
+    expect(component.hasUnsavedChanges()).toBeFalse();
+
+    i18n.setLanguage('en');
+    fixture.detectChanges();
+    flushTranslation({ translations: { summary: 'Hello' } });
+    fixture.detectChanges();
+
+    expect(component.hasUnsavedChanges()).toBeFalse();
+
+    component['summaryControl'].setValue('Edited in English');
+    expect(component.hasUnsavedChanges()).toBeTrue();
+  });
+
+  // --- fix(review) P1-P3: Übersetzungs-Robustheit ------------------------
+
+  it('P1: a totally failed translation keeps the source language and the save payload in it', () => {
+    goToReady({ template_id: 'classic', summary: 'Hallo' });
+
+    i18n.setLanguage('en');
+    fixture.detectChanges();
+    flushTranslation({ errors: { summary: 'Ollama nicht erreichbar' } });
+    fixture.detectChanges();
+
+    // Inhalt, aktive Sprache und Fehler bleiben unangetastet.
+    expect(component['summaryControl'].value).toBe('Hallo');
+    expect(component['activeContentLanguage']).toBe('de');
+    expect(component['translationError']()).toBeTruthy();
+
+    component['save']();
+    const req = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'PATCH');
+    expect(req.request.body.content_language).toBe('de');
+    expect(req.request.body.summary).toBe('Hallo');
+    req.flush({ ...baseProfileResponse, template_id: 'classic', summary: 'Hallo', content_language: 'de' });
+    fixture.detectChanges();
+  });
+
+  it('P1: an edit during an in-flight translation cannot be overwritten (prose controls disabled)', () => {
+    goToReady({ template_id: 'classic', summary: 'Hallo' });
+
+    i18n.setLanguage('en');
+    fixture.detectChanges();
+
+    // Während die Übersetzung läuft, sind die Prosa-Felder deaktiviert -
+    // eine Nutzereingabe kann die Antwort also nicht überschreiben.
+    expect(component['summaryControl'].disabled).toBeTrue();
+    const textarea = (fixture.nativeElement as HTMLElement).querySelector('textarea') as HTMLTextAreaElement;
+    expect(textarea.disabled).toBeTrue();
+
+    flushTranslation({ translations: { summary: 'Hello' } });
+    fixture.detectChanges();
+
+    expect(component['summaryControl'].disabled).toBeFalse();
+    expect(component['summaryControl'].value).toBe('Hello');
+  });
+
+  it('P1: a non-prose edit made during an in-flight translation is preserved', () => {
+    goToReady({
+      template_id: 'classic',
+      summary: 'Hallo',
+      experiences_json: [
+        { company: 'Acme', role: 'Entwickler', start_date: null, end_date: null, description: 'Text' },
+      ],
+    });
+
+    i18n.setLanguage('en');
+    fixture.detectChanges();
+
+    const companyControl = component['experiencesArray'].at(0).get('company');
+    expect(companyControl?.disabled).toBeFalse();
+    companyControl?.setValue('Neue Firma');
+
+    flushTranslation({
+      translations: { summary: 'Hello', 'experience.0.role': 'Developer', 'experience.0.description': 'Text' },
+    });
+    fixture.detectChanges();
+
+    expect(component['experiencesArray'].at(0).get('company')?.value).toBe('Neue Firma');
+    expect(component['summaryControl'].value).toBe('Hello');
+  });
+
+  it('P2: an edit followed by a language switch keeps hasUnsavedChanges() true', () => {
+    goToReady({ template_id: 'classic', summary: 'Hallo' });
+    expect(component.hasUnsavedChanges()).toBeFalse();
+
+    component['summaryControl'].setValue('Neue Zusammenfassung');
+    expect(component.hasUnsavedChanges()).toBeTrue();
+
+    i18n.setLanguage('en');
+    fixture.detectChanges();
+    flushTranslation({ translations: { summary: 'New summary' } });
+    fixture.detectChanges();
+
+    expect(component['summaryControl'].value).toBe('New summary');
+    expect(component.hasUnsavedChanges()).toBeTrue();
+  });
+
+  it('P2: an import replacement adopts the header language and invalidates the other snapshot', () => {
+    goToReady({ template_id: 'classic', summary: 'Hallo' });
+
+    // Totale Übersetzungsfehlschlag: Inhalt bleibt deutsch, Header steht auf en.
+    i18n.setLanguage('en');
+    fixture.detectChanges();
+    flushTranslation({ errors: { summary: 'Ollama nicht erreichbar' } });
+    fixture.detectChanges();
+    expect(component['activeContentLanguage']).toBe('de');
+
+    // Der Import ersetzt den Inhalt in der aktuellen Header-Sprache (en).
+    component['onImportContentReplaced']();
+    component['save']();
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'PATCH');
+    expect(req.request.body.content_language).toBe('en');
+    expect(req.request.body.content_translations_json).toEqual({});
+    req.flush({ ...baseProfileResponse, template_id: 'classic', content_language: 'en' });
+    fixture.detectChanges();
+  });
+
+  it('P3: editing a non-translatable field keeps the other-language snapshot fresh', () => {
+    goToReady({
+      template_id: 'classic',
+      summary: 'Hallo',
+      experiences_json: [
+        { company: 'Acme', role: 'Entwickler', start_date: null, end_date: null, description: 'Text' },
+      ],
+      content_translations_json: {
+        summary: 'Hello',
+        'experience.0.role': 'Developer',
+        'experience.0.description': 'Text',
+      },
+    });
+
+    // Nur die (nicht übersetzbare) Firma ändern.
+    component['experiencesArray'].at(0).get('company')?.setValue('Neue Firma');
+
+    i18n.setLanguage('en');
+    fixture.detectChanges();
+
+    // Der frische Snapshot wird direkt angewendet - keine neue Übersetzung.
+    expect(component['summaryControl'].value).toBe('Hello');
+    expect(component['experiencesArray'].at(0).get('role')?.value).toBe('Developer');
+    httpMock.expectNone((r) => r.url.endsWith('/cv-builder/translate'));
   });
 });
