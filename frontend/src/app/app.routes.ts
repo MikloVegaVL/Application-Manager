@@ -12,20 +12,20 @@ export const routes: Routes = [
     path: 'job-search',
     loadComponent: () =>
       import('./pages/job-search/job-search.component').then((m) => m.JobSearchComponent),
-    title: 'Jobsuche',
+    title: 'Job search',
   },
   {
     path: 'profile',
     loadComponent: () =>
       import('./pages/profile/profile.component').then((m) => m.ProfileComponent),
-    title: 'Profil',
+    title: 'Profile',
   },
   {
     path: 'cv-builder',
     loadComponent: () =>
       import('./pages/cv-builder/cv-builder.component').then((m) => m.CvBuilderComponent),
     canDeactivate: [cvBuilderCanDeactivateGuard],
-    title: 'Lebenslauf',
+    title: 'CV Builder',
   },
   {
     path: 'applications',
@@ -33,7 +33,7 @@ export const routes: Routes = [
       import('./pages/applications/applications.component').then(
         (m) => m.ApplicationsComponent,
       ),
-    title: 'Bewerbungen',
+    title: 'Applications',
   },
   {
     path: 'editor',

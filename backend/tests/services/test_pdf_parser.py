@@ -176,11 +176,11 @@ class TestMissingFieldWarnings:
 
         warnings = pdf_parser.missing_field_warnings(empty)
 
-        assert "Kein Kurzprofil/Zusammenfassung gefunden." in warnings
-        assert "Keine Berufserfahrung gefunden." in warnings
-        assert "Keine Ausbildung gefunden." in warnings
-        assert "Keine Skills gefunden." in warnings
-        assert "Keine Projekte gefunden." in warnings
+        assert "No summary found." in warnings
+        assert "No work experience found." in warnings
+        assert "No education found." in warnings
+        assert "No skills found." in warnings
+        assert "No projects found." in warnings
 
     def test_present_projects_suppress_only_the_projects_warning(self):
         parsed = ParsedCvProfile(
@@ -191,9 +191,9 @@ class TestMissingFieldWarnings:
 
         warnings = pdf_parser.missing_field_warnings(parsed)
 
-        assert "Keine Projekte gefunden." not in warnings
+        assert "No projects found." not in warnings
         # Andere leere Felder bleiben weiterhin gemeldet.
-        assert "Keine Berufserfahrung gefunden." in warnings
+        assert "No work experience found." in warnings
 
 
 class TestAnalyzeCvTextProjectsStructuralFailureFallback:

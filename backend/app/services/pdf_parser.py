@@ -97,11 +97,11 @@ portfolio or side projects), NOT the regular positions from "experiences".
 # Auto-Merge-Endpunkts) - `missing_field_warnings` ist jetzt reine
 # Parse-Diagnostik ohne jeden Merge-/Speicher-Bezug.
 _WARNING_LABELS: dict[str, str] = {
-    "summary": "Kein Kurzprofil/Zusammenfassung gefunden.",
-    "experiences": "Keine Berufserfahrung gefunden.",
-    "education": "Keine Ausbildung gefunden.",
-    "skills": "Keine Skills gefunden.",
-    "projects": "Keine Projekte gefunden.",
+    "summary": "No summary found.",
+    "experiences": "No work experience found.",
+    "education": "No education found.",
+    "skills": "No skills found.",
+    "projects": "No projects found.",
 }
 
 
@@ -134,27 +134,27 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
     try:
         reader = PdfReader(BytesIO(file_bytes))
     except Exception as exc:  # noqa: BLE001 - jede Art von Lesefehler abfangen
-        raise PdfParsingError(f"PDF konnte nicht gelesen werden: {exc}") from exc
+        raise PdfParsingError(f"Could not read the PDF: {exc}") from exc
 
     if reader.is_encrypted:
         try:
             reader.decrypt("")  # Versuch mit leerem Passwort (häufig bei Export-PDFs)
         except Exception as exc:  # noqa: BLE001
             raise PdfParsingError(
-                "Die PDF ist passwortgeschützt und konnte nicht entschlüsselt werden."
+                "The PDF is password-protected and could not be decrypted."
             ) from exc
 
     try:
         pages_text = [page.extract_text() or "" for page in reader.pages]
     except Exception as exc:  # noqa: BLE001
-        raise PdfParsingError(f"Text konnte nicht aus der PDF extrahiert werden: {exc}") from exc
+        raise PdfParsingError(f"Could not extract text from the PDF: {exc}") from exc
 
     text = "\n\n".join(page.strip() for page in pages_text if page.strip())
 
     if not text.strip():
         raise PdfParsingError(
-            "Aus der PDF konnte kein Text extrahiert werden. "
-            "Enthält die Datei nur gescannte Bilder ohne Texterkennung (OCR)?"
+            "No text could be extracted from the PDF. "
+            "Does the file contain only scanned images without OCR?"
         )
 
     return text
@@ -179,11 +179,11 @@ def analyze_cv_text(raw_text: str) -> ParsedCvProfile:
     except LlmValidationError as exc:
         logger.warning("KI-Antwort entsprach nicht dem erwarteten Profil-Schema: %s", exc)
         raise CvAnalysisError(
-            "Die KI-Antwort entsprach nicht dem erwarteten Profil-Schema."
+            "The AI response did not match the expected profile schema."
         ) from exc
     except LlmUnavailableError as exc:
         logger.exception("Ollama-Aufruf zur CV-Analyse fehlgeschlagen.")
-        raise CvAnalysisError(f"KI-Analyse des Lebenslaufs fehlgeschlagen: {exc}") from exc
+        raise CvAnalysisError(f"AI analysis of the CV failed: {exc}") from exc
 
     return result
 

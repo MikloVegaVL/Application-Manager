@@ -110,7 +110,7 @@ def _render_cv_for_current_profile(
     except PdfRenderError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Lebenslauf konnte nicht als PDF erzeugt werden: {exc}",
+            detail=f"Could not generate the CV PDF: {exc}",
         ) from exc
 
     return pdf_bytes, profile

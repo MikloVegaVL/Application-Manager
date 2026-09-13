@@ -148,7 +148,7 @@ def test_parse_cv_with_no_identifiable_project_returns_empty_list_and_warning(cl
     assert response.status_code == 200
     body = response.json()
     assert body["parsed"]["projects"] == []
-    assert "Keine Projekte gefunden." in body["warnings"]
+    assert "No projects found." in body["warnings"]
 
 
 def test_parse_cv_with_missing_experience_and_education_reports_warnings(client, mocker):
@@ -165,12 +165,12 @@ def test_parse_cv_with_missing_experience_and_education_reports_warnings(client,
 
     assert response.status_code == 200
     body = response.json()
-    assert "Keine Berufserfahrung gefunden." in body["warnings"]
-    assert "Keine Ausbildung gefunden." in body["warnings"]
-    assert "Kein Kurzprofil/Zusammenfassung gefunden." in body["warnings"]
-    assert "Keine Projekte gefunden." in body["warnings"]
+    assert "No work experience found." in body["warnings"]
+    assert "No education found." in body["warnings"]
+    assert "No summary found." in body["warnings"]
+    assert "No projects found." in body["warnings"]
     # Skills wurden gefunden - dafür keine Warnung.
-    assert "Keine Skills gefunden." not in body["warnings"]
+    assert "No skills found." not in body["warnings"]
 
 
 def test_parse_cv_does_not_write_to_the_database(client, mocker):
