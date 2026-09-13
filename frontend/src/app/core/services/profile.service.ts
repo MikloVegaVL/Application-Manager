@@ -7,8 +7,6 @@ import {
   CvParseResponse,
   CvRenderPayload,
   CvTemplate,
-  CvTranslateRequest,
-  CvTranslateResponse,
   DocumentLanguage,
   MasterProfile,
   MasterProfileRead,
@@ -122,26 +120,6 @@ export class ProfileService {
   /** Lädt die kleine, feste Auswahl wählbarer CV-Vorlagen (R9, KTD8). */
   getTemplates(): Observable<CvTemplate[]> {
     return this.http.get<CvTemplate[]>(`${this.cvBuilderBaseUrl}/templates`);
-  }
-
-  /**
-   * Übersetzt eine Zuordnung stabiler Prosa-Feldpfade von der Quell- in die
-   * Zielsprache (`POST /cv-builder/translate`, KTD2, R6/R9). Rein lokal über
-   * Ollama; die Antwort trennt erfolgreiche Übersetzungen von
-   * fehlgeschlagenen Feldern, damit der Aufrufer für ein fehlgeschlagenes Feld
-   * seinen Originaltext behält und die Sprachumschaltung nicht blockiert.
-   */
-  translateContent(
-    sourceLanguage: DocumentLanguage,
-    targetLanguage: DocumentLanguage,
-    fields: Record<string, string>,
-  ): Observable<CvTranslateResponse> {
-    const payload: CvTranslateRequest = {
-      source_language: sourceLanguage,
-      target_language: targetLanguage,
-      fields,
-    };
-    return this.http.post<CvTranslateResponse>(`${this.cvBuilderBaseUrl}/translate`, payload);
   }
 
   /**

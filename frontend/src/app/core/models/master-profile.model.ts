@@ -40,9 +40,7 @@ export type LanguageLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
 /**
  * Entspricht `DocumentLanguage`: die Sprache der festen Dokument-Chrome des
  * generierten Lebenslaufs (Überschriften, Kompetenzgrade, Datums-Wording,
- * Footer, Titel). Nutzerinhalte werden nie übersetzt. Die Sprache kommt jetzt
- * aus dem globalen Header-Selektor (`TranslationService.language()`) - es gibt
- * kein per-Profil-Feld mehr.
+ * Footer, Titel). Nutzerinhalte werden nie übersetzt.
  */
 export type DocumentLanguage = 'de' | 'en';
 
@@ -82,8 +80,7 @@ export interface MasterProfile {
   content_language: DocumentLanguage;
   /** KTD1: Prosa-Snapshot der jeweils anderen Sprache (`{feldpfad: text}`) -
    * wird bei einem Save invalidiert und bei Bedarf neu erzeugt. Die Pfade
-   * folgen dem stabilen Schema aus `ContentTranslationService` (z. B.
-   * `summary`, `experience.0.role`). */
+   * folgen einem stabilen Schema (z. B. `summary`, `experience.0.role`). */
   content_translations_json: Record<string, string>;
 }
 
@@ -207,7 +204,7 @@ export interface CvTemplate {
  */
 export interface CvRenderPayload {
   template_id: string;
-  /** KTD3: kommt aus dem globalen Header-Selektor (`TranslationService.language()`). */
+  /** KTD3: Dokumentsprache (derzeit hartkodiert `'en'` an den Aufrufstellen). */
   document_language: DocumentLanguage;
   summary: string | null;
   berufsbezeichnung: string | null;

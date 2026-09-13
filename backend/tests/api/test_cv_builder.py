@@ -22,7 +22,6 @@ from app.models.master_profile import MasterProfile
 from app.schemas.master_profile import ParsedCvProfile
 from app.services import pdf_service
 from app.services.pdf_parser import CvAnalysisError, PdfParsingError
-from app.services.translation_service import TranslationResult
 
 
 @pytest.fixture
@@ -501,82 +500,17 @@ def test_parse_rejects_unknown_language(client, mocker):
     assert response.status_code == 422
 
 
-# --- POST /cv-builder/translate (KTD2, R6/R9) -----------------------------
+# --- POST /cv-builder/translate: removed (U2, R2) --------------------------
+#
+# The per-field content-translation endpoint and its backing service
+# (`translation_service.py`) were removed together with the CV Builder's
+# content-translation state machine. The route must no longer be registered.
 
 
-def test_translate_returns_per_field_translations(client, mocker):
-    mocker.patch(
-        "app.api.cv_builder.translate_fields",
-        return_value=TranslationResult(translations={"summary": "Experienced developer."}),
-    )
-
+def test_translate_route_no_longer_exists(client):
     response = client.post(
         "/api/cv-builder/translate",
-        json={
-            "source_language": "de",
-            "target_language": "en",
-            "fields": {"summary": "Erfahrener Entwickler."},
-        },
+        json={"source_language": "de", "target_language": "en", "fields": {}},
     )
 
-    assert response.status_code == 200
-    assert response.json() == {
-        "translations": {"summary": "Experienced developer."},
-        "errors": {},
-    }
-
-
-def test_translate_surfaces_per_field_errors_without_losing_others(client, mocker):
-    """R9: ein fehlgeschlagenes Feld erscheint in `errors`, erfolgreiche
-    Felder bleiben in `translations` - der Aufrufer behält das Original."""
-    mocker.patch(
-        "app.api.cv_builder.translate_fields",
-        return_value=TranslationResult(
-            translations={"summary": "Experienced developer."},
-            errors={"berufsbezeichnung": "Ollama ist nicht erreichbar"},
-        ),
-    )
-
-    response = client.post(
-        "/api/cv-builder/translate",
-        json={
-            "source_language": "de",
-            "target_language": "en",
-            "fields": {"summary": "Erfahrener Entwickler.", "berufsbezeichnung": "Entwickler"},
-        },
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["translations"] == {"summary": "Experienced developer."}
-    assert body["errors"] == {"berufsbezeichnung": "Ollama ist nicht erreichbar"}
-
-
-def test_translate_defaults_fields_to_empty_mapping(client, mocker):
-    mock_translate = mocker.patch(
-        "app.api.cv_builder.translate_fields", return_value=TranslationResult()
-    )
-
-    response = client.post(
-        "/api/cv-builder/translate",
-        json={"source_language": "de", "target_language": "en"},
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {"translations": {}, "errors": {}}
-    assert mock_translate.call_args.args[0] == {}
-
-
-def test_translate_rejects_unknown_language(client):
-    response = client.post(
-        "/api/cv-builder/translate",
-        json={"source_language": "de", "target_language": "fr", "fields": {}},
-    )
-
-    assert response.status_code == 422
-
-
-def test_translate_requires_both_languages(client):
-    response = client.post("/api/cv-builder/translate", json={"fields": {}})
-
-    assert response.status_code == 422
+    assert response.status_code == 404
