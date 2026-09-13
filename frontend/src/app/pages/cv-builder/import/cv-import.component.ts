@@ -322,7 +322,7 @@ export class CvImportComponent {
     this.lastFile = file;
     this.errorMessage.set(null);
     this.uploading.set(true);
-    this.profileService.parseCv(file, 'en').subscribe({
+    this.profileService.parseCv(file).subscribe({
       next: (response) => {
         this.uploading.set(false);
         this.parsedResult.set(response.parsed);

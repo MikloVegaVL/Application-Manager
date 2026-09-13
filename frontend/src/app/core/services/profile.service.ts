@@ -7,7 +7,6 @@ import {
   CvParseResponse,
   CvRenderPayload,
   CvTemplate,
-  DocumentLanguage,
   MasterProfile,
   MasterProfileRead,
   ProfileContentUpdate,
@@ -49,16 +48,12 @@ export class ProfileService {
    * Lädt eine Lebenslauf-PDF hoch und lässt sie serverseitig per KI in eine
    * reine Vorschau strukturieren (`POST /cv-builder/parse`, R5/R6). Schreibt
    * NICHTS in die Datenbank - das Ergebnis befüllt im CV-Builder-Formular
-   * nur die Formularfelder, bis der Nutzer explizit speichert (KTD1).
-   *
-   * `language` (R10) gibt an, in welcher Sprache die KI die extrahierten
-   * Textwerte ausgeben soll - der Import folgt damit dem globalen
-   * Sprachselektor.
+   * nur die Formularfelder, bis der Nutzer explizit speichert (KTD1). Die
+   * KI gibt die extrahierten Textwerte immer auf Englisch aus.
    */
-  parseCv(file: File, language: DocumentLanguage): Observable<CvParseResponse> {
+  parseCv(file: File): Observable<CvParseResponse> {
     const formData = new FormData();
     formData.append('file', file, file.name);
-    formData.append('language', language);
     return this.http.post<CvParseResponse>(`${this.cvBuilderBaseUrl}/parse`, formData);
   }
 

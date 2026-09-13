@@ -320,7 +320,6 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
 
     return {
       template_id: templateId,
-      document_language: 'en',
       summary: this.summaryControl.value,
       berufsbezeichnung: this.berufsbezeichnungControl.value,
       experiences_json: this.experiencesArray.getRawValue() as ExperienceEntry[],

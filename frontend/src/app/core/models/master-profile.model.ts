@@ -38,9 +38,11 @@ export interface SkillEntry {
 export type LanguageLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
 
 /**
- * Entspricht `DocumentLanguage`: die Sprache der festen Dokument-Chrome des
- * generierten Lebenslaufs (Überschriften, Kompetenzgrade, Datums-Wording,
- * Footer, Titel). Nutzerinhalte werden nie übersetzt.
+ * Entspricht `DocumentLanguage`. Die feste Dokument-Chrome des generierten
+ * Lebenslaufs (Überschriften, Kompetenzgrade, Datums-Wording, Footer, Titel)
+ * ist seit der Global Language Unification (2026-09-13) fest Englisch und
+ * nutzt diesen Typ nicht mehr - er bleibt für `content_language`/
+ * `*_language` (Inhaltssprache) relevant.
  */
 export type DocumentLanguage = 'de' | 'en';
 
@@ -204,8 +206,6 @@ export interface CvTemplate {
  */
 export interface CvRenderPayload {
   template_id: string;
-  /** KTD3: Dokumentsprache (derzeit hartkodiert `'en'` an den Aufrufstellen). */
-  document_language: DocumentLanguage;
   summary: string | null;
   berufsbezeichnung: string | null;
   experiences_json: ExperienceEntry[];

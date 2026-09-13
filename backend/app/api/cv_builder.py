@@ -16,7 +16,7 @@ repariert - dieser Router ist sein vollständiger Ersatz.
 import io
 import re
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -26,7 +26,6 @@ from app.db.database import get_db
 from app.models.master_profile import MasterProfile
 from app.schemas.master_profile import (
     CvParseResponse,
-    DocumentLanguage,
     EducationEntry,
     ExperienceEntry,
     LanguageEntry,
@@ -58,11 +57,6 @@ class CvRenderRequest(BaseModel):
     """
 
     template_id: CvTemplateId
-    # KTD3 (Global Language Unification, 2026-09-13): die Dokumentsprache kommt
-    # jetzt immer aus dem Request (vom globalen Header-Selektor des Frontends).
-    # Kein Profil-Fallback mehr - fehlt der Wert, gilt die App-Standardsprache
-    # `de`.
-    document_language: DocumentLanguage = "de"
     summary: str | None = None
     berufsbezeichnung: str | None = Field(default=None, max_length=255)
     experiences_json: list[ExperienceEntry] = Field(default_factory=list)
@@ -99,7 +93,6 @@ def _render_cv_for_current_profile(
     try:
         pdf_bytes = render_cv_pdf(
             template_id=payload.template_id,
-            document_language=payload.document_language,
             full_name=profile.full_name,
             email=profile.email,
             phone=profile.phone,
@@ -126,14 +119,11 @@ def _render_cv_for_current_profile(
 @router.post("/parse", response_model=CvParseResponse)
 def parse_cv(
     file: UploadFile = File(..., description="Lebenslauf als PDF-Datei"),
-    language: DocumentLanguage = Form("de"),
 ) -> CvParseResponse:
     """Analysiert eine Lebenslauf-PDF per KI und liefert das Ergebnis
-    ausschließlich als Vorschlag für das Builder-Formular zurück.
-
-    `language` (Form-Feld, Default `de`) gibt an, in welcher Sprache die KI
-    die extrahierten Textwerte ausgeben soll (R10) - der Import folgt damit
-    dem globalen Sprachselektor statt fest Englisch zu erzwingen.
+    ausschließlich als Vorschlag für das Builder-Formular zurück. Die
+    extrahierten Textwerte gibt die KI immer auf Englisch aus (die App ist
+    fest englischsprachig).
 
     Kein Datenbankzugriff: Weder wird ein bestehendes Profil gelesen noch
     geschrieben (R6) - das Ergebnis befüllt im Frontend nur die Formularfelder,
@@ -149,7 +139,7 @@ def parse_cv(
     file_bytes = _require_pdf(file)
 
     try:
-        parsed = parse_cv_pdf(file_bytes, language=language)
+        parsed = parse_cv_pdf(file_bytes)
     except PdfParsingError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except CvAnalysisError as exc:

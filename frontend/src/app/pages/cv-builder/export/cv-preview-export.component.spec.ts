@@ -47,7 +47,6 @@ describe('CvPreviewExportComponent', () => {
 
   const expectedPayload = (overrides: Record<string, unknown> = {}) => ({
     template_id: 'classic',
-    document_language: 'en',
     summary: '',
     berufsbezeichnung: '',
     experiences_json: [],
@@ -351,31 +350,4 @@ describe('CvPreviewExportComponent', () => {
     expect(toggleGroups[0].getAttribute('aria-label')).toBe('Choose template');
   });
 
-  it('always sends document_language "en" on preview (R1)', () => {
-    setInputs();
-    flushTemplates();
-
-    const compiled = fixture.nativeElement as HTMLElement;
-    const previewButton = compiled.querySelectorAll('.cv-preview-export__actions button')[0] as HTMLButtonElement;
-    previewButton.click();
-
-    const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/preview') && r.method === 'POST');
-    expect(req.request.body.document_language).toBe('en');
-    req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
-  });
-
-  it('always sends document_language "en" on export (R1)', () => {
-    setInputs();
-    flushTemplates();
-
-    spyOn(HTMLAnchorElement.prototype, 'click');
-
-    const compiled = fixture.nativeElement as HTMLElement;
-    const exportButton = compiled.querySelectorAll('.cv-preview-export__actions button')[1] as HTMLButtonElement;
-    exportButton.click();
-
-    const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/export') && r.method === 'POST');
-    expect(req.request.body.document_language).toBe('en');
-    req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
-  });
 });
