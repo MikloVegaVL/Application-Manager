@@ -5,7 +5,6 @@ import { FormArray, FormBuilder, FormGroup } from '@angular/forms';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 
 import { MasterProfileRead, ParsedCvProfile } from '../../../core/models/master-profile.model';
-import { TranslationService } from '../../../core/services/translation.service';
 import { CvImportComponent } from './cv-import.component';
 
 const baseProfile: MasterProfileRead = {
@@ -57,7 +56,6 @@ describe('CvImportComponent', () => {
   let skillsArray: FormArray<FormGroup>;
   let projectsArray: FormArray<FormGroup>;
   let summaryControl: ReturnType<FormBuilder['nonNullable']['control']>;
-  let i18n: TranslationService;
 
   const setInputs = (lastSavedProfile: MasterProfileRead | null): void => {
     fixture.componentRef.setInput('summaryControl', summaryControl);
@@ -81,8 +79,6 @@ describe('CvImportComponent', () => {
     component = fixture.componentInstance;
     httpMock = TestBed.inject(HttpTestingController);
     formBuilder = TestBed.inject(FormBuilder);
-    i18n = TestBed.inject(TranslationService);
-    i18n.setLanguage('de');
 
     summaryControl = formBuilder.nonNullable.control('');
     experiencesArray = formBuilder.array<FormGroup>([]);
@@ -92,7 +88,6 @@ describe('CvImportComponent', () => {
   });
 
   afterEach(() => {
-    i18n.setLanguage('de');
     httpMock.verify();
   });
 
@@ -108,7 +103,7 @@ describe('CvImportComponent', () => {
 
     const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/parse') && r.method === 'POST');
     expect(req.request.body instanceof FormData).toBeTrue();
-    expect((req.request.body as FormData).get('language')).toBe('de');
+    expect((req.request.body as FormData).get('language')).toBe('en');
     req.flush({ parsed: parsedFixture, warnings: ['phone'] });
     fixture.detectChanges();
 
@@ -145,9 +140,8 @@ describe('CvImportComponent', () => {
     expect(emitted).toBeGreaterThan(0);
   });
 
-  it('sends the current global selector language when parsing (R10)', () => {
+  it('always sends language "en" when parsing (R1)', () => {
     setInputs(baseProfile);
-    i18n.setLanguage('en');
 
     component.onFileSelected({ target: { files: [pdfFile()] } } as unknown as Event);
 
@@ -214,7 +208,7 @@ describe('CvImportComponent', () => {
     expect(educationArray.length).toBe(0);
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).toContain('Berufserfahrung');
+    expect(compiled.textContent).toContain('Work experience');
 
     const cancelButton = compiled.querySelector('.cv-import__conflict-actions button') as HTMLButtonElement;
     cancelButton.click();

@@ -12,10 +12,8 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatTabsModule } from '@angular/material/tabs';
 
-import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { MasterProfile, MasterProfileRead, ProfileAttachment } from '../../core/models/master-profile.model';
 import { ProfileService } from '../../core/services/profile.service';
-import { TranslationService } from '../../core/services/translation.service';
 
 /**
  * Profil-Seite: nur noch Identitätsfelder (Name, E-Mail, Telefon, Adresse)
@@ -37,7 +35,6 @@ import { TranslationService } from '../../core/services/translation.service';
     MatInputModule,
     MatProgressSpinnerModule,
     MatTabsModule,
-    TranslatePipe,
   ],
   templateUrl: './profile.component.html',
   styleUrl: './profile.component.scss',
@@ -47,7 +44,6 @@ export class ProfileComponent implements OnInit {
   private readonly formBuilder = inject(FormBuilder);
   private readonly profileService = inject(ProfileService);
   private readonly snackBar = inject(MatSnackBar);
-  protected readonly i18n = inject(TranslationService);
 
   protected readonly profileId = signal<number | null>(null);
   protected readonly loading = signal(true);
@@ -95,7 +91,7 @@ export class ProfileComponent implements OnInit {
       error: (error: HttpErrorResponse) => {
         this.loading.set(false);
         if (error.status !== 404) {
-          this.notify('profile.snackbar.loadFailed', undefined, 4000);
+          this.notify('The profile could not be loaded.', 4000);
         }
         // 404 = es existiert noch kein Profil -> leeres Formular für die Neuanlage.
       },
@@ -105,7 +101,7 @@ export class ProfileComponent implements OnInit {
   onSubmit(): void {
     if (this.profileForm.invalid) {
       this.profileForm.markAllAsTouched();
-      this.notify('profile.snackbar.checkRequired');
+      this.notify('Please check the highlighted required fields.');
       return;
     }
 
@@ -134,7 +130,7 @@ export class ProfileComponent implements OnInit {
           return;
         }
         this.saving.set(false);
-        this.notify('profile.snackbar.saveFailed', undefined, 4000);
+        this.notify('The profile could not be saved.', 4000);
       },
     });
   }
@@ -165,11 +161,11 @@ export class ProfileComponent implements OnInit {
       next: (profile) => {
         this.saving.set(false);
         this.applyProfileToForm(profile);
-        this.notify('profile.snackbar.saved');
+        this.notify('Profile was saved.');
       },
       error: () => {
         this.saving.set(false);
-        this.notify('profile.snackbar.saveFailed', undefined, 4000);
+        this.notify('The profile could not be saved.', 4000);
       },
     });
   }
@@ -219,7 +215,7 @@ export class ProfileComponent implements OnInit {
   private setSelectedCvFile(file: File): void {
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
     if (!isPdf) {
-      this.notify('profile.snackbar.pdfOnly');
+      this.notify('Please select a PDF file.');
       return;
     }
     this.selectedCvFile.set(file);
@@ -241,14 +237,13 @@ export class ProfileComponent implements OnInit {
         this.uploadingCvFile.set(false);
         this.selectedCvFile.set(null);
         this.cvFilename.set(profile.cv_filename);
-        this.notify('profile.snackbar.cvFileUploaded');
+        this.notify('CV file was uploaded.');
       },
       error: (error: HttpErrorResponse) => {
         this.uploadingCvFile.set(false);
         const message =
-          (error.error?.detail as string | undefined) ??
-          this.i18n.translate('profile.snackbar.uploadFailed');
-        this.snackBar.open(message, this.i18n.translate('common.ok'), { duration: 5000 });
+          (error.error?.detail as string | undefined) ?? 'Upload failed. Please try again.';
+        this.snackBar.open(message, 'OK', { duration: 5000 });
       },
     });
   }
@@ -263,11 +258,11 @@ export class ProfileComponent implements OnInit {
       next: (profile) => {
         this.deletingCvFile.set(false);
         this.cvFilename.set(profile.cv_filename);
-        this.notify('profile.snackbar.cvFileRemoved');
+        this.notify('CV file was removed.');
       },
       error: () => {
         this.deletingCvFile.set(false);
-        this.notify('profile.snackbar.cvFileRemoveFailed', undefined, 4000);
+        this.notify('The CV file could not be removed.', 4000);
       },
     });
   }
@@ -304,12 +299,15 @@ export class ProfileComponent implements OnInit {
 
   private setSelectedAttachmentFile(file: File): void {
     if (this.attachments().length >= this.MAX_ATTACHMENTS) {
-      this.notify('profile.snackbar.maxAttachments', { max: this.MAX_ATTACHMENTS }, 4000);
+      this.notify(
+        `A maximum of ${this.MAX_ATTACHMENTS} additional attachments can be uploaded.`,
+        4000,
+      );
       return;
     }
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
     if (!isPdf) {
-      this.notify('profile.snackbar.pdfOnly');
+      this.notify('Please select a PDF file.');
       return;
     }
     this.selectedAttachmentFile.set(file);
@@ -331,14 +329,13 @@ export class ProfileComponent implements OnInit {
         this.uploadingAttachment.set(false);
         this.selectedAttachmentFile.set(null);
         this.attachments.set(profile.attachments);
-        this.notify('profile.snackbar.attachmentUploaded');
+        this.notify('Attachment was uploaded.');
       },
       error: (error: HttpErrorResponse) => {
         this.uploadingAttachment.set(false);
         const message =
-          (error.error?.detail as string | undefined) ??
-          this.i18n.translate('profile.snackbar.attachmentUploadFailed');
-        this.snackBar.open(message, this.i18n.translate('common.ok'), { duration: 5000 });
+          (error.error?.detail as string | undefined) ?? 'Upload failed. Please try again.';
+        this.snackBar.open(message, 'OK', { duration: 5000 });
       },
     });
   }
@@ -353,19 +350,17 @@ export class ProfileComponent implements OnInit {
       next: (profile) => {
         this.deletingAttachmentId.set(null);
         this.attachments.set(profile.attachments);
-        this.notify('profile.snackbar.attachmentRemoved');
+        this.notify('Attachment was removed.');
       },
       error: () => {
         this.deletingAttachmentId.set(null);
-        this.notify('profile.snackbar.attachmentRemoveFailed', undefined, 4000);
+        this.notify('The attachment could not be removed.', 4000);
       },
     });
   }
 
-  /** Zeigt eine übersetzte SnackBar-Meldung mit übersetztem "OK"-Label. */
-  private notify(key: string, params?: Record<string, string | number>, duration = 3000): void {
-    this.snackBar.open(this.i18n.translate(key, params), this.i18n.translate('common.ok'), {
-      duration,
-    });
+  /** Zeigt eine SnackBar-Meldung mit "OK"-Label. */
+  private notify(message: string, duration = 3000): void {
+    this.snackBar.open(message, 'OK', { duration });
   }
 }

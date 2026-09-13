@@ -11,13 +11,11 @@ import { MatSidenavModule } from '@angular/material/sidenav';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { map } from 'rxjs/operators';
 
-import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { ThemeService } from '../../core/services/theme.service';
-import { TranslationService } from '../../core/services/translation.service';
 
 interface NavItem {
   path: string;
-  labelKey: string;
+  label: string;
   icon: string;
 }
 
@@ -35,7 +33,6 @@ interface NavItem {
     MatButtonModule,
     MatFormFieldModule,
     MatSelectModule,
-    TranslatePipe,
   ],
   templateUrl: './nav-layout.component.html',
   styleUrl: './nav-layout.component.scss',
@@ -44,14 +41,13 @@ interface NavItem {
 export class NavLayoutComponent {
   private readonly breakpointObserver = inject(BreakpointObserver);
   protected readonly theme = inject(ThemeService);
-  protected readonly i18n = inject(TranslationService);
 
   protected readonly navItems: NavItem[] = [
-    { path: '/job-search', labelKey: 'nav.jobSearch', icon: 'search' },
-    { path: '/profile', labelKey: 'nav.profile', icon: 'person' },
-    { path: '/cv-builder', labelKey: 'nav.cvBuilder', icon: 'description' },
-    { path: '/applications', labelKey: 'nav.applications', icon: 'work_outline' },
-    { path: '/editor', labelKey: 'nav.editor', icon: 'edit_document' },
+    { path: '/job-search', label: 'Job search', icon: 'search' },
+    { path: '/profile', label: 'Profile', icon: 'person' },
+    { path: '/cv-builder', label: 'CV Builder', icon: 'description' },
+    { path: '/applications', label: 'Applications', icon: 'work_outline' },
+    { path: '/editor', label: 'Editor', icon: 'edit_document' },
   ];
 
   /** Auf mobilen Viewports wird der Sidenav standardmäßig als Overlay geführt. */

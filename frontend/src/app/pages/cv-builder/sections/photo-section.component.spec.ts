@@ -65,7 +65,7 @@ describe('PhotoSectionComponent', () => {
 
     expect(component['photoUrl']()).toBeNull();
     expect(compiled.querySelector('img')).toBeFalsy();
-    expect(compiled.textContent).toContain('Noch kein Foto hochgeladen.');
+    expect(compiled.textContent).toContain('No photo uploaded yet.');
   });
 
   it('uploads a selected image and displays the preview', () => {
@@ -116,7 +116,7 @@ describe('PhotoSectionComponent', () => {
     fixture.detectChanges();
 
     httpMock.expectNone((r) => r.url.endsWith('/profile/photo') && r.method === 'POST');
-    expect(component['errorMessage']()).toBe('Bitte eine Bilddatei auswählen.');
+    expect(component['errorMessage']()).toBe('Please select an image file.');
     expect(component['photoUrl']()).toBeNull();
   });
 

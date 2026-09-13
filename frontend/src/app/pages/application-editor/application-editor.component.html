@@ -1,7 +1,7 @@
 <div class="editor-page">
   <mat-toolbar color="primary" class="editor-toolbar">
     <span class="editor-toolbar__title">
-      {{ 'editor.title' | translate: i18n.language() }}
+      Application editor
       @if (jobOffer(); as job) {
         <span class="editor-toolbar__subtitle">- {{ job.title }} bei {{ job.company }}</span>
       }
@@ -12,7 +12,7 @@
     <button
       mat-button
       type="button"
-      [matTooltip]="'editor.saveTooltip' | translate: i18n.language()"
+      matTooltip="Saves the edited cover letter text"
       [disabled]="!application() || saving()"
       (click)="onSaveCoverLetter()"
     >
@@ -21,7 +21,7 @@
       } @else {
         <mat-icon>save</mat-icon>
       }
-      {{ 'editor.saveCoverLetter' | translate: i18n.language() }}
+      Save cover letter
     </button>
 
     <button
@@ -36,16 +36,19 @@
       } @else {
         <mat-icon>send</mat-icon>
       }
-      {{ 'editor.sendNow' | translate: i18n.language() }}
+      Send application by email now
     </button>
   </mat-toolbar>
 
   @if (loading()) {
     <div class="editor-page__loading">
       <mat-progress-spinner mode="indeterminate" diameter="48" />
-      <p>{{ 'editor.loading' | translate: i18n.language() }}</p>
+      <p>Loading / generating application ...</p>
       @if (isFirstGeneration()) {
-        <p class="editor-page__loading-hint">{{ 'editor.loadingHint' | translate: i18n.language() }}</p>
+        <p class="editor-page__loading-hint">
+          The AI generation runs without GPU acceleration - this can take several minutes. Please
+          do not close the page during this time.
+        </p>
       }
     </div>
   } @else if (errorMessage()) {
@@ -57,10 +60,10 @@
     <section class="editor-content">
       <mat-tab-group animationDuration="150ms">
         <!-- Anschreiben (KI-generiert, manuell editierbar) -->
-        <mat-tab [label]="'editor.tabCoverLetter' | translate: i18n.language()">
+        <mat-tab label="Cover letter">
           <form [formGroup]="coverLetterForm" class="tab-content">
             <mat-form-field appearance="outline" class="cover-letter-field">
-              <mat-label>{{ 'editor.coverLetterLabel' | translate: i18n.language() }}</mat-label>
+              <mat-label>Cover letter text</mat-label>
               <textarea
                 matInput
                 formControlName="cover_letter_text"
@@ -68,7 +71,7 @@
                 cdkTextareaAutosize
               ></textarea>
               @if (coverLetterForm.controls.cover_letter_text.hasError('required') && coverLetterForm.controls.cover_letter_text.touched) {
-                <mat-error>{{ 'editor.coverLetterRequired' | translate: i18n.language() }}</mat-error>
+                <mat-error>The cover letter must not be empty.</mat-error>
               }
             </mat-form-field>
           </form>

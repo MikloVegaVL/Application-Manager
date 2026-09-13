@@ -128,7 +128,7 @@ describe('ApplicationEditorComponent', () => {
     // Generierung läuft noch (generateReq absichtlich nicht geflusht) - der
     // Hinweis muss jetzt sichtbar sein.
     expect(component['isFirstGeneration']()).toBeTrue();
-    expect(fixture.nativeElement.textContent as string).toContain('mehrere Minuten dauern');
+    expect(fixture.nativeElement.textContent as string).toContain('can take several minutes');
 
     const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
     generateReq.flush(buildApplication('Sehr geehrte Damen und Herren,'));
@@ -269,7 +269,7 @@ describe('ApplicationEditorComponent', () => {
 
       expect(component['isFirstGeneration']()).toBeFalse();
       expect(component['loading']()).toBeFalse();
-      expect(component['errorMessage']()).toContain('ungewöhnlich lange');
+      expect(component['errorMessage']()).toContain('unusually long');
     }),
   );
 
@@ -359,7 +359,7 @@ describe('ApplicationEditorComponent', () => {
       component.onOpenSendDialog();
 
       const data = openSpy.calls.mostRecent().args[1].data as SendApplicationDialogData;
-      expect(data.subject).toBe('Bewerbung als Backend Engineer');
+      expect(data.subject).toBe('Application as Backend Engineer');
     });
 
     it('no job offer linked + no Betreff line -> dialog subject shows the generic "Bewerbung" fallback', () => {
@@ -372,7 +372,7 @@ describe('ApplicationEditorComponent', () => {
       component.onOpenSendDialog();
 
       const data = openSpy.calls.mostRecent().args[1].data as SendApplicationDialogData;
-      expect(data.subject).toBe('Bewerbung');
+      expect(data.subject).toBe('Application');
     });
 
     it('sends with the dialog-confirmed values, shows a success message and redirects to the overview', () => {

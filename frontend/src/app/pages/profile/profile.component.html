@@ -1,49 +1,46 @@
 <div class="profile-page">
   <header class="profile-page__intro">
-    <h1>{{ 'profile.title' | translate: i18n.language() }}</h1>
-    <!-- Bewusst nicht per Übersetzungsschlüssel: der eingebettete Link zum CV
-         Builder lässt sich mit dem aktuellen (reinen Text-Interpolation)
-         TranslationService nicht sauber abbilden. -->
-    <p>Stammdaten und Dokumente - die Basis für automatisch generierte Bewerbungen. Berufserfahrung, Ausbildung, Skills & Co. pflegst du im <a routerLink="/cv-builder">Lebenslauf-Editor</a>.</p>
+    <h1>Profile</h1>
+    <p>Master data and documents - the basis for automatically generated applications. Maintain your work experience, education, skills and more in the <a routerLink="/cv-builder">CV editor</a>.</p>
   </header>
 
   @if (loading()) {
     <div class="profile-page__loading">
       <mat-progress-spinner mode="indeterminate" diameter="48" />
-      <p>{{ 'profile.loading' | translate: i18n.language() }}</p>
+      <p>Loading profile ...</p>
     </div>
   } @else {
     <form [formGroup]="profileForm" (ngSubmit)="onSubmit()">
       <mat-tab-group animationDuration="150ms">
         <!-- Tab 1: Persönliche Daten -->
-        <mat-tab [label]="'profile.tab.personal' | translate: i18n.language()">
+        <mat-tab label="Personal details">
           <div class="tab-content">
             <div class="form-grid">
               <mat-form-field appearance="outline">
-                <mat-label>{{ 'profile.fullName' | translate: i18n.language() }}</mat-label>
+                <mat-label>Full name</mat-label>
                 <input matInput formControlName="full_name" />
                 @if (profileForm.controls['full_name'].hasError('required') && profileForm.controls['full_name'].touched) {
-                  <mat-error>{{ 'profile.fullNameRequired' | translate: i18n.language() }}</mat-error>
+                  <mat-error>Please enter your name.</mat-error>
                 }
               </mat-form-field>
 
               <mat-form-field appearance="outline">
-                <mat-label>{{ 'profile.email' | translate: i18n.language() }}</mat-label>
+                <mat-label>Email</mat-label>
                 <input matInput type="email" formControlName="email" />
                 @if (profileForm.controls['email'].hasError('required') && profileForm.controls['email'].touched) {
-                  <mat-error>{{ 'profile.emailRequired' | translate: i18n.language() }}</mat-error>
+                  <mat-error>Please enter your email address.</mat-error>
                 } @else if (profileForm.controls['email'].hasError('email') && profileForm.controls['email'].touched) {
-                  <mat-error>{{ 'profile.emailInvalid' | translate: i18n.language() }}</mat-error>
+                  <mat-error>Please enter a valid email address.</mat-error>
                 }
               </mat-form-field>
 
               <mat-form-field appearance="outline">
-                <mat-label>{{ 'profile.phone' | translate: i18n.language() }}</mat-label>
+                <mat-label>Phone</mat-label>
                 <input matInput formControlName="phone" />
               </mat-form-field>
 
               <mat-form-field appearance="outline">
-                <mat-label>{{ 'profile.address' | translate: i18n.language() }}</mat-label>
+                <mat-label>Address</mat-label>
                 <input matInput formControlName="address" />
               </mat-form-field>
             </div>
@@ -51,9 +48,12 @@
         </mat-tab>
 
         <!-- Tab 2: Lebenslauf-Anhang -->
-        <mat-tab [label]="'profile.tab.cvAttachment' | translate: i18n.language()">
+        <mat-tab label="CV attachment">
           <div class="tab-content">
-            <p class="cv-import__hint">{{ 'profile.cvAttachmentHint' | translate: i18n.language() }}</p>
+            <p class="cv-import__hint">
+              Upload your CV as a PDF here - this file is used unchanged (no AI analysis) as an
+              attachment when you send an application by email.
+            </p>
 
             @if (cvFilename(); as filename) {
               <p class="cv-attachment__current">
@@ -71,12 +71,13 @@
                   } @else {
                     <mat-icon>delete</mat-icon>
                   }
-                  {{ 'common.remove' | translate: i18n.language() }}
+                  Remove
                 </button>
               </p>
             } @else {
               <p class="cv-attachment__current cv-attachment__current--empty">
-                {{ 'profile.noCvFile' | translate: i18n.language() }}
+                No CV file uploaded yet - applications can only be sent once a file has been
+                uploaded.
               </p>
             }
 
@@ -89,7 +90,7 @@
               (click)="cvFileInput.click()"
             >
               <mat-icon>upload_file</mat-icon>
-              <p>{{ 'profile.dropzone' | translate: i18n.language() }}</p>
+              <p>Drag a PDF here or click to select</p>
               @if (selectedCvFile(); as file) {
                 <p class="cv-dropzone__filename">
                   {{ file.name }}
@@ -114,21 +115,23 @@
               } @else {
                 <mat-icon>upload</mat-icon>
               }
-              {{ 'profile.uploadCvFile' | translate: i18n.language() }}
+              Upload CV file
             </button>
           </div>
         </mat-tab>
 
         <!-- Tab 3: Weitere Anhänge -->
-        <mat-tab [label]="'profile.tab.attachments' | translate: i18n.language()">
+        <mat-tab label="Additional attachments">
           <div class="tab-content">
             <p class="cv-import__hint">
-              {{ 'profile.attachmentsHint' | translate: i18n.language(): { max: MAX_ATTACHMENTS } }}
+              Upload up to {{ MAX_ATTACHMENTS }} additional PDF documents here (e.g. references,
+              certificates) - they are sent as extra email attachments in addition to your CV
+              when you send an application.
             </p>
 
             @if (attachments().length === 0) {
               <p class="cv-attachment__current cv-attachment__current--empty">
-                {{ 'profile.noAttachments' | translate: i18n.language() }}
+                No additional attachments uploaded yet.
               </p>
             } @else {
               <div class="cv-attachment__list">
@@ -148,7 +151,7 @@
                       } @else {
                         <mat-icon>delete</mat-icon>
                       }
-                      {{ 'common.remove' | translate: i18n.language() }}
+                      Remove
                     </button>
                   </p>
                 }
@@ -165,7 +168,7 @@
                 (click)="attachmentFileInput.click()"
               >
                 <mat-icon>upload_file</mat-icon>
-                <p>{{ 'profile.dropzone' | translate: i18n.language() }}</p>
+                <p>Drag a PDF here or click to select</p>
                 @if (selectedAttachmentFile(); as file) {
                   <p class="cv-dropzone__filename">
                     {{ file.name }}
@@ -196,10 +199,12 @@
                 } @else {
                   <mat-icon>upload</mat-icon>
                 }
-                {{ 'profile.uploadAttachment' | translate: i18n.language() }}
+                Upload attachment
               </button>
             } @else {
-              <p class="cv-import__hint">{{ 'profile.maxAttachmentsReached' | translate: i18n.language() }}</p>
+              <p class="cv-import__hint">
+                Maximum reached - remove an attachment first to upload a new one.
+              </p>
             }
           </div>
         </mat-tab>
@@ -212,7 +217,7 @@
           } @else {
             <mat-icon>save</mat-icon>
           }
-          {{ 'profile.save' | translate: i18n.language() }}
+          Save profile
         </button>
       </div>
     </form>

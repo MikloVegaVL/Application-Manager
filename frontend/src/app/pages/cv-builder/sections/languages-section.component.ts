@@ -7,9 +7,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 
-import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 import { LanguageEntry, LanguageLevel } from '../../../core/models/master-profile.model';
-import { TranslationService } from '../../../core/services/translation.service';
 import { createLanguageGroup } from '../cv-section-forms.util';
 
 /**
@@ -37,31 +35,30 @@ const LANGUAGE_LEVELS: LanguageLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
     MatIconModule,
     MatInputModule,
     MatSelectModule,
-    TranslatePipe,
   ],
   template: `
     <section class="form-array-section">
       <div class="form-array-section__header">
-        <h3>{{ 'cvBuilder.languages.heading' | translate: i18n.language() }}</h3>
+        <h3>Languages</h3>
         <button mat-stroked-button type="button" (click)="add()">
           <mat-icon>add</mat-icon>
-          {{ 'cvBuilder.languages.add' | translate: i18n.language() }}
+          Add language
         </button>
       </div>
 
       @if (formArray.length === 0) {
-        <p class="form-array-section__empty">{{ 'cvBuilder.languages.empty' | translate: i18n.language() }}</p>
+        <p class="form-array-section__empty">No languages added yet.</p>
       }
 
       @for (group of formArray.controls; track $index) {
         <div class="language-row" [formGroup]="group">
           <mat-form-field appearance="outline" class="language-row__name">
-            <mat-label>{{ 'cvBuilder.languages.language' | translate: i18n.language() }}</mat-label>
+            <mat-label>Language</mat-label>
             <input matInput formControlName="name" />
           </mat-form-field>
 
           <mat-form-field appearance="outline" class="language-row__level">
-            <mat-label>{{ 'cvBuilder.level' | translate: i18n.language() }}</mat-label>
+            <mat-label>Level</mat-label>
             <mat-select formControlName="level">
               @for (level of languageLevels; track level) {
                 <mat-option [value]="level">{{ level }}</mat-option>
@@ -74,7 +71,7 @@ const LANGUAGE_LEVELS: LanguageLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
             color="warn"
             type="button"
             class="language-row__remove"
-            [attr.aria-label]="'cvBuilder.languages.removeAria' | translate: i18n.language()"
+            aria-label="Remove language"
             (click)="remove($index)"
           >
             <mat-icon>delete</mat-icon>
@@ -135,7 +132,6 @@ const LANGUAGE_LEVELS: LanguageLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 export class LanguagesSectionComponent {
   private readonly formBuilder = inject(FormBuilder);
   private readonly changeDetectorRef = inject(ChangeDetectorRef);
-  protected readonly i18n = inject(TranslationService);
 
   protected readonly languageLevels = LANGUAGE_LEVELS;
 

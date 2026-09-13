@@ -1,38 +1,30 @@
 <div class="job-search">
   <header class="job-search__intro">
-    <h1>{{ 'jobSearch.title' | translate: i18n.language() }}</h1>
-    <p>{{ 'jobSearch.intro' | translate: i18n.language() }}</p>
+    <h1>Job search</h1>
+    <p>Search open positions and save matching offers for your application.</p>
   </header>
 
   <form class="job-search__form" [formGroup]="searchForm" (ngSubmit)="onSearch()">
     <mat-form-field appearance="outline" class="job-search__field">
-      <mat-label>{{ 'jobSearch.keywordsLabel' | translate: i18n.language() }}</mat-label>
+      <mat-label>Keywords</mat-label>
       <mat-icon matPrefix>search</mat-icon>
-      <input
-        matInput
-        formControlName="keywords"
-        [placeholder]="'jobSearch.keywordsPlaceholder' | translate: i18n.language()"
-      />
+      <input matInput formControlName="keywords" placeholder="e.g. Backend Engineer" />
       @if (searchForm.controls.keywords.hasError('required') && searchForm.controls.keywords.touched) {
-        <mat-error>{{ 'jobSearch.keywordsRequired' | translate: i18n.language() }}</mat-error>
+        <mat-error>Please enter a search term.</mat-error>
       } @else if (searchForm.controls.keywords.hasError('minlength') && searchForm.controls.keywords.touched) {
-        <mat-error>{{ 'jobSearch.keywordsMinLength' | translate: i18n.language() }}</mat-error>
+        <mat-error>The search term must be at least 2 characters long.</mat-error>
       }
     </mat-form-field>
 
     <mat-form-field appearance="outline" class="job-search__field">
-      <mat-label>{{ 'jobSearch.locationLabel' | translate: i18n.language() }}</mat-label>
+      <mat-label>Location</mat-label>
       <mat-icon matPrefix>place</mat-icon>
-      <input
-        matInput
-        formControlName="location"
-        [placeholder]="'jobSearch.locationPlaceholder' | translate: i18n.language()"
-      />
+      <input matInput formControlName="location" placeholder="e.g. Berlin" />
     </mat-form-field>
 
     <button mat-raised-button color="primary" type="submit" class="job-search__submit" [disabled]="loading()">
       <mat-icon>search</mat-icon>
-      {{ 'jobSearch.search' | translate: i18n.language() }}
+      Search
     </button>
 
     <button
@@ -43,14 +35,14 @@
       (click)="onClearResults()"
     >
       <mat-icon>clear</mat-icon>
-      {{ 'jobSearch.clearResults' | translate: i18n.language() }}
+      Clear results
     </button>
   </form>
 
   @if (loading()) {
     <div class="job-search__loading">
       <mat-progress-spinner mode="indeterminate" diameter="48" />
-      <p>{{ 'jobSearch.loading' | translate: i18n.language() }}</p>
+      <p>Loading job offers ...</p>
     </div>
   }
 
@@ -60,14 +52,12 @@
 
   @if (!loading() && hasSearched() && !errorMessage() && sourceStatuses().length > 0) {
     <div class="job-search__source-status">
-      <span class="job-search__source-filter-title">
-        {{ 'jobSearch.filterLabel' | translate: i18n.language() }}
-      </span>
+      <span class="job-search__source-filter-title"> Filter by source </span>
       <mat-chip-listbox
         multiple
         [value]="selectedSources()"
         (change)="onSourceFilterChange($event.value)"
-        [attr.aria-label]="'jobSearch.filterLabel' | translate: i18n.language()"
+        aria-label="Filter by source"
       >
         @for (source of sourceStatuses(); track source.platform) {
           <mat-chip-option
@@ -78,7 +68,7 @@
             <mat-icon matChipAvatar>{{ source.status === 'ok' ? 'check_circle' : 'error_outline' }}</mat-icon>
             {{ sourceLabel(source.platform) }}
             @if (source.status === 'unavailable') {
-              · {{ (source.reason === 'not-configured' ? 'jobSearch.notConfigured' : 'jobSearch.unavailable') | translate: i18n.language() }}
+              · {{ source.reason === 'not-configured' ? 'not configured' : 'unavailable' }}
             }
           </mat-chip-option>
         }
@@ -91,7 +81,7 @@
           (click)="clearSourceFilter()"
         >
           <mat-icon>filter_alt_off</mat-icon>
-          {{ 'jobSearch.clearFilter' | translate: i18n.language() }}
+          Clear filter
         </button>
       }
     </div>
@@ -99,14 +89,16 @@
 
   @if (!loading() && hasSearched() && !errorMessage() && results().length === 0) {
     @if (allSourcesUnavailable()) {
-      <p class="job-search__empty">{{ 'jobSearch.allSourcesUnavailable' | translate: i18n.language() }}</p>
+      <p class="job-search__empty">
+        All sources were unreachable just now. Please try again in a few minutes.
+      </p>
     } @else {
-      <p class="job-search__empty">{{ 'jobSearch.noResults' | translate: i18n.language() }}</p>
+      <p class="job-search__empty">No job offers found. Try a different search term or location.</p>
     }
   }
 
   @if (!loading() && hasSearched() && !errorMessage() && results().length > 0 && filteredResults().length === 0) {
-    <p class="job-search__empty">{{ 'jobSearch.noFilterMatch' | translate: i18n.language() }}</p>
+    <p class="job-search__empty">No results for the selected sources.</p>
   }
 
   @if (!loading() && filteredResults().length > 0) {
@@ -125,7 +117,7 @@
 
           <mat-card-content>
             <p class="job-card__description">
-              {{ job.description_text || ('jobSearch.noDescription' | translate: i18n.language()) }}
+              {{ job.description_text || 'No description available.' }}
             </p>
             <mat-chip-set>
               <mat-chip>{{ job.source_platform }}</mat-chip>
@@ -135,7 +127,7 @@
           <mat-card-actions align="end">
             <a mat-button [href]="job.source_url" target="_blank" rel="noopener noreferrer">
               <mat-icon>open_in_new</mat-icon>
-              {{ 'jobSearch.openAd' | translate: i18n.language() }}
+              Open ad
             </a>
 
             <button
@@ -149,7 +141,7 @@
               } @else {
                 <mat-icon>{{ isSaved(job) ? 'bookmark_added' : 'bookmark_add' }}</mat-icon>
               }
-              {{ (isSaved(job) ? 'jobSearch.saved' : 'jobSearch.saveJob') | translate: i18n.language() }}
+              {{ isSaved(job) ? 'Saved' : 'Save job' }}
             </button>
 
             <button
@@ -165,7 +157,7 @@
               } @else {
                 <span aria-hidden="true">⚡</span>
               }
-              {{ 'jobSearch.generate' | translate: i18n.language() }}
+              Generate application
             </button>
           </mat-card-actions>
         </mat-card>

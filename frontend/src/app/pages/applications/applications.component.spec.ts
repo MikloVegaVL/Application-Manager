@@ -97,7 +97,7 @@ describe('ApplicationsComponent', () => {
 
     expect(component['applications']().length).toBe(0);
     const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain('Noch keine Bewerbungen vorhanden');
+    expect(text).toContain('No applications yet');
   });
 
   it('shows an error message when the request fails', () => {
@@ -199,7 +199,7 @@ describe('ApplicationsComponent', () => {
     flushList([sentApplication]);
 
     const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain('Gesendet an');
+    expect(text).toContain('Sent to');
     expect(text).toContain('recruiter@example.com');
   });
 
@@ -207,6 +207,6 @@ describe('ApplicationsComponent', () => {
     flushList([sampleApplication]);
 
     const text = fixture.nativeElement.textContent as string;
-    expect(text).not.toContain('Gesendet an');
+    expect(text).not.toContain('Sent to');
   });
 });

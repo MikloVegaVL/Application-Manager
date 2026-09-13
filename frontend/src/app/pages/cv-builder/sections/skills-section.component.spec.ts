@@ -2,7 +2,6 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormArray, FormGroup } from '@angular/forms';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 
-import { TranslationService } from '../../../core/services/translation.service';
 import { SkillsSectionComponent } from './skills-section.component';
 
 describe('SkillsSectionComponent', () => {
@@ -30,17 +29,11 @@ describe('SkillsSectionComponent', () => {
     expect(component['skillLevels']).toEqual(['Grundkenntnisse', 'Gut', 'Sehr gut', 'Experte']);
   });
 
-  it('maps stored skill levels to translated labels while keeping the enum value (R3)', () => {
-    const i18n = TestBed.inject(TranslationService);
-    i18n.setLanguage('en');
-
-    expect(component['skillLevelLabelKey']('Grundkenntnisse')).toBe('cvBuilder.skillLevel.basic');
-    expect(i18n.translate(component['skillLevelLabelKey']('Grundkenntnisse'))).toBe('Basic knowledge');
-    expect(i18n.translate(component['skillLevelLabelKey']('Sehr gut'))).toBe('Very good');
+  it('maps stored skill levels to fixed English labels while keeping the enum value (R3)', () => {
+    expect(component['skillLevelLabel']('Grundkenntnisse')).toBe('Basic knowledge');
+    expect(component['skillLevelLabel']('Sehr gut')).toBe('Very good');
     // Der gespeicherte Wert bleibt der deutsche Enum-String.
     expect(component['skillLevels']).toEqual(['Grundkenntnisse', 'Gut', 'Sehr gut', 'Experte']);
-
-    i18n.setLanguage('de');
   });
 
   it('adds a skill with a name and level to the form array', () => {
@@ -85,7 +78,7 @@ describe('SkillsSectionComponent', () => {
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('.skill-row__hint')).toBeTruthy();
-    expect(compiled.textContent).toContain('Auto-migriert');
+    expect(compiled.textContent).toContain('Auto-migrated');
   });
 
   it('does not show the review hint for a skill at a non-default level', () => {

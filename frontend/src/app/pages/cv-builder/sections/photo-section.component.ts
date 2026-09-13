@@ -5,9 +5,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
-import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 import { ProfileService } from '../../../core/services/profile.service';
-import { TranslationService } from '../../../core/services/translation.service';
 
 /**
  * Foto-Sektion des CV Builders (KTD4/KTD10). Anders als die übrigen
@@ -20,29 +18,25 @@ import { TranslationService } from '../../../core/services/translation.service';
 @Component({
   selector: 'app-photo-section',
   standalone: true,
-  imports: [MatButtonModule, MatIconModule, MatProgressSpinnerModule, TranslatePipe],
+  imports: [MatButtonModule, MatIconModule, MatProgressSpinnerModule],
   template: `
     <section class="form-array-section">
-      <h3>{{ 'cvBuilder.photo.heading' | translate: i18n.language() }}</h3>
+      <h3>Photo</h3>
 
       @if (photoUrl(); as url) {
         <div class="photo-section__preview">
-          <img
-            [src]="url"
-            [alt]="'cvBuilder.photo.alt' | translate: i18n.language()"
-            class="photo-section__image"
-          />
+          <img [src]="url" alt="Profile photo" class="photo-section__image" />
           <button mat-button color="warn" type="button" [disabled]="deleting()" (click)="remove()">
             @if (deleting()) {
               <mat-progress-spinner mode="indeterminate" diameter="18" />
             } @else {
               <mat-icon>delete</mat-icon>
             }
-            {{ 'common.remove' | translate: i18n.language() }}
+            Remove
           </button>
         </div>
       } @else if (!loading()) {
-        <p class="form-array-section__empty">{{ 'cvBuilder.photo.empty' | translate: i18n.language() }}</p>
+        <p class="form-array-section__empty">No photo uploaded yet.</p>
       }
 
       <div
@@ -58,7 +52,7 @@ import { TranslationService } from '../../../core/services/translation.service';
         } @else {
           <mat-icon>upload_file</mat-icon>
         }
-        <p>{{ 'cvBuilder.photo.dropzone' | translate: i18n.language() }}</p>
+        <p>Drag an image here or click to select</p>
       </div>
       <input #fileInput type="file" accept="image/*" hidden (change)="onFileSelected($event)" />
 
@@ -146,7 +140,6 @@ import { TranslationService } from '../../../core/services/translation.service';
 })
 export class PhotoSectionComponent implements OnInit, OnDestroy {
   private readonly profileService = inject(ProfileService);
-  protected readonly i18n = inject(TranslationService);
 
   protected readonly photoUrl = signal<string | null>(null);
   protected readonly loading = signal(true);
@@ -205,7 +198,7 @@ export class PhotoSectionComponent implements OnInit, OnDestroy {
       },
       error: () => {
         this.deleting.set(false);
-        this.errorMessage.set(this.i18n.translate('cvBuilder.photo.removeFailed'));
+        this.errorMessage.set('The photo could not be removed.');
       },
     });
   }
@@ -215,7 +208,7 @@ export class PhotoSectionComponent implements OnInit, OnDestroy {
     // die serverseitige MIME/Größenprüfung in `upload_photo` bleibt
     // zusätzlich bestehen, siehe `backend/app/api/profile.py`.
     if (!file.type.startsWith('image/')) {
-      this.errorMessage.set(this.i18n.translate('cvBuilder.photo.imageOnly'));
+      this.errorMessage.set('Please select an image file.');
       return;
     }
 
@@ -235,8 +228,7 @@ export class PhotoSectionComponent implements OnInit, OnDestroy {
       error: (error: HttpErrorResponse) => {
         this.uploading.set(false);
         const message =
-          (error.error?.detail as string | undefined) ??
-          this.i18n.translate('cvBuilder.photo.uploadFailed');
+          (error.error?.detail as string | undefined) ?? 'Upload failed. Please try again.';
         this.errorMessage.set(message);
       },
     });
@@ -256,7 +248,7 @@ export class PhotoSectionComponent implements OnInit, OnDestroy {
         this.photoUrl.set(null);
         // 404 = noch kein Foto hochgeladen -> Empty-State statt Fehlermeldung.
         if (error.status !== 404) {
-          this.errorMessage.set(this.i18n.translate('cvBuilder.photo.loadFailed'));
+          this.errorMessage.set('The photo could not be loaded.');
         }
       },
     });
