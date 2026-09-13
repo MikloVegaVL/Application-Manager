@@ -84,7 +84,6 @@
 
   .tags { margin: 0; padding: 0; list-style: none; }
   .tags li { margin-bottom: 1.5mm; }
-  .tag__category { font-weight: 700; }
   .tag__level { color: #777; }
 </style>
 </head>
@@ -167,15 +166,11 @@
     <div class="section">
       <div><h2 class="sec-label">Skills</h2><div class="rule"></div></div>
       <div class="main">
-        {% set group_list = skill_groups if skills else sample_skill_groups %}
-        {% set group_sample = not skills %}
-        <ul class="tags{% if group_sample %} ph{% endif %}">
-          {% for group in group_list %}
-          <li>
-            <span class="tag__category">{{ group.category }}</span>:
-            {{ group.skills | map(attribute='name') | join(', ') }}
-            <span class="tag__level">&mdash; {{ group.level_label }}</span>
-          </li>
+        {% set skill_list = skills_ctx if skills else sample_skills_ctx %}
+        {% set skill_sample = not skills %}
+        <ul class="tags{% if skill_sample %} ph{% endif %}">
+          {% for skill in skill_list %}
+          <li>{{ skill.name }} <span class="tag__level">&mdash; {{ skill.level_label }}</span></li>
           {% endfor %}
         </ul>
       </div>

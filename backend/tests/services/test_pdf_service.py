@@ -286,6 +286,95 @@ class TestMultiPageFragmentation:
         assert "erika musterfrau" in first_page_text.lower()
 
 
+class TestClassicPerSkillRendering:
+    """R5: Classic listet jeden Skill einzeln als Klartext mit englischem
+    Kompetenzgrad-Suffix, ohne Kategorie und ohne Balken - für echte wie für
+    Beispiel-(Preview-)Skills."""
+
+    def _rendered(self, mocker, **kwargs) -> str:
+        mock_html_cls = mocker.patch.object(pdf_service, "HTML")
+        mock_html_cls.return_value.write_pdf.return_value = b"%PDF-1.4 fake bytes"
+        pdf_service.render_cv_pdf(**kwargs)
+        return mock_html_cls.call_args.kwargs["string"]
+
+    def test_real_skills_render_individually_as_plain_text_with_english_level(self, mocker):
+        content = _full_content()
+        content["skills"] = [
+            SkillEntry(name="Python", level="Experte"),
+            SkillEntry(name="SQL", level="Gut"),
+        ]
+
+        rendered = self._rendered(mocker, template_id="classic", **content)
+
+        assert "Python <span class=\"tag__level\">&mdash; Expert</span>" in rendered
+        assert "SQL <span class=\"tag__level\">&mdash; Good</span>" in rendered
+        assert "tag__category" not in rendered
+        assert "class=\"bar\"" not in rendered
+
+    def test_sample_skills_render_individually_in_preview(self, mocker):
+        rendered = self._rendered(
+            mocker, template_id="classic", preview=True, **_empty_content()
+        )
+
+        sample_skill = pdf_service.SAMPLE["skills"][0]
+        assert sample_skill["name"] in rendered
+        assert "tag__category" not in rendered
+
+
+class TestTemplate1PerSkillRendering:
+    """R3/R4: Template 1 rendert jeden Skill als eigene Zeile mit einem
+    5-Block-Balken statt einer Kategorie-Gruppierung mit Breitenbalken."""
+
+    def _rendered(self, mocker, **kwargs) -> str:
+        mock_html_cls = mocker.patch.object(pdf_service, "HTML")
+        mock_html_cls.return_value.write_pdf.return_value = b"%PDF-1.4 fake bytes"
+        pdf_service.render_cv_pdf(**kwargs)
+        return mock_html_cls.call_args.kwargs["string"]
+
+    def test_renders_five_span_bar_with_correct_filled_count_per_level(self, mocker):
+        content = _full_content()
+        content["skills"] = [
+            SkillEntry(name="Python", level="Experte"),
+            SkillEntry(name="SQL", level="Grundkenntnisse"),
+        ]
+
+        rendered = self._rendered(mocker, template_id="template-1", **content)
+
+        # Experte -> 5/5 gefüllt (kein "off"), Grundkenntnisse -> 2/5 gefüllt (3x "off").
+        assert '<i></i><i></i><i></i><i></i><i></i>' in rendered
+        assert '<i></i><i></i><i class="off"></i><i class="off"></i><i class="off"></i>' in rendered
+
+    def test_no_category_or_grouping_markup_remains(self, mocker):
+        content = _full_content()
+        content["skills"] = [SkillEntry(name="Python", level="Experte")]
+
+        rendered = self._rendered(mocker, template_id="template-1", **content)
+
+        assert "skill-row__head" not in rendered
+        assert "skill-row__names" not in rendered
+        assert "category" not in rendered.lower()
+
+    def test_ktd10_hidden_level_text_present_for_skills_and_languages(self, mocker):
+        content = _full_content()
+        content["skills"] = [SkillEntry(name="Python", level="Experte")]
+        content["languages"] = [LanguageEntry(name="Deutsch", level="C2")]
+
+        rendered = self._rendered(mocker, template_id="template-1", **content)
+
+        assert '<span class="sr-only">Expert</span>' in rendered
+        assert '<span class="sr-only">C2</span>' in rendered
+
+    def test_language_dots_source_from_languages_ctx_not_a_local_map(self, mocker):
+        content = _full_content()
+        content["languages"] = [LanguageEntry(name="Deutsch", level="B1")]
+
+        rendered = self._rendered(mocker, template_id="template-1", **content)
+
+        assert "lang_dots" not in rendered
+        # B1 -> 3/6 gefüllt.
+        assert '<i></i><i></i><i></i><i class="off"></i><i class="off"></i><i class="off"></i>' in rendered
+
+
 class TestRenderCvPdfErrorHandling:
     def test_unknown_template_id_raises(self):
         with pytest.raises(Exception):
