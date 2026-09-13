@@ -45,6 +45,20 @@ def test_skill_entry_accepts_each_valid_level() -> None:
         assert entry.level == level
 
 
+def test_skill_entry_silently_ignores_a_legacy_category_key() -> None:
+    """R9/AE6: Skill-Kategorie wurde aus dem Produkt entfernt (Session-
+    Entscheidung, CV-Template-Erweiterungs-Plan 2026-09-13). Bereits
+    gespeicherte Zeilen mit einem `category`-Schlüssel (Altdaten von vor der
+    Entfernung) müssen weiterhin klaglos laden - Pydantics Default-Verhalten
+    (`extra` nicht gesetzt = ignorieren) verwirft das unbekannte Feld, statt
+    einen Validierungsfehler auszulösen oder es aufzubewahren."""
+    entry = SkillEntry.model_validate({"name": "Python", "level": "Experte", "category": "Frontend"})
+
+    assert entry.name == "Python"
+    assert entry.level == "Experte"
+    assert not hasattr(entry, "category")
+
+
 def test_language_entry_rejects_out_of_range_level() -> None:
     with pytest.raises(ValidationError):
         LanguageEntry(name="Deutsch", level="Muttersprache")

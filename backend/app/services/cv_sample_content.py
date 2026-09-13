@@ -10,8 +10,6 @@ muss auch das Vorschau-Skeleton diese Sprache widerspiegeln.
 
 Die Einträge sind bereits in Render-Form (inkl. `date_range`), damit die
 Templates sie ohne weitere Normalisierung wie echte Daten rendern können.
-Skills tragen zusätzlich eine `category`, damit die Vorlagen sie gruppiert
-darstellen (siehe `app.services.pdf_service.group_skills`).
 """
 from __future__ import annotations
 
@@ -53,13 +51,13 @@ SAMPLE: dict[str, Any] = {
         }
     ],
     "skills": [
-        {"name": "JavaScript", "level": "Experte", "category": "Frontend"},
-        {"name": "TypeScript", "level": "Sehr gut", "category": "Frontend"},
-        {"name": "Angular", "level": "Sehr gut", "category": "Frontend"},
-        {"name": "Node.js", "level": "Gut", "category": "Backend"},
-        {"name": "PostgreSQL", "level": "Gut", "category": "Backend"},
-        {"name": "Docker", "level": "Gut", "category": "Tools"},
-        {"name": "Git", "level": "Sehr gut", "category": "Tools"},
+        {"name": "JavaScript", "level": "Experte"},
+        {"name": "TypeScript", "level": "Sehr gut"},
+        {"name": "Angular", "level": "Sehr gut"},
+        {"name": "Node.js", "level": "Gut"},
+        {"name": "PostgreSQL", "level": "Gut"},
+        {"name": "Docker", "level": "Gut"},
+        {"name": "Git", "level": "Sehr gut"},
     ],
     "languages": [
         {"name": "German", "level": "C2"},

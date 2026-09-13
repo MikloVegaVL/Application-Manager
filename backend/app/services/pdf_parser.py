@@ -61,8 +61,7 @@ Answer EXCLUSIVELY with a JSON object in exactly the following shape \
   ],
   "skills": [
     {
-      "name": "Skill name",
-      "category": "Frontend | Backend | Tools | Soft Skills | Other"
+      "name": "Skill name"
     }
   ],
   "projects": [
@@ -85,9 +84,6 @@ written in another language. Translate as needed; keep proper nouns \
 (company/institution names, product names, URLs) unchanged.
 - "skills" contains both technical skills (e.g. programming languages, tools) \
 and language skills/certificates as individual short strings.
-- Assign every skill a "category" from exactly this set: "Frontend", \
-"Backend", "Tools", "Soft Skills", "Other". Use "Other" when none of the \
-other categories fits.
 - "projects" contains standalone projects (e.g. open-source, study, \
 portfolio or side projects), NOT the regular positions from "experiences".
 """
