@@ -22,8 +22,7 @@ from typing import Any, Literal
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from weasyprint import HTML, URLFetcher
 
-from app.schemas.master_profile import DocumentLanguage
-from app.services.cv_sample_content import SAMPLE_DE, SAMPLE_EN
+from app.services.cv_sample_content import SAMPLE_EN
 
 logger = logging.getLogger(__name__)
 
@@ -72,15 +71,14 @@ class PdfRenderError(Exception):
 _LOCAL_ONLY_URL_FETCHER = URLFetcher(allowed_protocols=("file", "data"))
 
 
-def _format_date_range(start: str | None, end: str | None, language: DocumentLanguage) -> str:
+def _format_date_range(start: str | None, end: str | None) -> str:
     """Formatiert einen Start-/End-Zeitraum als lesbaren String, z. B.
-    '2021 – 2024', '2021 – present' (Englisch) oder 'seit 2021' (Deutsch).
-    Nur die offene Wortwahl lokalisiert; die Datumswerte selbst bleiben
+    '2021 – 2024' oder '2021 – present'. Die Datumswerte selbst bleiben
     unverändert (R6)."""
     if not start and not end:
         return ""
     if start and not end:
-        return f"seit {start}" if language == "de" else f"{start} – present"
+        return f"{start} – present"
     if not start and end:
         return end
     return f"{start} – {end}"
@@ -96,13 +94,13 @@ def _entry_dict(entry: Any) -> dict[str, Any]:
     return dict(entry)
 
 
-def _entries_with_date_range(entries: list[Any], language: DocumentLanguage) -> list[dict[str, Any]]:
-    """Reichert Erfahrung/Ausbildung/Projekt-Einträge mit dem sprachabhängig
-    formatierten `date_range` an - dieselbe Form für alle drei Listen."""
+def _entries_with_date_range(entries: list[Any]) -> list[dict[str, Any]]:
+    """Reichert Erfahrung/Ausbildung/Projekt-Einträge mit dem formatierten
+    `date_range` an - dieselbe Form für alle drei Listen."""
     return [
         {
             **_entry_dict(entry),
-            "date_range": _format_date_range(entry.start_date, entry.end_date, language),
+            "date_range": _format_date_range(entry.start_date, entry.end_date),
         }
         for entry in entries
     ]
@@ -123,8 +121,8 @@ def _photo_file_uri(photo_path: str | Path | None) -> str | None:
 
 # Englische Anzeige-Labels für die intern deutsch gehaltenen `SkillLevel`-
 # Werte. Die Enum-Werte bleiben unverändert, damit Schema/Migration/Frontend-
-# Formular stabil bleiben; auf Deutsch sind sie selbst das Label (KTD4), auf
-# Englisch greift diese Zuordnung.
+# Formular stabil bleiben; für die Anzeige greift immer diese Zuordnung
+# (die App ist fest englischsprachig).
 _SKILL_LEVEL_LABELS_EN: dict[str, str] = {
     "Grundkenntnisse": "Basic",
     "Gut": "Good",
@@ -155,69 +153,45 @@ _LANGUAGE_LEVEL_DOTS: dict[str, int] = {
     "C2": 6,
 }
 
-# R5/KTD1: alle festen Dokument-Chrome-Strings pro Dokumentsprache an einer
-# Stelle. Jede der fünf Vorlagen konsumiert dieses Mapping als `doc`, statt die
-# Strings lokal zu duplizieren. `title` ist das Substantiv im Dokumenttitel
+# R5/KTD1: alle festen Dokument-Chrome-Strings an einer Stelle. Jede der fünf
+# Vorlagen konsumiert dieses Mapping als `doc`, statt die Strings lokal zu
+# duplizieren. `title` ist das Substantiv im Dokumenttitel
 # (`<title>{{ doc.title }} - {{ full_name }}</title>`), `page_prefix`/`page_of`
-# bilden den `@page`-Footer. Die Nutzerinhalte werden nie übersetzt (R6).
-# KTD3 (Global Language Unification, 2026-09-13): die App-Standardsprache ist
-# Deutsch - fehlt/ungültig ist die Dokumentsprache, wird Deutsch gerendert.
-_DEFAULT_DOCUMENT_LANGUAGE: DocumentLanguage = "de"
-_DOC_CHROME: dict[DocumentLanguage, dict[str, str]] = {
-    "en": {
-        "lang": "en",
-        "title": "Resume",
-        "page_prefix": "Page",
-        "page_of": "of",
-        "photo_alt": "Profile photo",
-        "photo_placeholder": "Photo",
-        "contact": "Contact",
-        "profile": "Profile",
-        "experience": "Experience",
-        "education": "Education",
-        "skills": "Skills",
-        "languages": "Languages",
-        "projects": "Projects",
-    },
-    "de": {
-        "lang": "de",
-        "title": "Lebenslauf",
-        "page_prefix": "Seite",
-        "page_of": "von",
-        "photo_alt": "Profilfoto",
-        "photo_placeholder": "Foto",
-        "contact": "Kontakt",
-        "profile": "Profil",
-        "experience": "Berufserfahrung",
-        "education": "Ausbildung",
-        "skills": "Skills",
-        "languages": "Sprachen",
-        "projects": "Projekte",
-    },
+# bilden den `@page`-Footer. Die Nutzerinhalte werden nie übersetzt (R6). Die
+# App ist fest englischsprachig (Global Language Unification, 2026-09-13) -
+# es gibt keine Dokumentsprache mehr zu wählen.
+_DOC_CHROME: dict[str, str] = {
+    "lang": "en",
+    "title": "Resume",
+    "page_prefix": "Page",
+    "page_of": "of",
+    "photo_alt": "Profile photo",
+    "photo_placeholder": "Photo",
+    "contact": "Contact",
+    "profile": "Profile",
+    "experience": "Experience",
+    "education": "Education",
+    "skills": "Skills",
+    "languages": "Languages",
+    "projects": "Projects",
 }
 
 
-def _skills_ctx(skills: list[Any], language: DocumentLanguage) -> list[dict[str, Any]]:
+def _skills_ctx(skills: list[Any]) -> list[dict[str, Any]]:
     """Normalisiert eine flache Skill-Liste für R3/R4: jede Vorlage außer
     Classic rendert jeden Skill als eigene Zeile mit einem 5-Block-Balken
     (`level_blocks`); Classic zeigt stattdessen die Textform des Kompetenzgrads
     (`level_label`, auch von den anderen Vorlagen für den unsichtbaren
-    ATS-Text laut KTD10 wiederverwendet). Auf Deutsch ist die Textform der
-    `SkillLevel`-Enum-Wert selbst (Grundkenntnisse/Gut/Sehr gut/Experte, KTD4);
-    auf Englisch greift `_SKILL_LEVEL_LABELS_EN`."""
+    ATS-Text laut KTD10 wiederverwendet), über `_SKILL_LEVEL_LABELS_EN`."""
     result: list[dict[str, Any]] = []
     for skill in skills:
         entry = _entry_dict(skill)
         level = entry.get("level")
-        if language == "de":
-            level_label = level or ""
-        else:
-            level_label = _SKILL_LEVEL_LABELS_EN.get(level, level or "")
         result.append(
             {
                 **entry,
                 "level_blocks": _SKILL_LEVEL_BLOCKS.get(level, 0),
-                "level_label": level_label,
+                "level_label": _SKILL_LEVEL_LABELS_EN.get(level, level or ""),
             }
         )
     return result
@@ -254,50 +228,40 @@ def render_cv_pdf(
     languages: list[Any],
     projects: list[Any],
     photo_path: str | Path | None,
-    document_language: str | None = None,
     preview: bool = False,
     sample: Mapping[str, Any] | None = None,
 ) -> bytes:
     """Rendert den Lebenslauf als PDF (bytes).
 
     `template_id` wählt eines der `templates/cv/*.html`-Templates (R9).
-    `document_language` (`"de"`/`"en"`, `None` = Deutsch) steuert die Sprache
-    der festen Dokument-Chrome (R4/R5) und des Vorschau-Skeletons (R8);
-    unbekannte Werte fallen auf die App-Standardsprache Deutsch zurück.
     `full_name`/`email`/`phone`/`address` sind die serverseitig aus dem
     gespeicherten `MasterProfile` gemergten Identitätsfelder (KTD11);
     `photo_path` ist der Dateisystempfad des gespeicherten Profilfotos
     (oder `None`) - anders als die übrigen Inhaltsfelder kommt das Foto
     NICHT aus dem Request-Body, da es bereits beim Upload persistiert wird
-    (siehe `app.api.cv_builder`).
+    (siehe `app.api.cv_builder`). Die Dokument-Chrome (R4/R5) und das
+    Vorschau-Skeleton (R8) sind fest Englisch (Global Language Unification,
+    2026-09-13) - es gibt keine Dokumentsprache mehr zu wählen.
     """
-    resolved_language = (
-        document_language if document_language in _DOC_CHROME else _DEFAULT_DOCUMENT_LANGUAGE
-    )
-    doc = _DOC_CHROME[resolved_language]
-
     template = _env.get_template(f"cv/{template_id}.html")
 
     # R8/KTD2: im Vorschaumodus den geteilten Beispiel-Inhalt bereitstellen,
     # wenn der Aufrufer keinen eigenen übergibt. Der Renderer ersetzt keine
     # echten Werte - die Templates entscheiden pro Feld (KTD3). Im Exportmodus
-    # bleibt `sample` ungenutzt, selbst wenn ein Aufrufer es mitgibt. Die
-    # Beispielsprache folgt der Dokumentsprache (KTD5).
+    # bleibt `sample` ungenutzt, selbst wenn ein Aufrufer es mitgibt.
     if preview and sample is None:
-        sample = SAMPLE_DE if resolved_language == "de" else SAMPLE_EN
+        sample = SAMPLE_EN
 
-    skills_ctx = _skills_ctx(skills, resolved_language)
+    skills_ctx = _skills_ctx(skills)
     languages_ctx = _languages_ctx(languages)
-    sample_skills_ctx = (
-        _skills_ctx(list(sample.get("skills", [])), resolved_language) if (preview and sample) else []
-    )
+    sample_skills_ctx = _skills_ctx(list(sample.get("skills", []))) if (preview and sample) else []
     sample_languages_ctx = (
         _languages_ctx(list(sample.get("languages", []))) if (preview and sample) else []
     )
 
-    experiences_ctx = _entries_with_date_range(experiences, resolved_language)
-    education_ctx = _entries_with_date_range(education, resolved_language)
-    projects_ctx = _entries_with_date_range(projects, resolved_language)
+    experiences_ctx = _entries_with_date_range(experiences)
+    education_ctx = _entries_with_date_range(education)
+    projects_ctx = _entries_with_date_range(projects)
 
     html_content = template.render(
         full_name=full_name,
@@ -314,7 +278,7 @@ def render_cv_pdf(
         sample_languages_ctx=sample_languages_ctx,
         projects=projects_ctx,
         photo_url=_photo_file_uri(photo_path),
-        doc=doc,
+        doc=_DOC_CHROME,
         preview=preview,
         sample=sample,
     )

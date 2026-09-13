@@ -22,6 +22,6 @@ export const cvBuilderCanDeactivateGuard: CanDeactivateFn<CvBuilderComponent> = 
   }
 
   return window.confirm(
-    'Es gibt ungespeicherte Änderungen im Lebenslauf. Trotzdem verlassen und Änderungen verwerfen?',
+    'You have unsaved CV changes. Leave and discard them?',
   );
 };

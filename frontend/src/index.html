@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <title>Frontend</title>
@@ -28,11 +28,6 @@
         root.setAttribute('data-theme', theme);
         root.setAttribute('data-theme-tone', tone);
         root.style.colorScheme = tone;
-
-        var storedLanguage = localStorage.getItem('app-language');
-        if (storedLanguage === 'de' || storedLanguage === 'en') {
-          root.setAttribute('lang', storedLanguage);
-        }
       } catch (e) {
         /* localStorage unavailable - keep the default theme */
       }

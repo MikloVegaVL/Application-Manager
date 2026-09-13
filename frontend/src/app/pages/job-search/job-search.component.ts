@@ -12,11 +12,9 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar } from '@angular/material/snack-bar';
 
-import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { JobOffer, JobSaveConflictDetail } from '../../core/models/job-offer.model';
 import { JobSearchStateService } from '../../core/services/job-search-state.service';
 import { JobService } from '../../core/services/job.service';
-import { TranslationService } from '../../core/services/translation.service';
 
 @Component({
   selector: 'app-job-search',
@@ -30,7 +28,6 @@ import { TranslationService } from '../../core/services/translation.service';
     MatIconModule,
     MatInputModule,
     MatProgressSpinnerModule,
-    TranslatePipe,
   ],
   templateUrl: './job-search.component.html',
   styleUrl: './job-search.component.scss',
@@ -41,7 +38,6 @@ export class JobSearchComponent {
   private readonly jobService = inject(JobService);
   private readonly router = inject(Router);
   private readonly snackBar = inject(MatSnackBar);
-  protected readonly i18n = inject(TranslationService);
   /** Hält Trefferliste/Status über die Komponenten-Lebensdauer hinaus am
    * Leben, damit ein Zurücknavigieren (z. B. aus dem Editor) die letzte
    * Suche nicht verwirft - siehe JobSearchStateService-Doc. */
@@ -97,7 +93,6 @@ export class JobSearchComponent {
     germantechjobs: 'GermanTechJobs',
     indeed: 'Indeed',
     programmiererjobboerse: 'Programmiererjobboerse.de',
-    'it-entwickler-jobs': 'IT-Entwickler-Jobs.de',
   };
 
   private readonly savedJobIds = this.state.savedJobIds;
@@ -134,7 +129,7 @@ export class JobSearchComponent {
         this.results.set([]);
         this.sourceStatuses.set([]);
         this.loading.set(false);
-        this.errorMessage.set(this.i18n.translate('jobSearch.error'));
+        this.errorMessage.set('The job search failed. Please try again later.');
       },
     });
   }
@@ -184,11 +179,7 @@ export class JobSearchComponent {
       next: (saved) => {
         this.state.cacheSavedJob(job.source_url, saved.id);
         this.savingSourceUrl.set(null);
-        this.snackBar.open(
-          this.i18n.translate('jobSearch.snackbar.saved', { title: job.title }),
-          this.i18n.translate('common.ok'),
-          { duration: 3000 },
-        );
+        this.snackBar.open(`"${job.title}" was saved.`, 'OK', { duration: 3000 });
       },
       error: (error: HttpErrorResponse) => {
         this.savingSourceUrl.set(null);
@@ -198,18 +189,10 @@ export class JobSearchComponent {
           // siehe JobSearchStateService) - Cache nachziehen statt nur zu
           // melden, sonst bliebe der Button dauerhaft im "speichern"-Zustand.
           this.state.cacheSavedJob(job.source_url, conflictId);
-          this.snackBar.open(
-            this.i18n.translate('jobSearch.snackbar.alreadySaved'),
-            this.i18n.translate('common.ok'),
-            { duration: 3000 },
-          );
+          this.snackBar.open('This job has already been saved.', 'OK', { duration: 3000 });
           return;
         }
-        this.snackBar.open(
-          this.i18n.translate('jobSearch.snackbar.saveFailed'),
-          this.i18n.translate('common.ok'),
-          { duration: 3000 },
-        );
+        this.snackBar.open('The job could not be saved.', 'OK', { duration: 3000 });
       },
     });
   }
@@ -244,11 +227,7 @@ export class JobSearchComponent {
           this.navigateToEditor(conflictId);
           return;
         }
-        this.snackBar.open(
-          this.i18n.translate('jobSearch.snackbar.generateFailed'),
-          this.i18n.translate('common.ok'),
-          { duration: 4000 },
-        );
+        this.snackBar.open('The application could not be started.', 'OK', { duration: 4000 });
       },
     });
   }

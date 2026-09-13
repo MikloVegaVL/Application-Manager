@@ -16,7 +16,7 @@ repariert - dieser Router ist sein vollständiger Ersatz.
 import io
 import re
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -26,7 +26,6 @@ from app.db.database import get_db
 from app.models.master_profile import MasterProfile
 from app.schemas.master_profile import (
     CvParseResponse,
-    DocumentLanguage,
     EducationEntry,
     ExperienceEntry,
     LanguageEntry,
@@ -36,7 +35,6 @@ from app.schemas.master_profile import (
 from app.services.file_validation import _require_pdf
 from app.services.pdf_parser import CvAnalysisError, PdfParsingError, missing_field_warnings, parse_cv_pdf
 from app.services.pdf_service import CV_TEMPLATES, CvTemplateId, PdfRenderError, render_cv_pdf
-from app.services.translation_service import translate_fields
 
 router = APIRouter(prefix="/cv-builder", tags=["CV Builder"])
 
@@ -59,11 +57,6 @@ class CvRenderRequest(BaseModel):
     """
 
     template_id: CvTemplateId
-    # KTD3 (Global Language Unification, 2026-09-13): die Dokumentsprache kommt
-    # jetzt immer aus dem Request (vom globalen Header-Selektor des Frontends).
-    # Kein Profil-Fallback mehr - fehlt der Wert, gilt die App-Standardsprache
-    # `de`.
-    document_language: DocumentLanguage = "de"
     summary: str | None = None
     berufsbezeichnung: str | None = Field(default=None, max_length=255)
     experiences_json: list[ExperienceEntry] = Field(default_factory=list)
@@ -72,31 +65,6 @@ class CvRenderRequest(BaseModel):
     languages_json: list[LanguageEntry] = Field(default_factory=list)
     projects_json: list[ProjectEntry] = Field(default_factory=list)
     photo_filename: str | None = None
-
-
-class CvTranslateRequest(BaseModel):
-    """Payload für `POST /cv-builder/translate` (KTD2): eine Zuordnung von
-    Prosa-Feldnamen auf den zu übersetzenden Text der Ausgangssprache.
-
-    Übersetzt wird ausschließlich Prosa (Kurzprofil, Berufsbezeichnung,
-    Beschreibungen, ...); Eigennamen bleiben unangetastet (R8). Die API
-    validiert beide Sprachen über `DocumentLanguage` - ein unbekannter Wert
-    führt automatisch zu 422.
-    """
-
-    source_language: DocumentLanguage
-    target_language: DocumentLanguage
-    fields: dict[str, str] = Field(default_factory=dict)
-
-
-class CvTranslateResponse(BaseModel):
-    """Antwort von `POST /cv-builder/translate` (KTD2): pro Feld entweder eine
-    Übersetzung (`translations`) oder - bei fehlgeschlagener Übersetzung - eine
-    Fehlermeldung (`errors`). Ein fehlgeschlagenes Feld fehlt in
-    `translations`; der Aufrufer behält dafür seinen Originaltext (R9)."""
-
-    translations: dict[str, str] = Field(default_factory=dict)
-    errors: dict[str, str] = Field(default_factory=dict)
 
 
 def _sanitize_filename_component(value: str) -> str:
@@ -125,7 +93,6 @@ def _render_cv_for_current_profile(
     try:
         pdf_bytes = render_cv_pdf(
             template_id=payload.template_id,
-            document_language=payload.document_language,
             full_name=profile.full_name,
             email=profile.email,
             phone=profile.phone,
@@ -143,7 +110,7 @@ def _render_cv_for_current_profile(
     except PdfRenderError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Lebenslauf konnte nicht als PDF erzeugt werden: {exc}",
+            detail=f"Could not generate the CV PDF: {exc}",
         ) from exc
 
     return pdf_bytes, profile
@@ -152,14 +119,11 @@ def _render_cv_for_current_profile(
 @router.post("/parse", response_model=CvParseResponse)
 def parse_cv(
     file: UploadFile = File(..., description="Lebenslauf als PDF-Datei"),
-    language: DocumentLanguage = Form("de"),
 ) -> CvParseResponse:
     """Analysiert eine Lebenslauf-PDF per KI und liefert das Ergebnis
-    ausschließlich als Vorschlag für das Builder-Formular zurück.
-
-    `language` (Form-Feld, Default `de`) gibt an, in welcher Sprache die KI
-    die extrahierten Textwerte ausgeben soll (R10) - der Import folgt damit
-    dem globalen Sprachselektor statt fest Englisch zu erzwingen.
+    ausschließlich als Vorschlag für das Builder-Formular zurück. Die
+    extrahierten Textwerte gibt die KI immer auf Englisch aus (die App ist
+    fest englischsprachig).
 
     Kein Datenbankzugriff: Weder wird ein bestehendes Profil gelesen noch
     geschrieben (R6) - das Ergebnis befüllt im Frontend nur die Formularfelder,
@@ -175,7 +139,7 @@ def parse_cv(
     file_bytes = _require_pdf(file)
 
     try:
-        parsed = parse_cv_pdf(file_bytes, language=language)
+        parsed = parse_cv_pdf(file_bytes)
     except PdfParsingError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except CvAnalysisError as exc:
@@ -190,24 +154,6 @@ def list_templates() -> list[dict[str, str]]:
     (R9) - dieselbe Liste, gegen die `CvRenderRequest.template_id` validiert
     wird (siehe `app.services.pdf_service.CV_TEMPLATES`)."""
     return CV_TEMPLATES
-
-
-@router.post("/translate", response_model=CvTranslateResponse)
-def translate_cv_fields(payload: CvTranslateRequest) -> CvTranslateResponse:
-    """Übersetzt eine Zuordnung von Prosa-Feldern zwischen Deutsch und
-    Englisch (KTD2, R6/R9).
-
-    Rein lokal über Ollama - kein externer Übersetzungsdienst. Die Antwort
-    trennt erfolgreiche Übersetzungen (`translations`) von fehlgeschlagenen
-    Feldern (`errors`), damit der Aufrufer für ein fehlgeschlagenes Feld
-    seinen Originaltext behält (R9) und die Sprachumschaltung nicht blockiert.
-    """
-    result = translate_fields(
-        payload.fields,
-        source_language=payload.source_language,
-        target_language=payload.target_language,
-    )
-    return CvTranslateResponse(translations=result.translations, errors=result.errors)
 
 
 @router.post("/preview")

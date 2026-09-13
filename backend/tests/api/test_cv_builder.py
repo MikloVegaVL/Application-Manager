@@ -22,7 +22,6 @@ from app.models.master_profile import MasterProfile
 from app.schemas.master_profile import ParsedCvProfile
 from app.services import pdf_service
 from app.services.pdf_parser import CvAnalysisError, PdfParsingError
-from app.services.translation_service import TranslationResult
 
 
 @pytest.fixture
@@ -149,7 +148,7 @@ def test_parse_cv_with_no_identifiable_project_returns_empty_list_and_warning(cl
     assert response.status_code == 200
     body = response.json()
     assert body["parsed"]["projects"] == []
-    assert "Keine Projekte gefunden." in body["warnings"]
+    assert "No projects found." in body["warnings"]
 
 
 def test_parse_cv_with_missing_experience_and_education_reports_warnings(client, mocker):
@@ -166,12 +165,12 @@ def test_parse_cv_with_missing_experience_and_education_reports_warnings(client,
 
     assert response.status_code == 200
     body = response.json()
-    assert "Keine Berufserfahrung gefunden." in body["warnings"]
-    assert "Keine Ausbildung gefunden." in body["warnings"]
-    assert "Kein Kurzprofil/Zusammenfassung gefunden." in body["warnings"]
-    assert "Keine Projekte gefunden." in body["warnings"]
+    assert "No work experience found." in body["warnings"]
+    assert "No education found." in body["warnings"]
+    assert "No summary found." in body["warnings"]
+    assert "No projects found." in body["warnings"]
     # Skills wurden gefunden - dafür keine Warnung.
-    assert "Keine Skills gefunden." not in body["warnings"]
+    assert "No skills found." not in body["warnings"]
 
 
 def test_parse_cv_does_not_write_to_the_database(client, mocker):
@@ -324,36 +323,10 @@ def test_preview_and_export_use_the_same_renderer_with_different_modes(client_wi
     assert render_spy.call_args.kwargs["preview"] is False
 
 
-def test_preview_forwards_request_document_language(client_with_session, mocker):
-    """R4/U4: die im Request mitgeschickte Dokumentsprache erreicht den
-    Renderer unverändert."""
-    test_client, session_local = client_with_session
-    _create_profile(session_local)
-    render_spy = mocker.spy(cv_builder_module, "render_cv_pdf")
-    payload = {**_RENDER_PAYLOAD, "document_language": "de"}
-
-    response = test_client.post("/api/cv-builder/preview", json=payload)
-
-    assert response.status_code == 200
-    assert render_spy.call_args.kwargs["document_language"] == "de"
-
-
-def test_export_forwards_request_document_language(client_with_session, mocker):
-    """R4/U4: auch der Export reicht die Dokumentsprache an den Renderer weiter."""
-    test_client, session_local = client_with_session
-    _create_profile(session_local)
-    render_spy = mocker.spy(cv_builder_module, "render_cv_pdf")
-    payload = {**_RENDER_PAYLOAD, "document_language": "de"}
-
-    response = test_client.post("/api/cv-builder/export", json=payload)
-
-    assert response.status_code == 200
-    assert render_spy.call_args.kwargs["document_language"] == "de"
-
-
-def test_render_language_defaults_to_german_when_omitted(client_with_session, mocker):
-    """KTD3: ohne Angabe im Request gilt die App-Standardsprache Deutsch - es
-    gibt keinen Profil-Fallback mehr."""
+def test_render_no_longer_accepts_a_document_language_kwarg(client_with_session, mocker):
+    """R4 (Global Language Unification, 2026-09-13): es gibt keine
+    Dokumentsprache mehr zu wählen - `render_cv_pdf` wird ohne
+    `document_language` aufgerufen und liefert fest Englisch."""
     test_client, session_local = client_with_session
     _create_profile(session_local)
     render_spy = mocker.spy(cv_builder_module, "render_cv_pdf")
@@ -361,17 +334,7 @@ def test_render_language_defaults_to_german_when_omitted(client_with_session, mo
     response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD)
 
     assert response.status_code == 200
-    assert render_spy.call_args.kwargs["document_language"] == "de"
-
-
-def test_render_rejects_unknown_document_language(client_with_session):
-    test_client, session_local = client_with_session
-    _create_profile(session_local)
-    payload = {**_RENDER_PAYLOAD, "document_language": "fr"}
-
-    response = test_client.post("/api/cv-builder/preview", json=payload)
-
-    assert response.status_code == 422
+    assert "document_language" not in render_spy.call_args.kwargs
 
 
 def test_preview_and_export_render_successfully_with_template_2(client_with_session):
@@ -457,11 +420,13 @@ def test_render_surfaces_pdf_render_error_as_http_error(client_with_session, moc
     assert response.status_code == 500
 
 
-# --- POST /cv-builder/parse: language (R10) -------------------------------
+# --- POST /cv-builder/parse: fixed English import (Global Language
+# Unification, 2026-09-13) ---------------------------------------------
 
 
-def test_parse_defaults_language_to_german(client, mocker):
-    """R10: ohne Angabe wird der Import auf Deutsch (App-Standard) angefordert."""
+def test_parse_calls_the_parser_without_a_language_argument(client, mocker):
+    """Es gibt kein `language`-Form-Feld mehr - der Import ist fest
+    Englisch, gesteuert allein durch `parse_cv_pdf`s eigenen Default."""
     parsed = ParsedCvProfile(full_name="Max Mustermann", email="max@example.com")
     mock_parse = mocker.patch("app.api.cv_builder.parse_cv_pdf", return_value=parsed)
 
@@ -471,112 +436,20 @@ def test_parse_defaults_language_to_german(client, mocker):
     )
 
     assert response.status_code == 200
-    assert mock_parse.call_args.kwargs["language"] == "de"
+    mock_parse.assert_called_once_with(b"%PDF-1.4 fake content")
 
 
-def test_parse_forwards_requested_language_to_parser(client, mocker):
-    """R10: das Form-Feld `language` erreicht den Parser unverändert."""
-    parsed = ParsedCvProfile(full_name="Max Mustermann", email="max@example.com")
-    mock_parse = mocker.patch("app.api.cv_builder.parse_cv_pdf", return_value=parsed)
-
-    response = client.post(
-        "/api/cv-builder/parse",
-        files={"file": ("cv.pdf", b"%PDF-1.4 fake content", "application/pdf")},
-        data={"language": "en"},
-    )
-
-    assert response.status_code == 200
-    assert mock_parse.call_args.kwargs["language"] == "en"
+# --- POST /cv-builder/translate: removed (U2, R2) --------------------------
+#
+# The per-field content-translation endpoint and its backing service
+# (`translation_service.py`) were removed together with the CV Builder's
+# content-translation state machine. The route must no longer be registered.
 
 
-def test_parse_rejects_unknown_language(client, mocker):
-    mocker.patch("app.api.cv_builder.parse_cv_pdf")
-
-    response = client.post(
-        "/api/cv-builder/parse",
-        files={"file": ("cv.pdf", b"%PDF-1.4 fake content", "application/pdf")},
-        data={"language": "fr"},
-    )
-
-    assert response.status_code == 422
-
-
-# --- POST /cv-builder/translate (KTD2, R6/R9) -----------------------------
-
-
-def test_translate_returns_per_field_translations(client, mocker):
-    mocker.patch(
-        "app.api.cv_builder.translate_fields",
-        return_value=TranslationResult(translations={"summary": "Experienced developer."}),
-    )
-
+def test_translate_route_no_longer_exists(client):
     response = client.post(
         "/api/cv-builder/translate",
-        json={
-            "source_language": "de",
-            "target_language": "en",
-            "fields": {"summary": "Erfahrener Entwickler."},
-        },
+        json={"source_language": "de", "target_language": "en", "fields": {}},
     )
 
-    assert response.status_code == 200
-    assert response.json() == {
-        "translations": {"summary": "Experienced developer."},
-        "errors": {},
-    }
-
-
-def test_translate_surfaces_per_field_errors_without_losing_others(client, mocker):
-    """R9: ein fehlgeschlagenes Feld erscheint in `errors`, erfolgreiche
-    Felder bleiben in `translations` - der Aufrufer behält das Original."""
-    mocker.patch(
-        "app.api.cv_builder.translate_fields",
-        return_value=TranslationResult(
-            translations={"summary": "Experienced developer."},
-            errors={"berufsbezeichnung": "Ollama ist nicht erreichbar"},
-        ),
-    )
-
-    response = client.post(
-        "/api/cv-builder/translate",
-        json={
-            "source_language": "de",
-            "target_language": "en",
-            "fields": {"summary": "Erfahrener Entwickler.", "berufsbezeichnung": "Entwickler"},
-        },
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["translations"] == {"summary": "Experienced developer."}
-    assert body["errors"] == {"berufsbezeichnung": "Ollama ist nicht erreichbar"}
-
-
-def test_translate_defaults_fields_to_empty_mapping(client, mocker):
-    mock_translate = mocker.patch(
-        "app.api.cv_builder.translate_fields", return_value=TranslationResult()
-    )
-
-    response = client.post(
-        "/api/cv-builder/translate",
-        json={"source_language": "de", "target_language": "en"},
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {"translations": {}, "errors": {}}
-    assert mock_translate.call_args.args[0] == {}
-
-
-def test_translate_rejects_unknown_language(client):
-    response = client.post(
-        "/api/cv-builder/translate",
-        json={"source_language": "de", "target_language": "fr", "fields": {}},
-    )
-
-    assert response.status_code == 422
-
-
-def test_translate_requires_both_languages(client):
-    response = client.post("/api/cv-builder/translate", json={"fields": {}})
-
-    assert response.status_code == 422
+    assert response.status_code == 404

@@ -9,7 +9,6 @@ import { MatChipOption } from '@angular/material/chips';
 
 import { JobSearchComponent } from './job-search.component';
 import { JobSearchResponse } from '../../core/models/job-offer.model';
-import { TranslationService } from '../../core/services/translation.service';
 import { environment } from '../../../environments/environment';
 
 describe('JobSearchComponent', () => {
@@ -105,7 +104,7 @@ describe('JobSearchComponent', () => {
 
     const chipText = fixture.nativeElement.textContent as string;
     expect(chipText).toContain('LinkedIn');
-    expect(chipText).toContain('nicht verfügbar');
+    expect(chipText).toContain('unavailable');
   });
 
   it('resets stale source statuses when a new search starts', () => {
@@ -140,7 +139,7 @@ describe('JobSearchComponent', () => {
 
     expect(component['allSourcesUnavailable']()).toBeTrue();
     const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain('Alle Quellen waren gerade nicht erreichbar');
+    expect(text).toContain('All sources were unreachable just now');
   });
 
   it('Regression: onSaveJob still saves a result pulled from a non-Arbeitsagentur source', () => {
@@ -320,8 +319,8 @@ describe('JobSearchComponent', () => {
 
       const text = fixture.nativeElement.textContent as string;
       expect(text).toContain('Adzuna');
-      expect(text).toContain('nicht konfiguriert');
-      expect(text).not.toContain('nicht verfügbar');
+      expect(text).toContain('not configured');
+      expect(text).not.toContain('unavailable');
     });
 
     it('keeps the generic unavailable label for existing reasons', () => {
@@ -337,8 +336,8 @@ describe('JobSearchComponent', () => {
       });
 
       const text = fixture.nativeElement.textContent as string;
-      expect(text).toContain('nicht verfügbar');
-      expect(text).not.toContain('nicht konfiguriert');
+      expect(text).toContain('unavailable');
+      expect(text).not.toContain('not configured');
     });
 
     it('falls back to the raw platform key for an unknown platform', () => {
@@ -352,25 +351,16 @@ describe('JobSearchComponent', () => {
       expect(text).toContain('unknown-board');
     });
 
-    it('renders the friendly name and not-configured label in both languages', () => {
-      const i18n = TestBed.inject(TranslationService);
-      i18n.setLanguage('en');
-
+    it('renders the friendly name and not-configured label', () => {
       triggerSearch();
       flushSearch({
         results: [],
         sources: [{ platform: 'germantechjobs', status: 'unavailable', reason: 'not-configured' }],
       });
 
-      let text = fixture.nativeElement.textContent as string;
+      const text = fixture.nativeElement.textContent as string;
       expect(text).toContain('GermanTechJobs');
       expect(text).toContain('not configured');
-
-      i18n.setLanguage('de');
-      fixture.detectChanges();
-      text = fixture.nativeElement.textContent as string;
-      expect(text).toContain('GermanTechJobs');
-      expect(text).toContain('nicht konfiguriert');
     });
   });
 
@@ -429,7 +419,7 @@ describe('JobSearchComponent', () => {
       fixture.detectChanges();
 
       expect(component['filteredResults']().length).toBe(0);
-      expect(fixture.nativeElement.textContent).toContain('Keine Treffer für die gewählten Quellen');
+      expect(fixture.nativeElement.textContent).toContain('No results for the selected sources');
     });
 
     it('clears the filter and shows all results again', () => {

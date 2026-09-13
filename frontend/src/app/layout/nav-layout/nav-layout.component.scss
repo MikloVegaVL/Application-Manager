@@ -30,9 +30,8 @@
     flex: 1 1 auto;
   }
 
-  /* Sprach- und Theme-Auswahl an die Toolbar angleichen: alle Material-
+  /* Theme-Auswahl an die Toolbar angleichen: alle Material-
      Formfeld-Farben von der Textfarbe der Toolbar erben lassen. */
-  &__language,
   &__theme {
     font-size: 0.8125rem;
 
@@ -60,11 +59,6 @@
     --mat-select-enabled-trigger-text-color: currentColor;
     --mat-select-enabled-arrow-color: currentColor;
     --mat-select-focused-arrow-color: currentColor;
-  }
-
-  &__language {
-    width: 140px;
-    margin-right: 8px;
   }
 
   &__theme {

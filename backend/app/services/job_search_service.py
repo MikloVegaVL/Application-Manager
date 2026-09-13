@@ -44,6 +44,7 @@ from app.core.config import settings
 from app.schemas.job_offer import JobOfferCreate, JobSearchResponse, SourceStatus
 from app.services.job_sources.adzuna import AdzunaJobsClient
 from app.services.job_sources.boards import BOARD_DESCRIPTORS, BoardSource
+from app.services.job_sources.devjobs import DevjobsScraper
 from app.services.job_sources.jooble import JoobleJobsClient
 from app.services.job_sources.linkedin import LinkedInJobsClient
 from app.services.job_sources.shared import (
@@ -332,13 +333,11 @@ class JobSearchService:
         # KTD7/KTD9); als Locals, damit der Service sie nicht dauerhaft cachen
         # muss.
         source_enabled: dict[str, bool] = {
-            "devjobs": settings.JOB_SEARCH_DEVJOBS_ENABLED,
             "kimeta": settings.JOB_SEARCH_KIMETA_ENABLED,
             "stepstone": settings.JOB_SEARCH_STEPSTONE_ENABLED,
             "germantechjobs": settings.JOB_SEARCH_GERMANTECHJOBS_ENABLED,
             "indeed": settings.JOB_SEARCH_INDEED_ENABLED,
             "programmiererjobboerse": settings.JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED,
-            "it-entwickler-jobs": settings.JOB_SEARCH_IT_ENTWICKLER_JOBS_ENABLED,
             "adzuna": settings.JOB_SEARCH_ADZUNA_ENABLED,
             "jooble": settings.JOB_SEARCH_JOOBLE_ENABLED,
         }
@@ -358,6 +357,16 @@ class JobSearchService:
             )
         if settings.JOB_SEARCH_XING_ENABLED:
             registry.append(SourceRegistration(self._xing_client))
+        if settings.JOB_SEARCH_DEVJOBS_ENABLED:
+            # devjobs.de braucht wie Xing eigenes Playwright-Rendering + eigene
+            # Selektoren statt des generischen Board-Pfads (siehe Docstring in
+            # job_sources/boards.py) - daher hier registriert statt über
+            # BOARD_DESCRIPTORS.
+            registry.append(
+                SourceRegistration(
+                    DevjobsScraper(inner_timeout=inner_timeout_for(self._deadline_seconds))
+                )
+            )
         if source_enabled["adzuna"]:
             # Auch ohne Credentials registriert: `search()` wird vom Fan-out
             # gar nicht erst aufgerufen (KTD9) - der Client meldet dann
@@ -387,7 +396,7 @@ class JobSearchService:
                     )
                 )
             )
-        # U6: die sieben benannten HTML-Boards laufen alle über den geteilten
+        # U6: die übrigen benannten HTML-Boards laufen alle über den geteilten
         # generischen Extraktionspfad (KD4/KTD2) - je Board ein eigener
         # Deskriptor/Plattform-Schlüssel, kein "web-scraper" (R4/R6). Auch ein
         # Board ohne lesbare Seite bleibt registriert und meldet `unavailable`,

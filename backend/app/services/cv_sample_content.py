@@ -4,23 +4,18 @@ Die Vorschau zeigt einen vollständigen Lebenslauf-Skeleton, damit eine Vorlage
 schon vor dem Ausfüllen beurteilt werden kann (R7). Leere Felder/Abschnitte
 werden dafür mit diesem Inhalt gefüllt; der Export enthält ihn nie (R9).
 
-Es gibt je einen Beispiel-Inhalt pro Dokumentsprache (`SAMPLE_EN`,
-`SAMPLE_DE`) - `render_cv_pdf` wählt anhand der gewählten Sprache, damit eine
-deutsche Vorschau vollständig deutsch liest (CV-Document-Language-Plan
-2026-09-13, U2). Nutzerinhalte werden dabei nie übersetzt; die Sprache gilt
-ausschließlich für die feste Dokument-Chrome und dieses Skeleton.
+`SAMPLE_EN` ist der einzige Beispiel-Inhalt - die App ist fest englischsprachig
+(Global Language Unification, 2026-09-13). Nutzerinhalte werden dabei nie
+übersetzt; das Skeleton betrifft ausschließlich die feste Dokument-Chrome und
+diesen Vorschau-Platzhalterinhalt.
 
 Die Einträge sind bereits in Render-Form (inkl. `date_range`), damit die
-Templates sie ohne weitere Normalisierung wie echte Daten rendern können. Die
-`date_range`-Werte sind entsprechend der jeweiligen Sprache vorformatiert.
+Templates sie ohne weitere Normalisierung wie echte Daten rendern können.
 """
 from __future__ import annotations
 
 from typing import Any
 
-# Sprachunabhängige Beispieldaten: Skill-Namen sind Eigennamen und die
-# Kompetenzgrade sind in beiden Sprachen dieselben `SkillLevel`-Enum-Werte,
-# daher teilen sich `SAMPLE_EN` und `SAMPLE_DE` diese Liste.
 _SAMPLE_SKILLS: list[dict[str, str]] = [
     {"name": "JavaScript", "level": "Experte"},
     {"name": "TypeScript", "level": "Sehr gut"},
@@ -75,54 +70,6 @@ SAMPLE_EN: dict[str, Any] = {
         {
             "title": "Portfolio Website",
             "description": "Personal portfolio site with a project overview.",
-            "date_range": "2023",
-            "link": "https://example.com/portfolio",
-        }
-    ],
-}
-
-SAMPLE_DE: dict[str, Any] = {
-    "summary": (
-        "Erfahrene Fachkraft mit Fokus auf moderne Webanwendungen und "
-        "strukturierte, wartbare Lösungen. Selbstständiges Arbeiten und die "
-        "Begleitung von Projekten von der Idee bis zur Umsetzung gewohnt."
-    ),
-    "berufsbezeichnung": "Frontend-Entwickler",
-    "entry_description": "Beschreibung der Position …",
-    "project_description": "Kurze Projektbeschreibung …",
-    "phone": "+49 170 0000000",
-    "address": "Beispielstraße 1, 12345 Beispielstadt",
-    "experiences": [
-        {
-            "company": "Beispiel GmbH",
-            "role": "Frontend-Entwickler",
-            "date_range": "seit 2022",
-            "description": "Entwicklung und Pflege moderner Webanwendungen.",
-        },
-        {
-            "company": "Muster AG",
-            "role": "Junior-Entwickler",
-            "date_range": "2020 – 2022",
-            "description": "Mitarbeit an Frontend-Projekten und Qualitätssicherung.",
-        },
-    ],
-    "education": [
-        {
-            "institution": "Universität Beispielstadt",
-            "degree": "B.Sc. Informatik",
-            "field_of_study": "Informatik",
-            "date_range": "2017 – 2020",
-        }
-    ],
-    "skills": _SAMPLE_SKILLS,
-    "languages": [
-        {"name": "Deutsch", "level": "C2"},
-        {"name": "Englisch", "level": "B2"},
-    ],
-    "projects": [
-        {
-            "title": "Portfolio-Website",
-            "description": "Persönliche Portfolio-Seite mit Projektübersicht.",
             "date_range": "2023",
             "link": "https://example.com/portfolio",
         }

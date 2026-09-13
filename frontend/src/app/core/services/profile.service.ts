@@ -7,9 +7,6 @@ import {
   CvParseResponse,
   CvRenderPayload,
   CvTemplate,
-  CvTranslateRequest,
-  CvTranslateResponse,
-  DocumentLanguage,
   MasterProfile,
   MasterProfileRead,
   ProfileContentUpdate,
@@ -51,16 +48,12 @@ export class ProfileService {
    * Lädt eine Lebenslauf-PDF hoch und lässt sie serverseitig per KI in eine
    * reine Vorschau strukturieren (`POST /cv-builder/parse`, R5/R6). Schreibt
    * NICHTS in die Datenbank - das Ergebnis befüllt im CV-Builder-Formular
-   * nur die Formularfelder, bis der Nutzer explizit speichert (KTD1).
-   *
-   * `language` (R10) gibt an, in welcher Sprache die KI die extrahierten
-   * Textwerte ausgeben soll - der Import folgt damit dem globalen
-   * Sprachselektor.
+   * nur die Formularfelder, bis der Nutzer explizit speichert (KTD1). Die
+   * KI gibt die extrahierten Textwerte immer auf Englisch aus.
    */
-  parseCv(file: File, language: DocumentLanguage): Observable<CvParseResponse> {
+  parseCv(file: File): Observable<CvParseResponse> {
     const formData = new FormData();
     formData.append('file', file, file.name);
-    formData.append('language', language);
     return this.http.post<CvParseResponse>(`${this.cvBuilderBaseUrl}/parse`, formData);
   }
 
@@ -122,26 +115,6 @@ export class ProfileService {
   /** Lädt die kleine, feste Auswahl wählbarer CV-Vorlagen (R9, KTD8). */
   getTemplates(): Observable<CvTemplate[]> {
     return this.http.get<CvTemplate[]>(`${this.cvBuilderBaseUrl}/templates`);
-  }
-
-  /**
-   * Übersetzt eine Zuordnung stabiler Prosa-Feldpfade von der Quell- in die
-   * Zielsprache (`POST /cv-builder/translate`, KTD2, R6/R9). Rein lokal über
-   * Ollama; die Antwort trennt erfolgreiche Übersetzungen von
-   * fehlgeschlagenen Feldern, damit der Aufrufer für ein fehlgeschlagenes Feld
-   * seinen Originaltext behält und die Sprachumschaltung nicht blockiert.
-   */
-  translateContent(
-    sourceLanguage: DocumentLanguage,
-    targetLanguage: DocumentLanguage,
-    fields: Record<string, string>,
-  ): Observable<CvTranslateResponse> {
-    const payload: CvTranslateRequest = {
-      source_language: sourceLanguage,
-      target_language: targetLanguage,
-      fields,
-    };
-    return this.http.post<CvTranslateResponse>(`${this.cvBuilderBaseUrl}/translate`, payload);
   }
 
   /**

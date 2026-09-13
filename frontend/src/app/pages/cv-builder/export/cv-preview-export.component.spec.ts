@@ -5,7 +5,6 @@ import { FormArray, FormBuilder, FormControl, FormGroup } from '@angular/forms';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 
 import { CvPreviewExportComponent } from './cv-preview-export.component';
-import { TranslationService } from '../../../core/services/translation.service';
 
 const templatesFixture = [
   { id: 'classic', label: 'Classic' },
@@ -26,7 +25,6 @@ describe('CvPreviewExportComponent', () => {
   let languagesArray: FormArray<FormGroup>;
   let projectsArray: FormArray<FormGroup>;
   let templateIdControl: FormControl<string | null>;
-  let i18n: TranslationService;
 
   const setInputs = (): void => {
     fixture.componentRef.setInput('summaryControl', summaryControl);
@@ -49,7 +47,6 @@ describe('CvPreviewExportComponent', () => {
 
   const expectedPayload = (overrides: Record<string, unknown> = {}) => ({
     template_id: 'classic',
-    document_language: 'de',
     summary: '',
     berufsbezeichnung: '',
     experiences_json: [],
@@ -70,8 +67,6 @@ describe('CvPreviewExportComponent', () => {
     component = fixture.componentInstance;
     httpMock = TestBed.inject(HttpTestingController);
     formBuilder = TestBed.inject(FormBuilder);
-    i18n = TestBed.inject(TranslationService);
-    i18n.setLanguage('de');
 
     summaryControl = formBuilder.nonNullable.control('');
     berufsbezeichnungControl = formBuilder.nonNullable.control('');
@@ -84,7 +79,6 @@ describe('CvPreviewExportComponent', () => {
   });
 
   afterEach(() => {
-    i18n.setLanguage('de');
     httpMock.verify();
   });
 
@@ -100,7 +94,7 @@ describe('CvPreviewExportComponent', () => {
 
     const compiled = fixture.nativeElement as HTMLElement;
     const toggles = compiled.querySelectorAll(
-      'mat-button-toggle-group[aria-label="Vorlage wählen"] mat-button-toggle',
+      'mat-button-toggle-group[aria-label="Choose template"] mat-button-toggle',
     );
     expect(toggles.length).toBe(2);
 
@@ -149,7 +143,7 @@ describe('CvPreviewExportComponent', () => {
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).toContain('Vorlagen konnten nicht geladen werden.');
+    expect(compiled.textContent).toContain('Templates could not be loaded.');
 
     const retryButton = compiled.querySelector('.cv-preview-export__error button') as HTMLButtonElement;
     retryButton.click();
@@ -158,7 +152,7 @@ describe('CvPreviewExportComponent', () => {
     fixture.detectChanges();
 
     expect(
-      compiled.querySelectorAll('mat-button-toggle-group[aria-label="Vorlage wählen"] mat-button-toggle').length,
+      compiled.querySelectorAll('mat-button-toggle-group[aria-label="Choose template"] mat-button-toggle').length,
     ).toBe(2);
   });
 
@@ -227,9 +221,9 @@ describe('CvPreviewExportComponent', () => {
       .flush(new Blob(), { status: 404, statusText: 'Not Found' });
     fixture.detectChanges();
 
-    expect(component['previewError']()).toBe('Es wurde noch kein Profil angelegt.');
+    expect(component['previewError']()).toBe('No profile has been created yet.');
     expect(compiled.querySelector('embed')).toBeFalsy();
-    expect(compiled.textContent).toContain('Es wurde noch kein Profil angelegt.');
+    expect(compiled.textContent).toContain('No profile has been created yet.');
   });
 
   it('shows a 422-specific error message for an invalid template', () => {
@@ -244,7 +238,7 @@ describe('CvPreviewExportComponent', () => {
       .flush(new Blob(), { status: 422, statusText: 'Unprocessable Entity' });
     fixture.detectChanges();
 
-    expect(component['previewError']()).toBe('Die gewählte Vorlage ist ungültig.');
+    expect(component['previewError']()).toBe('The selected template is invalid.');
   });
 
   it('shows a 500-specific error message when rendering fails', () => {
@@ -259,7 +253,7 @@ describe('CvPreviewExportComponent', () => {
       .flush(new Blob(), { status: 500, statusText: 'Server Error' });
     fixture.detectChanges();
 
-    expect(component['previewError']()).toBe('Der Lebenslauf konnte nicht als PDF erzeugt werden.');
+    expect(component['previewError']()).toBe('The CV could not be generated as a PDF.');
   });
 
   it('export sends the same body and triggers a browser download using the Content-Disposition filename', () => {
@@ -324,8 +318,8 @@ describe('CvPreviewExportComponent', () => {
       .flush(new Blob(), { status: 500, statusText: 'Server Error' });
     fixture.detectChanges();
 
-    expect(component['exportError']()).toBe('Der Lebenslauf konnte nicht als PDF erzeugt werden.');
-    expect(compiled.textContent).toContain('Der Lebenslauf konnte nicht als PDF erzeugt werden.');
+    expect(component['exportError']()).toBe('The CV could not be generated as a PDF.');
+    expect(compiled.textContent).toContain('The CV could not be generated as a PDF.');
   });
 
   it('KTD11: preview/export body reflects an unsaved edit made after the last save, not the saved profile', () => {
@@ -349,44 +343,11 @@ describe('CvPreviewExportComponent', () => {
     flushTemplates();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    // Only the Vorlage picker remains - a language toggle group would make
+    // Only the template picker remains - a language toggle group would make
     // this two.
     const toggleGroups = compiled.querySelectorAll('mat-button-toggle-group');
     expect(toggleGroups.length).toBe(1);
-    expect(toggleGroups[0].getAttribute('aria-label')).toBe('Vorlage wählen');
+    expect(toggleGroups[0].getAttribute('aria-label')).toBe('Choose template');
   });
 
-  it('sends the current global selector language on preview (R2)', () => {
-    setInputs();
-    flushTemplates();
-
-    i18n.setLanguage('en');
-    fixture.detectChanges();
-
-    const compiled = fixture.nativeElement as HTMLElement;
-    const previewButton = compiled.querySelectorAll('.cv-preview-export__actions button')[0] as HTMLButtonElement;
-    previewButton.click();
-
-    const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/preview') && r.method === 'POST');
-    expect(req.request.body.document_language).toBe('en');
-    req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
-  });
-
-  it('sends the current global selector language on export (R2)', () => {
-    setInputs();
-    flushTemplates();
-
-    i18n.setLanguage('en');
-    fixture.detectChanges();
-
-    spyOn(HTMLAnchorElement.prototype, 'click');
-
-    const compiled = fixture.nativeElement as HTMLElement;
-    const exportButton = compiled.querySelectorAll('.cv-preview-export__actions button')[1] as HTMLButtonElement;
-    exportButton.click();
-
-    const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/export') && r.method === 'POST');
-    expect(req.request.body.document_language).toBe('en');
-    req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
-  });
 });

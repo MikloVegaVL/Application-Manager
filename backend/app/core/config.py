@@ -99,7 +99,6 @@ class Settings(BaseSettings):
     JOB_SEARCH_GERMANTECHJOBS_ENABLED: bool = True
     JOB_SEARCH_INDEED_ENABLED: bool = True
     JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED: bool = True
-    JOB_SEARCH_IT_ENTWICKLER_JOBS_ENABLED: bool = True
 
     # --- Jobsuche: credential-basierte APIs (U3/U4/U5, KTD7/KTD9) ---
     JOB_SEARCH_ADZUNA_ENABLED: bool = True

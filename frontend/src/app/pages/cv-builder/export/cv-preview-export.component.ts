@@ -8,7 +8,6 @@ import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
-import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 import {
   CvRenderPayload,
   CvTemplate,
@@ -19,7 +18,6 @@ import {
   SkillEntry,
 } from '../../../core/models/master-profile.model';
 import { ProfileService } from '../../../core/services/profile.service';
-import { TranslationService } from '../../../core/services/translation.service';
 
 const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
 
@@ -54,35 +52,32 @@ const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
     MatButtonToggleModule,
     MatIconModule,
     MatProgressSpinnerModule,
-    TranslatePipe,
   ],
   template: `
     <section class="cv-preview-export">
-      <h3>{{ 'cvBuilder.preview.heading' | translate: i18n.language() }}</h3>
-      <p>{{ 'cvBuilder.preview.intro' | translate: i18n.language() }}</p>
+      <h3>Preview & export</h3>
+      <p>
+        Choose a template and generate a preview or a PDF download - based on the current form
+        content, even if it has not been saved yet.
+      </p>
 
       <div class="cv-preview-export__picker-row">
         <div class="cv-preview-export__control">
-          <span class="cv-preview-export__control-label">{{
-            'cvBuilder.preview.template' | translate: i18n.language()
-          }}</span>
+          <span class="cv-preview-export__control-label">Template</span>
           @if (templatesLoading()) {
             <div class="cv-preview-export__templates-loading">
               <mat-progress-spinner mode="indeterminate" diameter="24" />
-              <p>{{ 'cvBuilder.preview.templatesLoading' | translate: i18n.language() }}</p>
+              <p>Loading templates ...</p>
             </div>
           } @else if (templatesError()) {
             <div class="cv-preview-export__error">
               <p>{{ templatesError() }}</p>
               <button mat-stroked-button type="button" (click)="loadTemplates()">
-                {{ 'cvBuilder.retry' | translate: i18n.language() }}
+                Try again
               </button>
             </div>
           } @else {
-            <mat-button-toggle-group
-              [formControl]="templateIdControl"
-              [attr.aria-label]="'cvBuilder.preview.templateAria' | translate: i18n.language()"
-            >
+            <mat-button-toggle-group [formControl]="templateIdControl" aria-label="Choose template">
               @for (template of templates(); track template.id) {
                 <mat-button-toggle [value]="template.id">{{ template.label }}</mat-button-toggle>
               }
@@ -104,7 +99,7 @@ const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
           } @else {
             <mat-icon>visibility</mat-icon>
           }
-          {{ 'cvBuilder.preview.preview' | translate: i18n.language() }}
+          Preview
         </button>
         <button
           mat-stroked-button
@@ -117,7 +112,7 @@ const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
           } @else {
             <mat-icon>download</mat-icon>
           }
-          {{ 'cvBuilder.preview.export' | translate: i18n.language() }}
+          Export as PDF
         </button>
       </div>
 
@@ -199,7 +194,6 @@ const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
 export class CvPreviewExportComponent implements OnInit, OnDestroy {
   private readonly profileService = inject(ProfileService);
   private readonly sanitizer = inject(DomSanitizer);
-  protected readonly i18n = inject(TranslationService);
 
   @Input({ required: true }) summaryControl!: FormControl<string>;
   @Input({ required: true }) berufsbezeichnungControl!: FormControl<string>;
@@ -257,7 +251,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
       },
       error: () => {
         this.templatesLoading.set(false);
-        this.templatesError.set(this.i18n.translate('cvBuilder.preview.templatesFailed'));
+        this.templatesError.set('Templates could not be loaded.');
       },
     });
   }
@@ -277,7 +271,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
         const blob = response.body;
         if (!blob) {
           this.previewUrl.set(null);
-          this.previewError.set(this.i18n.translate('cvBuilder.preview.previewFailed'));
+          this.previewError.set('The preview could not be loaded.');
           return;
         }
         const objectUrl = URL.createObjectURL(blob);
@@ -306,7 +300,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
         this.exporting.set(false);
         const blob = response.body;
         if (!blob) {
-          this.exportError.set(this.i18n.translate('cvBuilder.preview.exportFailed'));
+          this.exportError.set('Export failed. Please try again.');
           return;
         }
         this.triggerDownload(blob, this.resolveFilename(response.headers.get('Content-Disposition')));
@@ -326,7 +320,6 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
 
     return {
       template_id: templateId,
-      document_language: this.i18n.language(),
       summary: this.summaryControl.value,
       berufsbezeichnung: this.berufsbezeichnungControl.value,
       experiences_json: this.experiencesArray.getRawValue() as ExperienceEntry[],
@@ -357,13 +350,13 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
   private resolveErrorMessage(error: HttpErrorResponse): string {
     switch (error.status) {
       case 404:
-        return this.i18n.translate('cvBuilder.preview.noProfile');
+        return 'No profile has been created yet.';
       case 422:
-        return this.i18n.translate('cvBuilder.preview.invalidTemplate');
+        return 'The selected template is invalid.';
       case 500:
-        return this.i18n.translate('cvBuilder.preview.renderFailed');
+        return 'The CV could not be generated as a PDF.';
       default:
-        return this.i18n.translate('cvBuilder.preview.unknownError');
+        return 'Something went wrong. Please try again.';
     }
   }
 

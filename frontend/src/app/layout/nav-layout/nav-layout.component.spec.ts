@@ -28,6 +28,6 @@ describe('NavLayoutComponent', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     const link = compiled.querySelector('a[href="/cv-builder"]');
     expect(link).toBeTruthy();
-    expect(link?.textContent).toContain('Lebenslauf');
+    expect(link?.textContent).toContain('CV Builder');
   });
 });
