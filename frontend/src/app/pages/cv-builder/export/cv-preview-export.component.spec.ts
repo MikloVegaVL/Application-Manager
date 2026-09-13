@@ -5,6 +5,7 @@ import { FormArray, FormBuilder, FormControl, FormGroup } from '@angular/forms';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 
 import { CvPreviewExportComponent } from './cv-preview-export.component';
+import { DocumentLanguage } from '../../../core/models/master-profile.model';
 
 const templatesFixture = [
   { id: 'classic', label: 'Classic' },
@@ -25,6 +26,7 @@ describe('CvPreviewExportComponent', () => {
   let languagesArray: FormArray<FormGroup>;
   let projectsArray: FormArray<FormGroup>;
   let templateIdControl: FormControl<string | null>;
+  let documentLanguageControl: FormControl<DocumentLanguage | null>;
 
   const setInputs = (): void => {
     fixture.componentRef.setInput('summaryControl', summaryControl);
@@ -35,6 +37,7 @@ describe('CvPreviewExportComponent', () => {
     fixture.componentRef.setInput('languagesArray', languagesArray);
     fixture.componentRef.setInput('projectsArray', projectsArray);
     fixture.componentRef.setInput('templateIdControl', templateIdControl);
+    fixture.componentRef.setInput('documentLanguageControl', documentLanguageControl);
     fixture.detectChanges();
   };
 
@@ -47,6 +50,7 @@ describe('CvPreviewExportComponent', () => {
 
   const expectedPayload = (overrides: Record<string, unknown> = {}) => ({
     template_id: 'classic',
+    document_language: 'en',
     summary: '',
     berufsbezeichnung: '',
     experiences_json: [],
@@ -76,6 +80,7 @@ describe('CvPreviewExportComponent', () => {
     languagesArray = formBuilder.array<FormGroup>([]);
     projectsArray = formBuilder.array<FormGroup>([]);
     templateIdControl = new FormControl<string | null>(null);
+    documentLanguageControl = new FormControl<DocumentLanguage | null>('en');
   });
 
   afterEach(() => {
@@ -93,7 +98,9 @@ describe('CvPreviewExportComponent', () => {
     flushTemplates();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    const toggles = compiled.querySelectorAll('mat-button-toggle');
+    const toggles = compiled.querySelectorAll(
+      'mat-button-toggle-group[aria-label="Vorlage wählen"] mat-button-toggle',
+    );
     expect(toggles.length).toBe(2);
 
     // KTD8: no prior selection (null) -> first available template pre-selected.
@@ -149,7 +156,9 @@ describe('CvPreviewExportComponent', () => {
     retryReq.flush(templatesFixture);
     fixture.detectChanges();
 
-    expect(compiled.querySelectorAll('mat-button-toggle').length).toBe(2);
+    expect(
+      compiled.querySelectorAll('mat-button-toggle-group[aria-label="Vorlage wählen"] mat-button-toggle').length,
+    ).toBe(2);
   });
 
   it('preview sends the current form content, shows a loading indicator while pending, and displays the PDF on success', () => {
@@ -332,5 +341,35 @@ describe('CvPreviewExportComponent', () => {
     const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/preview') && r.method === 'POST');
     expect(req.request.body.summary).toBe('Unsaved summary edit');
     req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+  });
+
+  it('renders a labelled document-language control and sends the selected language (R1, R4)', () => {
+    setInputs();
+    flushTemplates();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const languageGroup = compiled.querySelector(
+      'mat-button-toggle-group[aria-label="Dokumentsprache wählen"]',
+    );
+    expect(languageGroup).toBeTruthy();
+    expect(compiled.textContent).toContain('Dokumentsprache');
+
+    documentLanguageControl.setValue('de');
+    fixture.detectChanges();
+
+    const previewButton = compiled.querySelectorAll('.cv-preview-export__actions button')[0] as HTMLButtonElement;
+    previewButton.click();
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/preview') && r.method === 'POST');
+    expect(req.request.body.document_language).toBe('de');
+    req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+  });
+
+  it('keeps the document-language control visible while templates are loading (R1)', () => {
+    setInputs();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('mat-button-toggle-group[aria-label="Dokumentsprache wählen"]')).toBeTruthy();
+    flushTemplates();
   });
 });

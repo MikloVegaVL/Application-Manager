@@ -37,6 +37,14 @@ export interface SkillEntry {
  */
 export type LanguageLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
 
+/**
+ * Entspricht `DocumentLanguage`: die Sprache der festen Dokument-Chrome des
+ * generierten Lebenslaufs (Überschriften, Kompetenzgrade, Datums-Wording,
+ * Footer, Titel). Nutzerinhalte werden nie übersetzt. `null` = noch keine
+ * Wahl getroffen und rendert Englisch.
+ */
+export type DocumentLanguage = 'de' | 'en';
+
 /** Entspricht `LanguageEntry`: eine Sprachkenntnis mit CEFR-Niveau. */
 export interface LanguageEntry {
   name: string;
@@ -67,6 +75,7 @@ export interface MasterProfile {
   projects_json: ProjectEntry[];
   photo_filename: string | null;
   template_id: string | null;
+  document_language: DocumentLanguage | null;
 }
 
 /**
@@ -147,6 +156,7 @@ export interface ProfileContentUpdate {
   languages_json?: LanguageEntry[];
   projects_json?: ProjectEntry[];
   template_id?: string | null;
+  document_language?: DocumentLanguage | null;
 }
 
 /** Entspricht einem Eintrag der `GET /cv-builder/templates`-Antwort (R9): eine wählbare CV-Vorlage. */
@@ -165,6 +175,7 @@ export interface CvTemplate {
  */
 export interface CvRenderPayload {
   template_id: string;
+  document_language?: DocumentLanguage | null;
   summary: string | null;
   berufsbezeichnung: string | null;
   experiences_json: ExperienceEntry[];
