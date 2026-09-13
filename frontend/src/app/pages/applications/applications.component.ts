@@ -88,7 +88,7 @@ export class ApplicationsComponent implements OnInit {
   }
 
   statusLabel(status: ApplicationStatus): string {
-    return ApplicationsComponent.STATUS_LABELS[status] ?? status;
+    return ApplicationsComponent.STATUS_LABELS[status];
   }
 
   onFilterChange(filter: ApplicationFilter): void {

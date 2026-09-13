@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormArray, FormBuilder, FormControl, FormGroup } from '@angular/forms';
 
@@ -237,12 +237,6 @@ export class CvImportComponent {
    * noch nie gespeichert wurde bzw. das Profil noch nicht geladen ist. */
   @Input({ required: true }) lastSavedProfile: MasterProfileRead | null = null;
 
-  /** P2: Der Import hat den Inhalt ersetzt. Der Eltern-Builder muss daraufhin
-   * seine aktive Inhaltssprache auf die aktuelle Header-Sprache setzen und den
-   * Snapshot der anderen Sprache verwerfen (der Parse-Aufruf wird immer mit
-   * `'en'` gesendet). */
-  @Output() readonly contentReplaced = new EventEmitter<void>();
-
   protected readonly isDragOver = signal(false);
   protected readonly uploading = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
@@ -297,7 +291,6 @@ export class CvImportComponent {
     );
     this.pendingParse = null;
     this.conflicts.set([]);
-    this.contentReplaced.emit();
   }
 
   cancelReplace(): void {
@@ -340,8 +333,6 @@ export class CvImportComponent {
     // R13/KTD12: `summary` ist bewusst nicht Teil des Konfliktchecks (siehe
     // `ImportSectionKey`) - wird bei jedem Import direkt übernommen.
     this.summaryControl.setValue(parsed.summary ?? '');
-    // P2: Inhalt stammt jetzt aus dem Parse in der aktuellen Header-Sprache.
-    this.contentReplaced.emit();
 
     const allKeys: ImportSectionKey[] = ['experiences_json', 'education_json', 'skills_json', 'projects_json'];
     const conflicts = allKeys

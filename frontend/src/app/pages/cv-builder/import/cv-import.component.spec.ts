@@ -101,7 +101,7 @@ describe('CvImportComponent', () => {
 
     const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/parse') && r.method === 'POST');
     expect(req.request.body instanceof FormData).toBeTrue();
-    expect((req.request.body as FormData).get('language')).toBe('en');
+    expect((req.request.body as FormData).get('language')).toBeNull();
     req.flush({ parsed: parsedFixture, warnings: ['phone'] });
     fixture.detectChanges();
 
@@ -125,26 +125,13 @@ describe('CvImportComponent', () => {
     httpMock.expectNone((r) => r.url.endsWith('/profile') && r.method === 'PATCH');
   });
 
-  it('emits contentReplaced when a parse result replaces content (P2)', () => {
-    setInputs(baseProfile);
-    let emitted = 0;
-    component.contentReplaced.subscribe(() => (emitted += 1));
-
-    component.onFileSelected({ target: { files: [pdfFile()] } } as unknown as Event);
-    httpMock
-      .expectOne((r) => r.url.endsWith('/cv-builder/parse') && r.method === 'POST')
-      .flush({ parsed: parsedFixture, warnings: [] });
-
-    expect(emitted).toBeGreaterThan(0);
-  });
-
-  it('always sends language "en" when parsing (R1)', () => {
+  it('does not send a language field when parsing (R4)', () => {
     setInputs(baseProfile);
 
     component.onFileSelected({ target: { files: [pdfFile()] } } as unknown as Event);
 
     const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/parse') && r.method === 'POST');
-    expect((req.request.body as FormData).get('language')).toBe('en');
+    expect((req.request.body as FormData).get('language')).toBeNull();
     req.flush({ parsed: parsedFixture, warnings: [] });
   });
 

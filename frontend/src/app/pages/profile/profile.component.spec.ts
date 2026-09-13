@@ -45,7 +45,7 @@ describe('ProfileComponent', () => {
       el.textContent?.trim(),
     );
 
-    expect(labels).toEqual(['Persönliche Daten', 'Lebenslauf-Anhang', 'Weitere Anhänge']);
+    expect(labels).toEqual(['Personal details', 'CV attachment', 'Additional attachments']);
     expect(labels).not.toContain('Berufserfahrung & Ausbildung');
     expect(labels).not.toContain('Skills & Zertifikate');
     expect(labels).not.toContain('CV-Import');

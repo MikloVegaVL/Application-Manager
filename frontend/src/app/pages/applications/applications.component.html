@@ -25,13 +25,13 @@
       <span class="applications__filter-title"> Filter by status </span>
 
       <mat-radio-button value="all"> All </mat-radio-button>
-      <mat-radio-button value="sent"> Sent </mat-radio-button>
-      <mat-radio-button value="draft"> Draft </mat-radio-button>
+      <mat-radio-button value="sent"> {{ statusLabel('sent') }} </mat-radio-button>
+      <mat-radio-button value="draft"> {{ statusLabel('draft') }} </mat-radio-button>
 
       <div class="applications__filter-group">
         <span class="applications__filter-group-title"> Outcome </span>
-        <mat-radio-button value="accepted"> Offer </mat-radio-button>
-        <mat-radio-button value="rejected"> Rejection </mat-radio-button>
+        <mat-radio-button value="accepted"> {{ statusLabel('accepted') }} </mat-radio-button>
+        <mat-radio-button value="rejected"> {{ statusLabel('rejected') }} </mat-radio-button>
       </div>
     </mat-radio-group>
   }
@@ -84,11 +84,11 @@
                 >
                   <mat-button-toggle value="accepted" class="application-card__outcome-accept">
                     <mat-icon>check</mat-icon>
-                    Offer
+                    {{ statusLabel('accepted') }}
                   </mat-button-toggle>
                   <mat-button-toggle value="rejected" class="application-card__outcome-reject">
                     <mat-icon>close</mat-icon>
-                    Rejection
+                    {{ statusLabel('rejected') }}
                   </mat-button-toggle>
                 </mat-button-toggle-group>
                 @if (isUpdatingStatus(application)) {

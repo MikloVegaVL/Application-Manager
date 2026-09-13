@@ -196,7 +196,6 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
                   [skillsArray]="skillsArray"
                   [projectsArray]="projectsArray"
                   [lastSavedProfile]="lastSavedProfile()"
-                  (contentReplaced)="onImportContentReplaced()"
                 />
               </div>
             </mat-tab>
@@ -415,9 +414,4 @@ export class CvBuilderComponent implements OnInit {
     replaceArray(this.languagesArray, profile.languages_json, (entry) => createLanguageGroup(this.formBuilder, entry));
     replaceArray(this.projectsArray, profile.projects_json, (entry) => createProjectGroup(this.formBuilder, entry));
   }
-
-  /** P2: Nach einem CV-Import wird nichts weiter nachgeführt - das Formular
-   * hält bereits den importierten Inhalt; dieser Hook existiert nur noch für
-   * `CvImportComponent`s `(contentReplaced)`-Output. */
-  protected onImportContentReplaced(): void {}
 }
