@@ -29,11 +29,7 @@ describe('SkillsSectionComponent', () => {
     expect(component['skillLevels']).toEqual(['Grundkenntnisse', 'Gut', 'Sehr gut', 'Experte']);
   });
 
-  it('offers the five skill categories used for CV grouping', () => {
-    expect(component['skillCategories']).toEqual(['Frontend', 'Backend', 'Tools', 'Soft Skills', 'Other']);
-  });
-
-  it('adds a skill with a name, level and the default category to the form array', () => {
+  it('adds a skill with a name and level to the form array', () => {
     component.add();
     formArray.at(0).patchValue({ name: 'TypeScript', level: 'Experte' });
 
@@ -41,8 +37,16 @@ describe('SkillsSectionComponent', () => {
     expect(formArray.at(0).getRawValue()).toEqual({
       name: 'TypeScript',
       level: 'Experte',
-      category: 'Other',
     });
+  });
+
+  it('renders no category select for a skill row', () => {
+    component.add();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.skill-row__category')).toBeFalsy();
+    expect(compiled.querySelector('[formcontrolname="category"]')).toBeFalsy();
   });
 
   it('removes a skill from the form array', () => {

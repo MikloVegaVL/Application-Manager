@@ -236,19 +236,15 @@ describe('CvBuilderComponent', () => {
     goToReady({
       template_id: 'classic',
       skills_json: [
-        { name: 'TypeScript', level: 'Gut', category: 'Other' },
-        { name: 'Angular', level: 'Experte', category: 'Other' },
+        { name: 'TypeScript', level: 'Gut' },
+        { name: 'Angular', level: 'Experte' },
       ],
     });
 
     const formBuilder = new FormBuilder();
     component['skillsArray'].clear();
-    component['skillsArray'].push(
-      formBuilder.nonNullable.group({ name: 'Angular', level: 'Experte', category: 'Other' }),
-    );
-    component['skillsArray'].push(
-      formBuilder.nonNullable.group({ name: 'TypeScript', level: 'Gut', category: 'Other' }),
-    );
+    component['skillsArray'].push(formBuilder.nonNullable.group({ name: 'Angular', level: 'Experte' }));
+    component['skillsArray'].push(formBuilder.nonNullable.group({ name: 'TypeScript', level: 'Gut' }));
 
     expect(component.hasUnsavedChanges()).toBeFalse();
 

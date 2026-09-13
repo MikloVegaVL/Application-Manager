@@ -40,10 +40,7 @@ const parsedFixture: ParsedCvProfile = {
   education: [
     { institution: 'Uni', degree: 'B.Sc.', field_of_study: 'CS', start_date: '2016', end_date: '2019' },
   ],
-  skills: [
-    { name: 'TypeScript', category: 'Frontend' },
-    { name: 'Angular', category: 'Frontend' },
-  ],
+  skills: [{ name: 'TypeScript' }, { name: 'Angular' }],
   projects: [{ title: 'Side Project', description: 'A thing.', start_date: null, end_date: null, link: null }],
 };
 
@@ -113,8 +110,8 @@ describe('CvImportComponent', () => {
     ]);
     expect(educationArray.length).toBe(1);
     expect(skillsArray.getRawValue()).toEqual([
-      { name: 'TypeScript', level: 'Grundkenntnisse', category: 'Frontend' },
-      { name: 'Angular', level: 'Grundkenntnisse', category: 'Frontend' },
+      { name: 'TypeScript', level: 'Grundkenntnisse' },
+      { name: 'Angular', level: 'Grundkenntnisse' },
     ]);
     expect(projectsArray.length).toBe(1);
 

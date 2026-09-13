@@ -25,18 +25,10 @@ export interface EducationEntry {
  */
 export type SkillLevel = 'Grundkenntnisse' | 'Gut' | 'Sehr gut' | 'Experte';
 
-/**
- * Entspricht `SkillCategory` im Backend: Skills werden für den CV nach
- * Domäne gruppiert (statt einer langen, flachen Liste). `Other` ist der
- * Fallback für nicht zuordenbare/Altdaten.
- */
-export type SkillCategory = 'Frontend' | 'Backend' | 'Tools' | 'Soft Skills' | 'Other';
-
-/** Entspricht `SkillEntry`: ein Skill mit Kompetenzgrad und Kategorie. */
+/** Entspricht `SkillEntry`: ein Skill mit Kompetenzgrad. */
 export interface SkillEntry {
   name: string;
   level: SkillLevel;
-  category?: SkillCategory | null;
 }
 
 /**
@@ -102,11 +94,10 @@ export interface MasterProfileRead extends MasterProfile {
 /**
  * Entspricht `ParsedSkill` im Backend: ein per KI aus dem CV extrahierter
  * Skill. Die KI leitet keinen Kompetenzgrad ab (R7) - das Frontend ergänzt
- * beim Übernehmen einen Default -, kann aber bereits eine Kategorie zuordnen.
+ * beim Übernehmen einen Default.
  */
 export interface ParsedSkill {
   name: string;
-  category?: SkillCategory | null;
 }
 
 /**
