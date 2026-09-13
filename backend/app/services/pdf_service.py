@@ -103,15 +103,6 @@ def _photo_file_uri(photo_path: str | Path | None) -> str | None:
     return path.resolve().as_uri()
 
 
-# Sortierschlüssel für den repräsentativen Kompetenzgrad einer Skill-Gruppe
-# (der höchste in der Gruppe vertretene Grad bestimmt die Balkenlänge).
-_SKILL_LEVEL_ORDER: dict[str, int] = {
-    "Grundkenntnisse": 0,
-    "Gut": 1,
-    "Sehr gut": 2,
-    "Experte": 3,
-}
-
 # Englische Anzeige-Labels für die intern deutsch gehaltenen `SkillLevel`-
 # Werte: der CV wird immer auf Englisch erzeugt (die Enum-Werte bleiben
 # unverändert, damit Schema/Migration/Frontend-Formular stabil bleiben).
@@ -122,43 +113,64 @@ _SKILL_LEVEL_LABELS_EN: dict[str, str] = {
     "Experte": "Expert",
 }
 
-# Fallback-Kategorie für Skills ohne (oder mit unbekannter) `category` -
-# insbesondere Altdaten aus der Zeit vor der Kategorie-Einführung.
-_OTHER_SKILL_CATEGORY = "Other"
+# R4/KTD1: Anzahl gefüllter Blöcke (von 5) je Kompetenzgrad. Die 4-stufige
+# Skala wird auf 5 Blöcke abgebildet, ohne dass eine Stufe leer wirkt
+# (Grundkenntnisse = 2/5 ... Experte = 5/5) - serverseitig berechnet, damit
+# keine Vorlage die Zuordnung lokal dupliziert.
+_SKILL_LEVEL_BLOCKS: dict[str, int] = {
+    "Grundkenntnisse": 2,
+    "Gut": 3,
+    "Sehr gut": 4,
+    "Experte": 5,
+}
+
+# R6/KTD1: Anzahl gefüllter Punkte (von 6) je CEFR-Stufe (A1 = 1 ... C2 = 6) -
+# unverändert übernommen aus der bisherigen lokalen `lang_dots`-Map in
+# `template-1.html`, jetzt serverseitig zentral berechnet.
+_LANGUAGE_LEVEL_DOTS: dict[str, int] = {
+    "A1": 1,
+    "A2": 2,
+    "B1": 3,
+    "B2": 4,
+    "C1": 5,
+    "C2": 6,
+}
 
 
-def group_skills(skills: list[Any]) -> list[dict[str, Any]]:
-    """Gruppiert Skills nach `category` für die CV-Vorlagen.
-
-    Statt einer langen, flachen Liste rendert jede Vorlage je Kategorie eine
-    kompakte Zeile (siehe R9-Folge). Die Gruppen behalten die Reihenfolge des
-    ersten Auftretens bei; Skills ohne `category` landen in einer
-    `Other`-Gruppe. `level` ist der höchste in der Gruppe vertretene
-    Kompetenzgrad - die Vorlagen nutzen ihn als Balkenlänge (das per-Skill-
-    Niveau wird zugunsten der kompakten Darstellung nicht einzeln gezeigt);
-    `level_label` ist die englische Anzeigeform davon.
-    """
-    groups: dict[str, list[dict[str, Any]]] = {}
+def _skills_ctx(skills: list[Any]) -> list[dict[str, Any]]:
+    """Normalisiert eine flache Skill-Liste für R3/R4: jede Vorlage außer
+    Classic rendert jeden Skill als eigene Zeile mit einem 5-Block-Balken
+    (`level_blocks`); Classic zeigt stattdessen die englische Textform des
+    Kompetenzgrads (`level_label`, auch von den anderen Vorlagen für den
+    unsichtbaren ATS-Text laut KTD10 wiederverwendet)."""
+    result: list[dict[str, Any]] = []
     for skill in skills:
         entry = _entry_dict(skill)
-        category = entry.get("category") or _OTHER_SKILL_CATEGORY
-        groups.setdefault(category, []).append(entry)
-
-    grouped: list[dict[str, Any]] = []
-    for category, entries in groups.items():
-        representative = max(
-            entries, key=lambda entry: _SKILL_LEVEL_ORDER.get(entry.get("level"), 0)
-        )
-        level = representative.get("level")
-        grouped.append(
+        level = entry.get("level")
+        result.append(
             {
-                "category": category,
-                "skills": entries,
-                "level": level,
+                **entry,
+                "level_blocks": _SKILL_LEVEL_BLOCKS.get(level, 0),
                 "level_label": _SKILL_LEVEL_LABELS_EN.get(level, level or ""),
             }
         )
-    return grouped
+    return result
+
+
+def _languages_ctx(languages: list[Any]) -> list[dict[str, Any]]:
+    """Normalisiert eine Sprachen-Liste für R6: jede Vorlage außer Classic
+    rendert jede Sprache als eigene Zeile mit dem bestehenden 6-Punkte-CEFR-
+    Indikator (`level_dots`)."""
+    result: list[dict[str, Any]] = []
+    for language in languages:
+        entry = _entry_dict(language)
+        result.append(
+            {
+                **entry,
+                "level_dots": _LANGUAGE_LEVEL_DOTS.get(entry.get("level"), 0),
+            }
+        )
+    return result
 
 
 def render_cv_pdf(
@@ -198,10 +210,12 @@ def render_cv_pdf(
     if preview and sample is None:
         sample = SAMPLE
 
-    sample_skill_groups = (
-        group_skills(list(sample.get("skills", []))) if (preview and sample) else []
+    skills_ctx = _skills_ctx(skills)
+    languages_ctx = _languages_ctx(languages)
+    sample_skills_ctx = _skills_ctx(list(sample.get("skills", []))) if (preview and sample) else []
+    sample_languages_ctx = (
+        _languages_ctx(list(sample.get("languages", []))) if (preview and sample) else []
     )
-    skill_groups = group_skills(skills)
 
     experiences_ctx = [
         {**_entry_dict(exp), "date_range": _format_date_range(exp.start_date, exp.end_date)}
@@ -226,9 +240,11 @@ def render_cv_pdf(
         experiences=experiences_ctx,
         education=education_ctx,
         skills=[_entry_dict(skill) for skill in skills],
-        skill_groups=skill_groups,
-        sample_skill_groups=sample_skill_groups,
+        skills_ctx=skills_ctx,
+        sample_skills_ctx=sample_skills_ctx,
         languages=[_entry_dict(lang) for lang in languages],
+        languages_ctx=languages_ctx,
+        sample_languages_ctx=sample_languages_ctx,
         projects=projects_ctx,
         photo_url=_photo_file_uri(photo_path),
         preview=preview,

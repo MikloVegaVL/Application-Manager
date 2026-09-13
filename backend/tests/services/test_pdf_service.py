@@ -145,42 +145,109 @@ class TestRenderCvPdfTemplateContent:
             url_fetcher("https://example.com/x.png")
 
 
-class TestGroupSkills:
-    """`group_skills` verdichtet die flache Skill-Liste zu Kategorien (siehe
-    R9-Folge) - eine lange Liste wird so auf wenige Zeilen reduziert."""
+class TestSkillLevelBlocksAndLanguageLevelDots:
+    """R3/R4/R6/KTD1: die 4-stufige Skill-Skala wird serverseitig auf einen
+    5-Block-Balken abgebildet, die CEFR-Stufe auf den bestehenden
+    6-Punkte-Indikator - beides zentral in `pdf_service`, nicht länger lokal
+    je Vorlage dupliziert."""
 
-    def test_groups_by_category_preserving_first_appearance(self):
-        groups = pdf_service.group_skills(
-            [
-                SkillEntry(name="Angular", level="Experte", category="Frontend"),
-                SkillEntry(name="Python", level="Gut", category="Backend"),
-                SkillEntry(name="React", level="Gut", category="Frontend"),
-            ]
+    def test_skill_level_blocks_maps_all_four_tiers(self):
+        assert pdf_service._SKILL_LEVEL_BLOCKS == {
+            "Grundkenntnisse": 2,
+            "Gut": 3,
+            "Sehr gut": 4,
+            "Experte": 5,
+        }
+
+    def test_language_level_dots_maps_all_six_cefr_tiers(self):
+        assert pdf_service._LANGUAGE_LEVEL_DOTS == {
+            "A1": 1,
+            "A2": 2,
+            "B1": 3,
+            "B2": 4,
+            "C1": 5,
+            "C2": 6,
+        }
+
+    def test_no_grouping_helpers_or_state_remain(self):
+        """KTD2: `group_skills`/`skill_groups`/`sample_skill_groups` und die
+        dafür genutzte Sortier-/Fallback-Kategorie sind vollständig entfernt -
+        jede Vorlage iteriert `skills`/`sample.skills` direkt, ohne
+        Kategorie-Gruppierung."""
+        assert not hasattr(pdf_service, "group_skills")
+        assert not hasattr(pdf_service, "_SKILL_LEVEL_ORDER")
+        assert not hasattr(pdf_service, "_OTHER_SKILL_CATEGORY")
+
+
+class TestRenderCvPdfSkillsAndLanguagesContext:
+    """`render_cv_pdf` reichert jeden Skill/jede Sprache serverseitig mit den
+    Anzeige-Metadaten für den 5-Block-Balken bzw. den 6-Punkte-CEFR-Indikator
+    an (KTD1), statt dass die Vorlagen die Zuordnung lokal duplizieren."""
+
+    def _rendered_kwargs(self, mocker, **kwargs) -> dict:
+        mock_template = mocker.MagicMock()
+        mock_template.render.return_value = "<html></html>"
+        mocker.patch.object(pdf_service._env, "get_template", return_value=mock_template)
+        mock_html_cls = mocker.patch.object(pdf_service, "HTML")
+        mock_html_cls.return_value.write_pdf.return_value = b"%PDF-1.4 fake bytes"
+
+        pdf_service.render_cv_pdf(**kwargs)
+
+        return mock_template.render.call_args.kwargs
+
+    def test_skills_ctx_carries_level_blocks_and_english_level_label(self, mocker):
+        content = _full_content()
+        content["skills"] = [
+            SkillEntry(name="Python", level="Experte"),
+            SkillEntry(name="SQL", level="Grundkenntnisse"),
+        ]
+
+        kwargs = self._rendered_kwargs(mocker, template_id="classic", **content)
+
+        skills_ctx = kwargs["skills_ctx"]
+        assert [skill["name"] for skill in skills_ctx] == ["Python", "SQL"]
+        assert skills_ctx[0]["level_blocks"] == 5
+        assert skills_ctx[0]["level_label"] == "Expert"
+        assert skills_ctx[1]["level_blocks"] == 2
+        assert skills_ctx[1]["level_label"] == "Basic"
+
+    def test_languages_ctx_carries_level_dots(self, mocker):
+        content = _full_content()
+        content["languages"] = [
+            LanguageEntry(name="Deutsch", level="C2"),
+            LanguageEntry(name="Englisch", level="B1"),
+        ]
+
+        kwargs = self._rendered_kwargs(mocker, template_id="classic", **content)
+
+        languages_ctx = kwargs["languages_ctx"]
+        assert [lang["name"] for lang in languages_ctx] == ["Deutsch", "Englisch"]
+        assert languages_ctx[0]["level_dots"] == 6
+        assert languages_ctx[1]["level_dots"] == 3
+
+    def test_sample_skills_and_languages_ctx_populated_in_preview(self, mocker):
+        kwargs = self._rendered_kwargs(
+            mocker, template_id="classic", preview=True, **_empty_content()
         )
 
-        assert [group["category"] for group in groups] == ["Frontend", "Backend"]
-        assert [skill["name"] for skill in groups[0]["skills"]] == ["Angular", "React"]
+        assert kwargs["sample_skills_ctx"], "preview should populate sample skills context"
+        assert all("level_blocks" in skill for skill in kwargs["sample_skills_ctx"])
+        assert kwargs["sample_languages_ctx"], "preview should populate sample languages context"
+        assert all("level_dots" in lang for lang in kwargs["sample_languages_ctx"])
 
-    def test_group_level_is_the_highest_in_the_group_and_gets_an_english_label(self):
-        groups = pdf_service.group_skills(
-            [
-                SkillEntry(name="A", level="Grundkenntnisse", category="Tools"),
-                SkillEntry(name="B", level="Experte", category="Tools"),
-                SkillEntry(name="C", level="Gut", category="Tools"),
-            ]
+    def test_sample_skills_and_languages_ctx_empty_outside_preview(self, mocker):
+        kwargs = self._rendered_kwargs(
+            mocker, template_id="classic", preview=False, **_empty_content()
         )
 
-        assert groups[0]["level"] == "Experte"
-        assert groups[0]["level_label"] == "Expert"
+        assert kwargs["sample_skills_ctx"] == []
+        assert kwargs["sample_languages_ctx"] == []
 
-    def test_skills_without_a_category_fall_into_other(self):
-        groups = pdf_service.group_skills([SkillEntry(name="Legacy", level="Gut")])
+    def test_context_no_longer_carries_removed_grouping_keys(self, mocker):
+        kwargs = self._rendered_kwargs(mocker, template_id="classic", **_full_content())
 
-        assert groups[0]["category"] == "Other"
-        assert groups[0]["level_label"] == "Good"
-
-    def test_empty_skill_list_yields_no_groups(self):
-        assert pdf_service.group_skills([]) == []
+        assert "skill_groups" not in kwargs
+        assert "sample_skill_groups" not in kwargs
 
 
 class TestMultiPageFragmentation:
