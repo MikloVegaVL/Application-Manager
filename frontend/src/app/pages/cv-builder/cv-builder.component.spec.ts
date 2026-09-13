@@ -27,8 +27,6 @@ const baseProfileResponse = {
   projects_json: [],
   photo_filename: null,
   template_id: null,
-  content_language: 'de',
-  content_translations_json: {},
   cv_filename: null,
   attachments: [],
   created_at: new Date().toISOString(),
@@ -136,7 +134,7 @@ describe('CvBuilderComponent', () => {
 
   // AE3: no language selector/translate affordance exists anywhere - the
   // tab labels (and every other UI string) are always the hardcoded English
-  // text, regardless of the loaded profile's stored content_language.
+  // text.
   it('renders the tabbed shell in English when GET /profile succeeds', () => {
     fixture.detectChanges();
     flushProfileRequest(200, baseProfileResponse);
@@ -224,12 +222,6 @@ describe('CvBuilderComponent', () => {
     });
     expect(Object.keys(req.request.body)).not.toContain('full_name');
     expect(Object.keys(req.request.body)).not.toContain('photo_path');
-    // U2: the content-translation state machine (and the content_language/
-    // content_translations_json fields it tracked) is gone - the PATCH
-    // payload no longer touches either, leaving the server's existing
-    // values untouched (`exclude_unset`, see backend/app/api/profile.py).
-    expect(Object.keys(req.request.body)).not.toContain('content_language');
-    expect(Object.keys(req.request.body)).not.toContain('content_translations_json');
 
     req.flush({ ...baseProfileResponse, summary: 'New summary', template_id: 'classic' });
     fixture.detectChanges();

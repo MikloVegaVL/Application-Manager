@@ -153,8 +153,6 @@ export class ProfileComponent implements OnInit {
       projects_json: base?.projects_json ?? [],
       photo_filename: base?.photo_filename ?? null,
       template_id: base?.template_id ?? null,
-      content_language: base?.content_language ?? 'de',
-      content_translations_json: base?.content_translations_json ?? {},
     };
 
     this.profileService.saveProfile(payload).subscribe({

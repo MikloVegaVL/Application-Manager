@@ -19,8 +19,6 @@ const baseProfileResponse = {
   projects_json: [],
   photo_filename: 'photo.jpg',
   template_id: null,
-  content_language: 'de',
-  content_translations_json: {},
   cv_filename: null,
   attachments: [],
   created_at: new Date().toISOString(),

@@ -102,42 +102,6 @@ def test_master_profile_base_rejects_plain_string_skills_json() -> None:
         MasterProfileBase(full_name="Max Mustermann", email="max@example.com", skills_json=["Python"])
 
 
-# --- MasterProfileBase.content_language (U1/KTD1) ---------------------------
-
-
-def test_master_profile_base_defaults_content_language_to_german() -> None:
-    profile = MasterProfileBase(full_name="Max Mustermann", email="max@example.com")
-
-    assert profile.content_language == "de"
-    assert profile.content_translations_json == {}
-
-
-def test_master_profile_base_accepts_de_and_en_content_language() -> None:
-    for language in ("de", "en"):
-        profile = MasterProfileBase(
-            full_name="Max Mustermann",
-            email="max@example.com",
-            content_language=language,
-        )
-        assert profile.content_language == language
-
-
-def test_master_profile_base_rejects_unknown_content_language() -> None:
-    with pytest.raises(ValidationError):
-        MasterProfileBase(full_name="Max Mustermann", email="max@example.com", content_language="fr")
-
-
-def test_master_profile_base_round_trips_content_translations_json() -> None:
-    profile = MasterProfileBase(
-        full_name="Max Mustermann",
-        email="max@example.com",
-        content_language="de",
-        content_translations_json={"summary": "Experienced developer."},
-    )
-
-    assert profile.content_translations_json == {"summary": "Experienced developer."}
-
-
 def test_master_profile_base_no_longer_has_document_language() -> None:
     """U2/KTD3: das per-Profil-Feld `document_language` ist entfernt."""
     profile = MasterProfileBase(full_name="Max Mustermann", email="max@example.com")
@@ -251,15 +215,19 @@ def test_migration_upgrade_downgrade_upgrade_round_trips(migration_db) -> None:
 
 
 def test_migration_adds_content_language_and_drops_document_language(migration_db) -> None:
-    """U1/U2 (Global Language Unification): die neue Revision
-    `9a7b6c5d4e3f` fügt `content_language`/`content_translations_json` hinzu
-    und entfernt das per-Profil-`document_language`. Bestehende Zeilen gelten
-    als deutsch (`content_language='de'`, leerer Snapshot); der Downgrade
-    stellt `document_language` wieder her und entfernt die neuen Spalten."""
+    """U1/U2 (Global Language Unification): revision `9a7b6c5d4e3f` fügt
+    `content_language`/`content_translations_json` hinzu und entfernt das
+    per-Profil-`document_language`. Bestehende Zeilen gelten als deutsch
+    (`content_language='de'`, leerer Snapshot); der Downgrade stellt
+    `document_language` wieder her und entfernt die neuen Spalten. Zielt
+    bewusst auf `9a7b6c5d4e3f` statt `head`: die spätere Revision
+    `581736b96da4` (Remove Translation Functionality, U4) entfernt
+    `content_language`/`content_translations_json` wieder - siehe
+    `test_migration_drops_content_language_columns` unten."""
     alembic_cfg, engine = migration_db
     _insert_master_profile(engine, email="language@example.com", skills_json="[]")
 
-    upgrade(alembic_cfg, "head")
+    upgrade(alembic_cfg, "9a7b6c5d4e3f")
 
     with engine.connect() as conn:
         columns_after_upgrade = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
@@ -297,14 +265,15 @@ def test_migration_adds_content_language_and_drops_document_language(migration_d
 
 
 def test_migration_content_language_upgrade_downgrade_upgrade_round_trips(migration_db) -> None:
-    """U1: der vollständige Round-Trip head -> e2b7c9a41f60 -> head ist
-    idempotent (Guards in `upgrade`/`downgrade`), ohne Daten zu verlieren."""
+    """U1: der vollständige Round-Trip 9a7b6c5d4e3f -> e2b7c9a41f60 ->
+    9a7b6c5d4e3f ist idempotent (Guards in `upgrade`/`downgrade`), ohne Daten
+    zu verlieren."""
     alembic_cfg, engine = migration_db
     _insert_master_profile(engine, email="roundtrip-content@example.com", skills_json="[]")
 
-    upgrade(alembic_cfg, "head")
+    upgrade(alembic_cfg, "9a7b6c5d4e3f")
     downgrade(alembic_cfg, "e2b7c9a41f60")
-    upgrade(alembic_cfg, "head")
+    upgrade(alembic_cfg, "9a7b6c5d4e3f")
 
     with engine.connect() as conn:
         columns = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
@@ -317,6 +286,55 @@ def test_migration_content_language_upgrade_downgrade_upgrade_round_trips(migrat
     assert "content_translations_json" in columns
     assert "document_language" not in columns
     assert row.content_language == "de"
+
+
+# --- Revision 581736b96da4: drops content_language/content_translations_json
+# (U4, Remove Translation Functionality plan, 2026-09-13) -------------------
+
+
+def test_migration_drops_content_language_columns(migration_db) -> None:
+    """U4/R5/AE4: `head` (past `581736b96da4`) no longer has
+    `content_language`/`content_translations_json` - the app runs English-
+    only now, there's no per-language content left to store. `downgrade -1`
+    re-adds both columns with their original shape."""
+    alembic_cfg, engine = migration_db
+    _insert_master_profile(engine, email="drop-content-language@example.com", skills_json="[]")
+
+    upgrade(alembic_cfg, "head")
+
+    with engine.connect() as conn:
+        columns_after_upgrade = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
+
+    assert "content_language" not in columns_after_upgrade
+    assert "content_translations_json" not in columns_after_upgrade
+
+    downgrade(alembic_cfg, "-1")
+
+    with engine.connect() as conn:
+        columns_after_downgrade = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
+        row = conn.execute(
+            sa.text(
+                "SELECT content_language, content_translations_json FROM master_profiles "
+                "WHERE email = :email"
+            ),
+            {"email": "drop-content-language@example.com"},
+        ).fetchone()
+
+    assert "content_language" in columns_after_downgrade
+    assert "content_translations_json" in columns_after_downgrade
+    assert row.content_language == "de"
+
+    import json
+
+    assert json.loads(row.content_translations_json) == {}
+
+    upgrade(alembic_cfg, "head")
+
+    with engine.connect() as conn:
+        columns_after_reupgrade = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
+
+    assert "content_language" not in columns_after_reupgrade
+    assert "content_translations_json" not in columns_after_reupgrade
 
 
 # --- Merge revision d98463c22408: heals a database stuck on one sibling ----

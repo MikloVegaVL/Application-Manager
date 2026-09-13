@@ -37,15 +37,6 @@ export interface SkillEntry {
  */
 export type LanguageLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
 
-/**
- * Entspricht `DocumentLanguage`. Die feste Dokument-Chrome des generierten
- * Lebenslaufs (Überschriften, Kompetenzgrade, Datums-Wording, Footer, Titel)
- * ist seit der Global Language Unification (2026-09-13) fest Englisch und
- * nutzt diesen Typ nicht mehr - er bleibt für `content_language`/
- * `*_language` (Inhaltssprache) relevant.
- */
-export type DocumentLanguage = 'de' | 'en';
-
 /** Entspricht `LanguageEntry`: eine Sprachkenntnis mit CEFR-Niveau. */
 export interface LanguageEntry {
   name: string;
@@ -76,14 +67,6 @@ export interface MasterProfile {
   projects_json: ProjectEntry[];
   photo_filename: string | null;
   template_id: string | null;
-  /** KTD1: Sprache, in der die aktiven Inhaltsfelder (`summary`,
-   * `berufsbezeichnung`, `*_json`) gehalten werden. Default `de`, da
-   * bestehende Profile als deutsch gelten. */
-  content_language: DocumentLanguage;
-  /** KTD1: Prosa-Snapshot der jeweils anderen Sprache (`{feldpfad: text}`) -
-   * wird bei einem Save invalidiert und bei Bedarf neu erzeugt. Die Pfade
-   * folgen einem stabilen Schema (z. B. `summary`, `experience.0.role`). */
-  content_translations_json: Record<string, string>;
 }
 
 /**
@@ -164,30 +147,6 @@ export interface ProfileContentUpdate {
   languages_json?: LanguageEntry[];
   projects_json?: ProjectEntry[];
   template_id?: string | null;
-  content_language?: DocumentLanguage;
-  content_translations_json?: Record<string, string>;
-}
-
-/**
- * Entspricht `CvTranslateRequest` im Backend (`POST /cv-builder/translate`,
- * KTD2): eine Zuordnung stabiler Feldpfade auf den zu übersetzenden Text der
- * Ausgangssprache. Übersetzt wird ausschließlich Prosa (R8).
- */
-export interface CvTranslateRequest {
-  source_language: DocumentLanguage;
-  target_language: DocumentLanguage;
-  fields: Record<string, string>;
-}
-
-/**
- * Entspricht `CvTranslateResponse`: pro Feld entweder eine Übersetzung
- * (`translations`) oder - bei fehlgeschlagener Übersetzung - eine
- * Fehlermeldung (`errors`). Ein fehlgeschlagenes Feld fehlt in
- * `translations`; der Aufrufer behält dafür seinen Originaltext (R9).
- */
-export interface CvTranslateResponse {
-  translations: Record<string, string>;
-  errors: Record<string, string>;
 }
 
 /** Entspricht einem Eintrag der `GET /cv-builder/templates`-Antwort (R9): eine wählbare CV-Vorlage. */

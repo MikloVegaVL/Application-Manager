@@ -22,8 +22,6 @@ const baseProfile: MasterProfileRead = {
   projects_json: [],
   photo_filename: null,
   template_id: null,
-  content_language: 'de',
-  content_translations_json: {},
   cv_filename: null,
   attachments: [],
   created_at: new Date().toISOString(),
