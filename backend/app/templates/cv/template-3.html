@@ -216,10 +216,10 @@
         {% elif preview %}<li class="ph">{{ sample.address }}</li>{% endif %}
       </ul>
 
-      {% if skills or preview %}
+      {% if skills_ctx or preview %}
       <h2 class="section-title">Skills</h2>
-      {% set skill_list = skills_ctx if skills else sample_skills_ctx %}
-      {% set skill_sample = not skills %}
+      {% set skill_list = skills_ctx if skills_ctx else sample_skills_ctx %}
+      {% set skill_sample = not skills_ctx %}
       {% for skill in skill_list %}
       <div class="skill-row{% if skill_sample %} ph{% endif %}">
         <div class="skill-row__name">{{ skill.name }}</div>
@@ -231,10 +231,10 @@
       {% endfor %}
       {% endif %}
 
-      {% if languages or preview %}
+      {% if languages_ctx or preview %}
       <h2 class="section-title">Languages</h2>
-      {% set lang_list = languages_ctx if languages else sample_languages_ctx %}
-      {% set lang_sample = not languages %}
+      {% set lang_list = languages_ctx if languages_ctx else sample_languages_ctx %}
+      {% set lang_sample = not languages_ctx %}
       {% for language in lang_list %}
       <div class="lang-row{% if lang_sample %} ph{% endif %}">
         <div class="lang-row__name">{{ language.name }}</div>

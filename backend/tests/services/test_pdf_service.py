@@ -75,6 +75,16 @@ def _empty_content() -> dict:
     )
 
 
+def _rendered_html(mocker, **kwargs) -> str:
+    """Rendert `render_cv_pdf(**kwargs)` mit gemocktem WeasyPrint und gibt das
+    an `HTML(string=...)` übergebene Zwischen-HTML zurück - gemeinsamer Helper
+    für die Template-spezifischen Per-Skill-Rendering-Testklassen unten."""
+    mock_html_cls = mocker.patch.object(pdf_service, "HTML")
+    mock_html_cls.return_value.write_pdf.return_value = b"%PDF-1.4 fake bytes"
+    pdf_service.render_cv_pdf(**kwargs)
+    return mock_html_cls.call_args.kwargs["string"]
+
+
 class TestRenderCvPdfHappyPath:
     @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
     def test_renders_a_full_cv_and_returns_non_empty_pdf_bytes(self, template_id):
@@ -393,12 +403,6 @@ class TestClassicPerSkillRendering:
     Kompetenzgrad-Suffix, ohne Kategorie und ohne Balken - für echte wie für
     Beispiel-(Preview-)Skills."""
 
-    def _rendered(self, mocker, **kwargs) -> str:
-        mock_html_cls = mocker.patch.object(pdf_service, "HTML")
-        mock_html_cls.return_value.write_pdf.return_value = b"%PDF-1.4 fake bytes"
-        pdf_service.render_cv_pdf(**kwargs)
-        return mock_html_cls.call_args.kwargs["string"]
-
     def test_real_skills_render_individually_as_plain_text_with_english_level(self, mocker):
         content = _full_content()
         content["skills"] = [
@@ -406,7 +410,7 @@ class TestClassicPerSkillRendering:
             SkillEntry(name="SQL", level="Gut"),
         ]
 
-        rendered = self._rendered(mocker, template_id="classic", **content)
+        rendered = _rendered_html(mocker, template_id="classic", **content)
 
         assert "Python <span class=\"tag__level\">&mdash; Expert</span>" in rendered
         assert "SQL <span class=\"tag__level\">&mdash; Good</span>" in rendered
@@ -414,7 +418,7 @@ class TestClassicPerSkillRendering:
         assert "class=\"bar\"" not in rendered
 
     def test_sample_skills_render_individually_in_preview(self, mocker):
-        rendered = self._rendered(
+        rendered = _rendered_html(
             mocker, template_id="classic", preview=True, **_empty_content()
         )
 
@@ -427,12 +431,6 @@ class TestTemplate1PerSkillRendering:
     """R3/R4: Template 1 rendert jeden Skill als eigene Zeile mit einem
     5-Block-Balken statt einer Kategorie-Gruppierung mit Breitenbalken."""
 
-    def _rendered(self, mocker, **kwargs) -> str:
-        mock_html_cls = mocker.patch.object(pdf_service, "HTML")
-        mock_html_cls.return_value.write_pdf.return_value = b"%PDF-1.4 fake bytes"
-        pdf_service.render_cv_pdf(**kwargs)
-        return mock_html_cls.call_args.kwargs["string"]
-
     def test_renders_five_span_bar_with_correct_filled_count_per_level(self, mocker):
         content = _full_content()
         content["skills"] = [
@@ -440,7 +438,7 @@ class TestTemplate1PerSkillRendering:
             SkillEntry(name="SQL", level="Grundkenntnisse"),
         ]
 
-        rendered = self._rendered(mocker, template_id="template-1", **content)
+        rendered = _rendered_html(mocker, template_id="template-1", **content)
 
         # Experte -> 5/5 gefüllt (kein "off"), Grundkenntnisse -> 2/5 gefüllt (3x "off").
         assert '<i></i><i></i><i></i><i></i><i></i>' in rendered
@@ -450,7 +448,7 @@ class TestTemplate1PerSkillRendering:
         content = _full_content()
         content["skills"] = [SkillEntry(name="Python", level="Experte")]
 
-        rendered = self._rendered(mocker, template_id="template-1", **content)
+        rendered = _rendered_html(mocker, template_id="template-1", **content)
 
         assert "skill-row__head" not in rendered
         assert "skill-row__names" not in rendered
@@ -461,7 +459,7 @@ class TestTemplate1PerSkillRendering:
         content["skills"] = [SkillEntry(name="Python", level="Experte")]
         content["languages"] = [LanguageEntry(name="Deutsch", level="C2")]
 
-        rendered = self._rendered(mocker, template_id="template-1", **content)
+        rendered = _rendered_html(mocker, template_id="template-1", **content)
 
         assert '<span class="sr-only">Expert</span>' in rendered
         assert '<span class="sr-only">C2</span>' in rendered
@@ -470,7 +468,7 @@ class TestTemplate1PerSkillRendering:
         content = _full_content()
         content["languages"] = [LanguageEntry(name="Deutsch", level="B1")]
 
-        rendered = self._rendered(mocker, template_id="template-1", **content)
+        rendered = _rendered_html(mocker, template_id="template-1", **content)
 
         assert "lang_dots" not in rendered
         # B1 -> 3/6 gefüllt.
@@ -482,12 +480,6 @@ class TestTemplate2PerSkillRendering:
     5-Block-Balken und jede Sprache mit dem 6-Punkte-CEFR-Indikator - wie
     Template 1, nur im navy/amber-Farbschema der Referenzvorlage."""
 
-    def _rendered(self, mocker, **kwargs) -> str:
-        mock_html_cls = mocker.patch.object(pdf_service, "HTML")
-        mock_html_cls.return_value.write_pdf.return_value = b"%PDF-1.4 fake bytes"
-        pdf_service.render_cv_pdf(**kwargs)
-        return mock_html_cls.call_args.kwargs["string"]
-
     def test_renders_five_block_bar_with_correct_filled_count_per_level(self, mocker):
         content = _full_content()
         content["skills"] = [
@@ -495,7 +487,7 @@ class TestTemplate2PerSkillRendering:
             SkillEntry(name="SQL", level="Grundkenntnisse"),
         ]
 
-        rendered = self._rendered(mocker, template_id="template-2", **content)
+        rendered = _rendered_html(mocker, template_id="template-2", **content)
 
         # Experte -> 5/5 gefüllt (kein "off"), Grundkenntnisse -> 2/5 gefüllt (3x "off").
         assert '<i></i><i></i><i></i><i></i><i></i>' in rendered
@@ -506,7 +498,7 @@ class TestTemplate2PerSkillRendering:
         content["skills"] = [SkillEntry(name="Python", level="Experte")]
         content["languages"] = [LanguageEntry(name="Deutsch", level="C2")]
 
-        rendered = self._rendered(mocker, template_id="template-2", **content)
+        rendered = _rendered_html(mocker, template_id="template-2", **content)
 
         assert '<span class="sr-only">Expert</span>' in rendered
         assert '<span class="sr-only">C2</span>' in rendered
@@ -515,7 +507,7 @@ class TestTemplate2PerSkillRendering:
         content = _full_content()
         content["languages"] = [LanguageEntry(name="Deutsch", level="B2")]
 
-        rendered = self._rendered(mocker, template_id="template-2", **content)
+        rendered = _rendered_html(mocker, template_id="template-2", **content)
 
         # B2 -> 4/6 gefüllt.
         assert (
@@ -526,7 +518,7 @@ class TestTemplate2PerSkillRendering:
         content = _full_content()
         content["skills"] = [SkillEntry(name="Python", level="Experte")]
 
-        rendered = self._rendered(mocker, template_id="template-2", **content)
+        rendered = _rendered_html(mocker, template_id="template-2", **content)
 
         assert "category" not in rendered.lower()
 
@@ -537,12 +529,6 @@ class TestTemplate3PerSkillRendering:
     Template 1/2, nur im rot-akzentuierten Farbschema der Referenzvorlage
     mit Hauptspalte links/Sidebar rechts."""
 
-    def _rendered(self, mocker, **kwargs) -> str:
-        mock_html_cls = mocker.patch.object(pdf_service, "HTML")
-        mock_html_cls.return_value.write_pdf.return_value = b"%PDF-1.4 fake bytes"
-        pdf_service.render_cv_pdf(**kwargs)
-        return mock_html_cls.call_args.kwargs["string"]
-
     def test_renders_five_block_bar_with_correct_filled_count_per_level(self, mocker):
         content = _full_content()
         content["skills"] = [
@@ -550,7 +536,7 @@ class TestTemplate3PerSkillRendering:
             SkillEntry(name="SQL", level="Grundkenntnisse"),
         ]
 
-        rendered = self._rendered(mocker, template_id="template-3", **content)
+        rendered = _rendered_html(mocker, template_id="template-3", **content)
 
         # Experte -> 5/5 gefüllt (kein "off"), Grundkenntnisse -> 2/5 gefüllt (3x "off").
         assert '<i></i><i></i><i></i><i></i><i></i>' in rendered
@@ -561,7 +547,7 @@ class TestTemplate3PerSkillRendering:
         content["skills"] = [SkillEntry(name="Python", level="Experte")]
         content["languages"] = [LanguageEntry(name="Deutsch", level="C2")]
 
-        rendered = self._rendered(mocker, template_id="template-3", **content)
+        rendered = _rendered_html(mocker, template_id="template-3", **content)
 
         assert '<span class="sr-only">Expert</span>' in rendered
         assert '<span class="sr-only">C2</span>' in rendered
@@ -570,7 +556,7 @@ class TestTemplate3PerSkillRendering:
         content = _full_content()
         content["languages"] = [LanguageEntry(name="Deutsch", level="B2")]
 
-        rendered = self._rendered(mocker, template_id="template-3", **content)
+        rendered = _rendered_html(mocker, template_id="template-3", **content)
 
         # B2 -> 4/6 gefüllt.
         assert (
@@ -581,7 +567,7 @@ class TestTemplate3PerSkillRendering:
         content = _full_content()
         content["skills"] = [SkillEntry(name="Python", level="Experte")]
 
-        rendered = self._rendered(mocker, template_id="template-3", **content)
+        rendered = _rendered_html(mocker, template_id="template-3", **content)
 
         assert "category" not in rendered.lower()
 
@@ -592,7 +578,7 @@ class TestTemplate3PerSkillRendering:
         content = _full_content()
         content["berufsbezeichnung"] = "Full-Stack Developer"
 
-        rendered = self._rendered(mocker, template_id="template-3", **content)
+        rendered = _rendered_html(mocker, template_id="template-3", **content)
 
         assert '<div class="header__name">Max Mustermann</div>' in rendered
         assert "Full-Stack Developer" in rendered
@@ -607,12 +593,6 @@ class TestTemplate4PerSkillRendering:
     Template 1/2/3, nur im teal/navy-Farbschema der Referenzvorlage mit
     volle-Höhe-Sidebar und zentriertem Namen in der Hauptspalte."""
 
-    def _rendered(self, mocker, **kwargs) -> str:
-        mock_html_cls = mocker.patch.object(pdf_service, "HTML")
-        mock_html_cls.return_value.write_pdf.return_value = b"%PDF-1.4 fake bytes"
-        pdf_service.render_cv_pdf(**kwargs)
-        return mock_html_cls.call_args.kwargs["string"]
-
     def test_renders_five_block_bar_with_correct_filled_count_per_level(self, mocker):
         content = _full_content()
         content["skills"] = [
@@ -620,7 +600,7 @@ class TestTemplate4PerSkillRendering:
             SkillEntry(name="SQL", level="Grundkenntnisse"),
         ]
 
-        rendered = self._rendered(mocker, template_id="template-4", **content)
+        rendered = _rendered_html(mocker, template_id="template-4", **content)
 
         # Experte -> 5/5 gefüllt (kein "off"), Grundkenntnisse -> 2/5 gefüllt (3x "off").
         assert '<i></i><i></i><i></i><i></i><i></i>' in rendered
@@ -631,7 +611,7 @@ class TestTemplate4PerSkillRendering:
         content["skills"] = [SkillEntry(name="Python", level="Experte")]
         content["languages"] = [LanguageEntry(name="Deutsch", level="C2")]
 
-        rendered = self._rendered(mocker, template_id="template-4", **content)
+        rendered = _rendered_html(mocker, template_id="template-4", **content)
 
         assert '<span class="sr-only">Expert</span>' in rendered
         assert '<span class="sr-only">C2</span>' in rendered
@@ -640,7 +620,7 @@ class TestTemplate4PerSkillRendering:
         content = _full_content()
         content["languages"] = [LanguageEntry(name="Deutsch", level="B2")]
 
-        rendered = self._rendered(mocker, template_id="template-4", **content)
+        rendered = _rendered_html(mocker, template_id="template-4", **content)
 
         # B2 -> 4/6 gefüllt.
         assert (
@@ -651,7 +631,7 @@ class TestTemplate4PerSkillRendering:
         content = _full_content()
         content["skills"] = [SkillEntry(name="Python", level="Experte")]
 
-        rendered = self._rendered(mocker, template_id="template-4", **content)
+        rendered = _rendered_html(mocker, template_id="template-4", **content)
 
         assert "category" not in rendered.lower()
 
@@ -688,7 +668,7 @@ class TestTemplate4PerSkillRendering:
         content = _full_content()
         content["berufsbezeichnung"] = "Full-Stack Developer"
 
-        rendered = self._rendered(mocker, template_id="template-4", **content)
+        rendered = _rendered_html(mocker, template_id="template-4", **content)
 
         assert '<div class="header-band__name">Max Mustermann</div>' in rendered
         assert "Full-Stack Developer" in rendered
@@ -700,12 +680,12 @@ class TestTemplate4PerSkillRendering:
         content = _full_content()
         content["skills"] = []
 
-        rendered_no_photo_preview = self._rendered(
+        rendered_no_photo_preview = _rendered_html(
             mocker, template_id="template-4", preview=True, **_empty_content()
         )
         assert 'class="photo photo--placeholder"' in rendered_no_photo_preview
 
-        rendered_export_no_photo = self._rendered(
+        rendered_export_no_photo = _rendered_html(
             mocker, template_id="template-4", preview=False, **content
         )
         assert "<img" not in rendered_export_no_photo
