@@ -205,27 +205,27 @@ def test_patch_profile_round_trips_berufsbezeichnung(client, tmp_path, monkeypat
     assert untouched.json()["berufsbezeichnung"] == "Frontend Developer"
 
 
-def test_patch_profile_round_trips_document_language(client, tmp_path, monkeypatch):
-    """U1: `document_language` persistiert und lädt; ohne das Feld im Payload
+def test_patch_profile_round_trips_content_language(client, tmp_path, monkeypatch):
+    """U1: `content_language` persistiert und lädt; ohne das Feld im Payload
     bleibt der Wert unangetastet (`exclude_unset`)."""
     test_client, session_local = client
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    response = test_client.patch("/api/profile", json={"document_language": "de"})
+    response = test_client.patch("/api/profile", json={"content_language": "en"})
 
     assert response.status_code == 200
-    assert response.json()["document_language"] == "de"
+    assert response.json()["content_language"] == "en"
 
     reloaded = test_client.get("/api/profile")
     assert reloaded.status_code == 200
-    assert reloaded.json()["document_language"] == "de"
+    assert reloaded.json()["content_language"] == "en"
 
     untouched = test_client.patch("/api/profile", json={"summary": "Neu"})
-    assert untouched.json()["document_language"] == "de"
+    assert untouched.json()["content_language"] == "en"
 
 
-def test_get_profile_defaults_document_language_to_null(client, tmp_path, monkeypatch):
+def test_get_profile_defaults_content_language_to_german(client, tmp_path, monkeypatch):
     test_client, session_local = client
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
@@ -233,17 +233,73 @@ def test_get_profile_defaults_document_language_to_null(client, tmp_path, monkey
     response = test_client.get("/api/profile")
 
     assert response.status_code == 200
-    assert response.json()["document_language"] is None
+    body = response.json()
+    assert body["content_language"] == "de"
+    assert body["content_translations_json"] == {}
+    assert "document_language" not in body
 
 
-def test_patch_profile_rejects_unknown_document_language(client, tmp_path, monkeypatch):
+def test_patch_profile_rejects_unknown_content_language(client, tmp_path, monkeypatch):
     test_client, session_local = client
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    response = test_client.patch("/api/profile", json={"document_language": "fr"})
+    response = test_client.patch("/api/profile", json={"content_language": "fr"})
 
     assert response.status_code == 422
+
+
+def test_patch_profile_stores_translation_snapshot_from_payload(
+    client, tmp_path, monkeypatch
+):
+    """KTD1: Der Server speichert den vom Frontend gesendeten Übersetzungs-
+    Snapshot unverändert - er leert oder erzeugt ihn nicht selbst (das
+    Frontend besitzt den Snapshot)."""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch(
+        "/api/profile",
+        json={
+            "content_language": "en",
+            "summary": "Erfahrener Entwickler",
+            "content_translations_json": {"summary": "Experienced developer."},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["content_language"] == "en"
+    assert response.json()["content_translations_json"] == {"summary": "Experienced developer."}
+
+    reloaded = test_client.get("/api/profile")
+    assert reloaded.json()["content_translations_json"] == {"summary": "Experienced developer."}
+
+
+def test_patch_profile_leaves_translation_snapshot_untouched_when_omitted(
+    client, tmp_path, monkeypatch
+):
+    """Ohne `content_translations_json` im Payload bleibt der gespeicherte
+    Snapshot unangetastet (`exclude_unset`), auch wenn `content_language`
+    mitgesendet wird."""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    seeded = test_client.patch(
+        "/api/profile",
+        json={"content_translations_json": {"summary": "Experienced developer."}},
+    )
+    assert seeded.json()["content_translations_json"] == {"summary": "Experienced developer."}
+
+    response = test_client.patch(
+        "/api/profile",
+        json={"content_language": "en", "summary": "Erfahrener Entwickler"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["content_language"] == "en"
+    assert response.json()["content_translations_json"] == {"summary": "Experienced developer."}
 
 
 def test_patch_profile_round_trips_template_2(client, tmp_path, monkeypatch):

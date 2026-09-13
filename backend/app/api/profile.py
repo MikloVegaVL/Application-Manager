@@ -166,6 +166,12 @@ def update_profile_content(payload: MasterProfileUpdate, db: Session = Depends(g
     """
     data = payload.model_dump(exclude_unset=True)
 
+    # KTD1 (Global Language Unification, 2026-09-13): Das Frontend besitzt den
+    # Übersetzungs-Snapshot (`content_translations_json`) und sendet ihn
+    # zusammen mit der aktiven Sprache (`content_language`) im Payload. Der
+    # Server speichert genau das, was gesendet wurde - er leert oder erzeugt
+    # den Snapshot nicht selbst.
+
     identity_violations = [field for field in _IDENTITY_FIELDS if field in data]
     if identity_violations:
         raise HTTPException(
