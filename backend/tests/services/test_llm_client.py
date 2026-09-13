@@ -94,6 +94,35 @@ class TestHappyPath:
         assert mock_client.chat.call_count == 1
 
 
+class TestChatOptions:
+    """U2 des CV-Translation-Batching-Plans: der Aufrufer kann ein explizites
+    Kontext-/Ausgabebudget mitgeben; ohne Budget bleibt Ollamas Standardverhalten
+    unverändert."""
+
+    def test_options_are_forwarded_to_chat_when_provided(self, mock_client):
+        mock_client.chat.return_value = _response(VALID_PROFILE)
+
+        llm_client.generate_structured(
+            ParsedCvProfile, _messages(), options={"num_ctx": 8192, "num_predict": 2048}
+        )
+
+        assert mock_client.chat.call_args.kwargs["options"] == {"num_ctx": 8192, "num_predict": 2048}
+
+    def test_no_options_key_when_not_provided(self, mock_client):
+        mock_client.chat.return_value = _response(VALID_PROFILE)
+
+        llm_client.generate_structured(ParsedCvProfile, _messages())
+
+        assert "options" not in mock_client.chat.call_args.kwargs
+
+    def test_keep_alive_stays_zero_with_options(self, mock_client):
+        mock_client.chat.return_value = _response(VALID_PROFILE)
+
+        llm_client.generate_structured(ParsedCvProfile, _messages(), options={"num_ctx": 8192})
+
+        assert mock_client.chat.call_args.kwargs["keep_alive"] == 0
+
+
 class TestModelResidency:
     """Regression guard for concurrent Ollama model residency (see ce-debug-
     Untersuchung, 2026-08-20: CV-Import 'nicht funktionierend/sehr langsam').
