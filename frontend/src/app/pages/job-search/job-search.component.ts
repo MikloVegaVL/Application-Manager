@@ -97,7 +97,6 @@ export class JobSearchComponent {
     germantechjobs: 'GermanTechJobs',
     indeed: 'Indeed',
     programmiererjobboerse: 'Programmiererjobboerse.de',
-    'it-entwickler-jobs': 'IT-Entwickler-Jobs.de',
   };
 
   private readonly savedJobIds = this.state.savedJobIds;

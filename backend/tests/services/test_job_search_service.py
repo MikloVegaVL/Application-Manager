@@ -415,11 +415,11 @@ def test_default_registry_is_built_from_settings_without_injection():
         "germantechjobs",
         "indeed",
         "programmiererjobboerse",
-        "it-entwickler-jobs",
     }
     assert "adzuna" in platforms
     assert "jooble" in platforms
-    # U6: alle sieben HTML-Boards sind standardmäßig registriert und tragen je
+    # U6: alle HTML-Boards (inkl. des eigens registrierten devjobs, siehe
+    # job_sources/devjobs.py) sind standardmäßig registriert und tragen je
     # einen eigenen Plattform-Schlüssel - keiner ist "web-scraper" (R4/R6).
     for board in (
         "devjobs",
@@ -428,7 +428,6 @@ def test_default_registry_is_built_from_settings_without_injection():
         "germantechjobs",
         "indeed",
         "programmiererjobboerse",
-        "it-entwickler-jobs",
     ):
         assert board in platforms
     assert "web-scraper" not in platforms
@@ -625,7 +624,6 @@ _NEW_SOURCE_FLAGS = (
     "JOB_SEARCH_GERMANTECHJOBS_ENABLED",
     "JOB_SEARCH_INDEED_ENABLED",
     "JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED",
-    "JOB_SEARCH_IT_ENTWICKLER_JOBS_ENABLED",
     "JOB_SEARCH_ADZUNA_ENABLED",
     "JOB_SEARCH_JOOBLE_ENABLED",
 )

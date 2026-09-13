@@ -51,15 +51,15 @@ def _stepstone_search_url(keywords: str, location: str | None) -> str:
 
 
 # Ein Deskriptor pro benannter Börse. Reihenfolge = Anzeige-/Registry-Reihenfolge.
+#
+# devjobs.de ist NICHT hier gelistet: Cloudflare blockt den generischen
+# plain-`requests`-Abruf dieses Adapters (HTTP 403, verifiziert per
+# ce-debug-Untersuchung, 2026-09-13) und die Karten nutzen reine Tailwind-
+# Klassen ohne "job"/"company"/"location"-Muster, die die generische
+# Heuristik matchen könnte - siehe stattdessen die eigene
+# `job_sources/devjobs.py` (Playwright-Rendering + eigene Selektoren, analog
+# zu `xing.py`).
 BOARD_DESCRIPTORS: tuple[BoardDescriptor, ...] = (
-    BoardDescriptor(
-        source_platform="devjobs",
-        build_search_url=make_search_url_builder(
-            "https://devjobs.de/jobs",
-            keyword_param="search",
-            location_param="location",
-        ),
-    ),
     BoardDescriptor(
         source_platform="kimeta",
         # Bestätigtes Muster nicht verfügbar - best-known Query-Parameter.
@@ -92,20 +92,15 @@ BOARD_DESCRIPTORS: tuple[BoardDescriptor, ...] = (
     ),
     BoardDescriptor(
         source_platform="programmiererjobboerse",
-        # Bestätigtes Muster nicht verfügbar - best-known Query-Parameter.
+        # Bestätigtes Muster (aus der Seiten-eigenen Kopfzeilen-Suche, ce-debug
+        # 2026-09-13): `/search/?q=...`. Die vorherige `/stellenangebote`-Rate
+        # war eine falsche Vermutung und führte zu HTTP 404. Die Kopfzeilen-
+        # Suche kennt keinen Location-Parameter; der generische `l=...`-
+        # Default wird von der Seite folgenlos ignoriert (verifiziert), bleibt
+        # hier aber der Einfachheit halber Standard wie bei den anderen Boards.
         build_search_url=make_search_url_builder(
-            "https://www.programmiererjobboerse.de/stellenangebote",
-            keyword_param="search",
-            location_param="ort",
-        ),
-    ),
-    BoardDescriptor(
-        source_platform="it-entwickler-jobs",
-        # Bestätigtes Muster nicht verfügbar - best-known Query-Parameter.
-        build_search_url=make_search_url_builder(
-            "https://www.it-entwickler-jobs.de/jobs",
+            "https://www.programmiererjobboerse.de/search/",
             keyword_param="q",
-            location_param="location",
         ),
     ),
 )
