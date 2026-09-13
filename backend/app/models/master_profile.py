@@ -80,6 +80,11 @@ class MasterProfile(Base):
     # `None` bedeutet "noch keine Vorlage gewählt".
     template_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
+    # Sprache der festen Dokument-Chrome des generierten Lebenslaufs (`de`/`en`).
+    # `None` bedeutet "noch keine Wahl getroffen" und rendert Englisch - siehe
+    # `app.services.pdf_service` und den CV-Document-Language-Plan 2026-09-13.
+    document_language: Mapped[str | None] = mapped_column(String(10), nullable=True)
+
     # Bis zu drei zusätzliche PDF-Anhänge (z. B. Zeugnisse, Zertifikate),
     # die beim Versand einer Bewerbung neben dem Lebenslauf mitgeschickt
     # werden (siehe `ProfileAttachment`, `app.api.profile`,

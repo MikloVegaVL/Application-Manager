@@ -22,7 +22,8 @@ from typing import Any, Literal
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from weasyprint import HTML, URLFetcher
 
-from app.services.cv_sample_content import SAMPLE
+from app.schemas.master_profile import DocumentLanguage
+from app.services.cv_sample_content import SAMPLE_DE, SAMPLE_EN
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +46,14 @@ _env = Environment(
 # Template-IDs: `CvTemplateId` treibt sowohl die Pydantic-Validierung des
 # Preview-/Export-Payloads (unbekannte ID -> automatisch 422 durch FastAPI)
 # als auch `GET /cv-builder/templates` (siehe `app.api.cv_builder`).
-CvTemplateId = Literal["classic", "template-1"]
+CvTemplateId = Literal["classic", "template-1", "template-2", "template-3", "template-4"]
 
 CV_TEMPLATES: list[dict[str, str]] = [
     {"id": "classic", "label": "Classic"},
     {"id": "template-1", "label": "Template 1"},
+    {"id": "template-2", "label": "Template 2"},
+    {"id": "template-3", "label": "Template 3"},
+    {"id": "template-4", "label": "Template 4"},
 ]
 
 
@@ -68,13 +72,15 @@ class PdfRenderError(Exception):
 _LOCAL_ONLY_URL_FETCHER = URLFetcher(allowed_protocols=("file", "data"))
 
 
-def _format_date_range(start: str | None, end: str | None) -> str:
+def _format_date_range(start: str | None, end: str | None, language: DocumentLanguage) -> str:
     """Formatiert einen Start-/End-Zeitraum als lesbaren String, z. B.
-    '2021 – 2024' oder 'seit 2021'."""
+    '2021 – 2024', '2021 – present' (Englisch) oder 'seit 2021' (Deutsch).
+    Nur die offene Wortwahl lokalisiert; die Datumswerte selbst bleiben
+    unverändert (R6)."""
     if not start and not end:
         return ""
     if start and not end:
-        return f"seit {start}"
+        return f"seit {start}" if language == "de" else f"{start} – present"
     if not start and end:
         return end
     return f"{start} – {end}"
@@ -90,6 +96,18 @@ def _entry_dict(entry: Any) -> dict[str, Any]:
     return dict(entry)
 
 
+def _entries_with_date_range(entries: list[Any], language: DocumentLanguage) -> list[dict[str, Any]]:
+    """Reichert Erfahrung/Ausbildung/Projekt-Einträge mit dem sprachabhängig
+    formatierten `date_range` an - dieselbe Form für alle drei Listen."""
+    return [
+        {
+            **_entry_dict(entry),
+            "date_range": _format_date_range(entry.start_date, entry.end_date, language),
+        }
+        for entry in entries
+    ]
+
+
 def _photo_file_uri(photo_path: str | Path | None) -> str | None:
     """Liefert eine `file://`-URI für das gespeicherte Profilfoto, oder
     `None`, wenn kein Foto existiert bzw. die Datei nicht (mehr) auf der
@@ -103,18 +121,10 @@ def _photo_file_uri(photo_path: str | Path | None) -> str | None:
     return path.resolve().as_uri()
 
 
-# Sortierschlüssel für den repräsentativen Kompetenzgrad einer Skill-Gruppe
-# (der höchste in der Gruppe vertretene Grad bestimmt die Balkenlänge).
-_SKILL_LEVEL_ORDER: dict[str, int] = {
-    "Grundkenntnisse": 0,
-    "Gut": 1,
-    "Sehr gut": 2,
-    "Experte": 3,
-}
-
 # Englische Anzeige-Labels für die intern deutsch gehaltenen `SkillLevel`-
-# Werte: der CV wird immer auf Englisch erzeugt (die Enum-Werte bleiben
-# unverändert, damit Schema/Migration/Frontend-Formular stabil bleiben).
+# Werte. Die Enum-Werte bleiben unverändert, damit Schema/Migration/Frontend-
+# Formular stabil bleiben; auf Deutsch sind sie selbst das Label (KTD4), auf
+# Englisch greift diese Zuordnung.
 _SKILL_LEVEL_LABELS_EN: dict[str, str] = {
     "Grundkenntnisse": "Basic",
     "Gut": "Good",
@@ -122,43 +132,109 @@ _SKILL_LEVEL_LABELS_EN: dict[str, str] = {
     "Experte": "Expert",
 }
 
-# Fallback-Kategorie für Skills ohne (oder mit unbekannter) `category` -
-# insbesondere Altdaten aus der Zeit vor der Kategorie-Einführung.
-_OTHER_SKILL_CATEGORY = "Other"
+# R4/KTD1: Anzahl gefüllter Blöcke (von 5) je Kompetenzgrad. Die 4-stufige
+# Skala wird auf 5 Blöcke abgebildet, ohne dass eine Stufe leer wirkt
+# (Grundkenntnisse = 2/5 ... Experte = 5/5) - serverseitig berechnet, damit
+# keine Vorlage die Zuordnung lokal dupliziert.
+_SKILL_LEVEL_BLOCKS: dict[str, int] = {
+    "Grundkenntnisse": 2,
+    "Gut": 3,
+    "Sehr gut": 4,
+    "Experte": 5,
+}
+
+# R6/KTD1: Anzahl gefüllter Punkte (von 6) je CEFR-Stufe (A1 = 1 ... C2 = 6) -
+# unverändert übernommen aus der bisherigen lokalen `lang_dots`-Map in
+# `template-1.html`, jetzt serverseitig zentral berechnet.
+_LANGUAGE_LEVEL_DOTS: dict[str, int] = {
+    "A1": 1,
+    "A2": 2,
+    "B1": 3,
+    "B2": 4,
+    "C1": 5,
+    "C2": 6,
+}
+
+# R5/KTD1: alle festen Dokument-Chrome-Strings pro Dokumentsprache an einer
+# Stelle. Jede der fünf Vorlagen konsumiert dieses Mapping als `doc`, statt die
+# Strings lokal zu duplizieren. `title` ist das Substantiv im Dokumenttitel
+# (`<title>{{ doc.title }} - {{ full_name }}</title>`), `page_prefix`/`page_of`
+# bilden den `@page`-Footer. Die Nutzerinhalte werden nie übersetzt (R6).
+_DEFAULT_DOCUMENT_LANGUAGE: DocumentLanguage = "en"
+_DOC_CHROME: dict[DocumentLanguage, dict[str, str]] = {
+    "en": {
+        "lang": "en",
+        "title": "Resume",
+        "page_prefix": "Page",
+        "page_of": "of",
+        "photo_alt": "Profile photo",
+        "photo_placeholder": "Photo",
+        "contact": "Contact",
+        "profile": "Profile",
+        "experience": "Experience",
+        "education": "Education",
+        "skills": "Skills",
+        "languages": "Languages",
+        "projects": "Projects",
+    },
+    "de": {
+        "lang": "de",
+        "title": "Lebenslauf",
+        "page_prefix": "Seite",
+        "page_of": "von",
+        "photo_alt": "Profilfoto",
+        "photo_placeholder": "Foto",
+        "contact": "Kontakt",
+        "profile": "Profil",
+        "experience": "Berufserfahrung",
+        "education": "Ausbildung",
+        "skills": "Skills",
+        "languages": "Sprachen",
+        "projects": "Projekte",
+    },
+}
 
 
-def group_skills(skills: list[Any]) -> list[dict[str, Any]]:
-    """Gruppiert Skills nach `category` für die CV-Vorlagen.
-
-    Statt einer langen, flachen Liste rendert jede Vorlage je Kategorie eine
-    kompakte Zeile (siehe R9-Folge). Die Gruppen behalten die Reihenfolge des
-    ersten Auftretens bei; Skills ohne `category` landen in einer
-    `Other`-Gruppe. `level` ist der höchste in der Gruppe vertretene
-    Kompetenzgrad - die Vorlagen nutzen ihn als Balkenlänge (das per-Skill-
-    Niveau wird zugunsten der kompakten Darstellung nicht einzeln gezeigt);
-    `level_label` ist die englische Anzeigeform davon.
-    """
-    groups: dict[str, list[dict[str, Any]]] = {}
+def _skills_ctx(skills: list[Any], language: DocumentLanguage) -> list[dict[str, Any]]:
+    """Normalisiert eine flache Skill-Liste für R3/R4: jede Vorlage außer
+    Classic rendert jeden Skill als eigene Zeile mit einem 5-Block-Balken
+    (`level_blocks`); Classic zeigt stattdessen die Textform des Kompetenzgrads
+    (`level_label`, auch von den anderen Vorlagen für den unsichtbaren
+    ATS-Text laut KTD10 wiederverwendet). Auf Deutsch ist die Textform der
+    `SkillLevel`-Enum-Wert selbst (Grundkenntnisse/Gut/Sehr gut/Experte, KTD4);
+    auf Englisch greift `_SKILL_LEVEL_LABELS_EN`."""
+    result: list[dict[str, Any]] = []
     for skill in skills:
         entry = _entry_dict(skill)
-        category = entry.get("category") or _OTHER_SKILL_CATEGORY
-        groups.setdefault(category, []).append(entry)
-
-    grouped: list[dict[str, Any]] = []
-    for category, entries in groups.items():
-        representative = max(
-            entries, key=lambda entry: _SKILL_LEVEL_ORDER.get(entry.get("level"), 0)
-        )
-        level = representative.get("level")
-        grouped.append(
+        level = entry.get("level")
+        if language == "de":
+            level_label = level or ""
+        else:
+            level_label = _SKILL_LEVEL_LABELS_EN.get(level, level or "")
+        result.append(
             {
-                "category": category,
-                "skills": entries,
-                "level": level,
-                "level_label": _SKILL_LEVEL_LABELS_EN.get(level, level or ""),
+                **entry,
+                "level_blocks": _SKILL_LEVEL_BLOCKS.get(level, 0),
+                "level_label": level_label,
             }
         )
-    return grouped
+    return result
+
+
+def _languages_ctx(languages: list[Any]) -> list[dict[str, Any]]:
+    """Normalisiert eine Sprachen-Liste für R6: jede Vorlage außer Classic
+    rendert jede Sprache als eigene Zeile mit dem bestehenden 6-Punkte-CEFR-
+    Indikator (`level_dots`)."""
+    result: list[dict[str, Any]] = []
+    for language in languages:
+        entry = _entry_dict(language)
+        result.append(
+            {
+                **entry,
+                "level_dots": _LANGUAGE_LEVEL_DOTS.get(entry.get("level"), 0),
+            }
+        )
+    return result
 
 
 def render_cv_pdf(
@@ -176,12 +252,16 @@ def render_cv_pdf(
     languages: list[Any],
     projects: list[Any],
     photo_path: str | Path | None,
+    document_language: str | None = None,
     preview: bool = False,
     sample: Mapping[str, Any] | None = None,
 ) -> bytes:
     """Rendert den Lebenslauf als PDF (bytes).
 
     `template_id` wählt eines der `templates/cv/*.html`-Templates (R9).
+    `document_language` (`"de"`/`"en"`, `None` = Englisch) steuert die Sprache
+    der festen Dokument-Chrome (R4/R5) und des Vorschau-Skeletons (R8);
+    unbekannte Werte fallen auf Englisch zurück.
     `full_name`/`email`/`phone`/`address` sind die serverseitig aus dem
     gespeicherten `MasterProfile` gemergten Identitätsfelder (KTD11);
     `photo_path` ist der Dateisystempfad des gespeicherten Profilfotos
@@ -189,32 +269,33 @@ def render_cv_pdf(
     NICHT aus dem Request-Body, da es bereits beim Upload persistiert wird
     (siehe `app.api.cv_builder`).
     """
+    resolved_language = (
+        document_language if document_language in _DOC_CHROME else _DEFAULT_DOCUMENT_LANGUAGE
+    )
+    doc = _DOC_CHROME[resolved_language]
+
     template = _env.get_template(f"cv/{template_id}.html")
 
     # R8/KTD2: im Vorschaumodus den geteilten Beispiel-Inhalt bereitstellen,
     # wenn der Aufrufer keinen eigenen übergibt. Der Renderer ersetzt keine
     # echten Werte - die Templates entscheiden pro Feld (KTD3). Im Exportmodus
-    # bleibt `sample` ungenutzt, selbst wenn ein Aufrufer es mitgibt.
+    # bleibt `sample` ungenutzt, selbst wenn ein Aufrufer es mitgibt. Die
+    # Beispielsprache folgt der Dokumentsprache (KTD5).
     if preview and sample is None:
-        sample = SAMPLE
+        sample = SAMPLE_DE if resolved_language == "de" else SAMPLE_EN
 
-    sample_skill_groups = (
-        group_skills(list(sample.get("skills", []))) if (preview and sample) else []
+    skills_ctx = _skills_ctx(skills, resolved_language)
+    languages_ctx = _languages_ctx(languages)
+    sample_skills_ctx = (
+        _skills_ctx(list(sample.get("skills", [])), resolved_language) if (preview and sample) else []
     )
-    skill_groups = group_skills(skills)
+    sample_languages_ctx = (
+        _languages_ctx(list(sample.get("languages", []))) if (preview and sample) else []
+    )
 
-    experiences_ctx = [
-        {**_entry_dict(exp), "date_range": _format_date_range(exp.start_date, exp.end_date)}
-        for exp in experiences
-    ]
-    education_ctx = [
-        {**_entry_dict(edu), "date_range": _format_date_range(edu.start_date, edu.end_date)}
-        for edu in education
-    ]
-    projects_ctx = [
-        {**_entry_dict(proj), "date_range": _format_date_range(proj.start_date, proj.end_date)}
-        for proj in projects
-    ]
+    experiences_ctx = _entries_with_date_range(experiences, resolved_language)
+    education_ctx = _entries_with_date_range(education, resolved_language)
+    projects_ctx = _entries_with_date_range(projects, resolved_language)
 
     html_content = template.render(
         full_name=full_name,
@@ -225,12 +306,13 @@ def render_cv_pdf(
         berufsbezeichnung=berufsbezeichnung,
         experiences=experiences_ctx,
         education=education_ctx,
-        skills=[_entry_dict(skill) for skill in skills],
-        skill_groups=skill_groups,
-        sample_skill_groups=sample_skill_groups,
-        languages=[_entry_dict(lang) for lang in languages],
+        skills_ctx=skills_ctx,
+        sample_skills_ctx=sample_skills_ctx,
+        languages_ctx=languages_ctx,
+        sample_languages_ctx=sample_languages_ctx,
         projects=projects_ctx,
         photo_url=_photo_file_uri(photo_path),
+        doc=doc,
         preview=preview,
         sample=sample,
     )

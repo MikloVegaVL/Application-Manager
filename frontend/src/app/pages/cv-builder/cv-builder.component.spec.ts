@@ -27,6 +27,7 @@ const baseProfileResponse = {
   projects_json: [],
   photo_filename: null,
   template_id: null,
+  document_language: null,
   cv_filename: null,
   attachments: [],
   created_at: new Date().toISOString(),
@@ -213,6 +214,8 @@ describe('CvBuilderComponent', () => {
       // KTD8: `template_id` war auf dem Profil `null` -> `CvPreviewExportComponent`
       // hat beim Laden der Vorlagenliste (`templatesFixture`) die erste Vorlage vorbelegt.
       template_id: 'classic',
+      // R2: `document_language` war `null` -> der Control-Default `'en'` wird gesendet.
+      document_language: 'en',
     });
     expect(Object.keys(req.request.body)).not.toContain('full_name');
     expect(Object.keys(req.request.body)).not.toContain('photo_path');
@@ -236,19 +239,15 @@ describe('CvBuilderComponent', () => {
     goToReady({
       template_id: 'classic',
       skills_json: [
-        { name: 'TypeScript', level: 'Gut', category: 'Other' },
-        { name: 'Angular', level: 'Experte', category: 'Other' },
+        { name: 'TypeScript', level: 'Gut' },
+        { name: 'Angular', level: 'Experte' },
       ],
     });
 
     const formBuilder = new FormBuilder();
     component['skillsArray'].clear();
-    component['skillsArray'].push(
-      formBuilder.nonNullable.group({ name: 'Angular', level: 'Experte', category: 'Other' }),
-    );
-    component['skillsArray'].push(
-      formBuilder.nonNullable.group({ name: 'TypeScript', level: 'Gut', category: 'Other' }),
-    );
+    component['skillsArray'].push(formBuilder.nonNullable.group({ name: 'Angular', level: 'Experte' }));
+    component['skillsArray'].push(formBuilder.nonNullable.group({ name: 'TypeScript', level: 'Gut' }));
 
     expect(component.hasUnsavedChanges()).toBeFalse();
 
@@ -264,6 +263,24 @@ describe('CvBuilderComponent', () => {
     expect(component.hasUnsavedChanges()).toBeFalse();
 
     component['templateIdControl'].setValue('template-1');
+
+    expect(component.hasUnsavedChanges()).toBeTrue();
+  });
+
+  it('defaults document_language to English and reports no unsaved changes after load (R3)', () => {
+    goToReady({ template_id: 'classic', document_language: null });
+
+    expect(component['documentLanguageControl'].value).toBe('en');
+    expect(component.hasUnsavedChanges()).toBeFalse();
+  });
+
+  it('restores a stored document_language and treats a change as unsaved (R2)', () => {
+    goToReady({ template_id: 'classic', document_language: 'de' });
+
+    expect(component['documentLanguageControl'].value).toBe('de');
+    expect(component.hasUnsavedChanges()).toBeFalse();
+
+    component['documentLanguageControl'].setValue('en');
 
     expect(component.hasUnsavedChanges()).toBeTrue();
   });

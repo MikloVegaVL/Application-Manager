@@ -7,6 +7,8 @@ Kompetenzgrad statt reiner Namens-Strings, `ProjectEntry`, Foto,
 Template-Auswahl)."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from app.schemas.master_profile import EducationEntry, ExperienceEntry, LanguageEntry, ProjectEntry, SkillEntry
@@ -71,6 +73,16 @@ def _empty_content() -> dict:
         projects=[],
         photo_path=None,
     )
+
+
+def _rendered_html(mocker, **kwargs) -> str:
+    """Rendert `render_cv_pdf(**kwargs)` mit gemocktem WeasyPrint und gibt das
+    an `HTML(string=...)` übergebene Zwischen-HTML zurück - gemeinsamer Helper
+    für die Template-spezifischen Per-Skill-Rendering-Testklassen unten."""
+    mock_html_cls = mocker.patch.object(pdf_service, "HTML")
+    mock_html_cls.return_value.write_pdf.return_value = b"%PDF-1.4 fake bytes"
+    pdf_service.render_cv_pdf(**kwargs)
+    return mock_html_cls.call_args.kwargs["string"]
 
 
 class TestRenderCvPdfHappyPath:
@@ -145,42 +157,261 @@ class TestRenderCvPdfTemplateContent:
             url_fetcher("https://example.com/x.png")
 
 
-class TestGroupSkills:
-    """`group_skills` verdichtet die flache Skill-Liste zu Kategorien (siehe
-    R9-Folge) - eine lange Liste wird so auf wenige Zeilen reduziert."""
+class TestSkillLevelBlocksAndLanguageLevelDots:
+    """R3/R4/R6/KTD1: die 4-stufige Skill-Skala wird serverseitig auf einen
+    5-Block-Balken abgebildet, die CEFR-Stufe auf den bestehenden
+    6-Punkte-Indikator - beides zentral in `pdf_service`, nicht länger lokal
+    je Vorlage dupliziert."""
 
-    def test_groups_by_category_preserving_first_appearance(self):
-        groups = pdf_service.group_skills(
-            [
-                SkillEntry(name="Angular", level="Experte", category="Frontend"),
-                SkillEntry(name="Python", level="Gut", category="Backend"),
-                SkillEntry(name="React", level="Gut", category="Frontend"),
-            ]
+    def test_skill_level_blocks_maps_all_four_tiers(self):
+        assert pdf_service._SKILL_LEVEL_BLOCKS == {
+            "Grundkenntnisse": 2,
+            "Gut": 3,
+            "Sehr gut": 4,
+            "Experte": 5,
+        }
+
+    def test_language_level_dots_maps_all_six_cefr_tiers(self):
+        assert pdf_service._LANGUAGE_LEVEL_DOTS == {
+            "A1": 1,
+            "A2": 2,
+            "B1": 3,
+            "B2": 4,
+            "C1": 5,
+            "C2": 6,
+        }
+
+    def test_no_grouping_helpers_or_state_remain(self):
+        """KTD2: `group_skills`/`skill_groups`/`sample_skill_groups` und die
+        dafür genutzte Sortier-/Fallback-Kategorie sind vollständig entfernt -
+        jede Vorlage iteriert `skills`/`sample.skills` direkt, ohne
+        Kategorie-Gruppierung."""
+        assert not hasattr(pdf_service, "group_skills")
+        assert not hasattr(pdf_service, "_SKILL_LEVEL_ORDER")
+        assert not hasattr(pdf_service, "_OTHER_SKILL_CATEGORY")
+
+
+class TestDocumentLanguageLocalization:
+    """R4/R5/R8/KTD1/KTD4/KTD5: die feste Dokument-Chrome und das
+    Vorschau-Skeleton folgen der gewählten Dokumentsprache; Nutzerinhalte
+    werden nie übersetzt (R6)."""
+
+    def test_doc_chrome_defines_every_key_for_both_languages(self):
+        expected = {
+            "lang",
+            "title",
+            "page_prefix",
+            "page_of",
+            "photo_alt",
+            "photo_placeholder",
+            "contact",
+            "profile",
+            "experience",
+            "education",
+            "skills",
+            "languages",
+            "projects",
+        }
+
+        assert set(pdf_service._DOC_CHROME["en"]) == expected
+        assert set(pdf_service._DOC_CHROME["de"]) == expected
+
+    def test_format_date_range_localizes_open_ended_ranges(self):
+        assert pdf_service._format_date_range("2021", None, "en") == "2021 – present"
+        assert pdf_service._format_date_range("2021", None, "de") == "seit 2021"
+        assert pdf_service._format_date_range("2020", "2022", "de") == "2020 – 2022"
+        assert pdf_service._format_date_range(None, None, "en") == ""
+
+    def test_german_skill_level_labels_are_the_enum_values(self, mocker):
+        content = _full_content()
+        content["skills"] = [SkillEntry(name="Python", level="Sehr gut")]
+
+        rendered = _rendered_html(mocker, template_id="classic", document_language="de", **content)
+
+        assert 'Python <span class="tag__level">&mdash; Sehr gut</span>' in rendered
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_german_render_localizes_chrome(self, mocker, template_id):
+        rendered = _rendered_html(
+            mocker, template_id=template_id, document_language="de", **_full_content()
         )
 
-        assert [group["category"] for group in groups] == ["Frontend", "Backend"]
-        assert [skill["name"] for skill in groups[0]["skills"]] == ["Angular", "React"]
+        assert 'lang="de"' in rendered
+        assert "Lebenslauf -" in rendered
+        assert "Seite " in rendered
+        assert " von " in rendered
+        for heading in ("Profil", "Berufserfahrung", "Ausbildung", "Sprachen", "Projekte"):
+            assert heading in rendered
+        for english_only in ("Profile", "Experience", "Education", "Languages", "Projects"):
+            assert english_only not in rendered
 
-    def test_group_level_is_the_highest_in_the_group_and_gets_an_english_label(self):
-        groups = pdf_service.group_skills(
-            [
-                SkillEntry(name="A", level="Grundkenntnisse", category="Tools"),
-                SkillEntry(name="B", level="Experte", category="Tools"),
-                SkillEntry(name="C", level="Gut", category="Tools"),
-            ]
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_default_render_stays_english(self, mocker, template_id):
+        rendered = _rendered_html(mocker, template_id=template_id, **_full_content())
+
+        assert 'lang="en"' in rendered
+        assert "Resume -" in rendered
+        assert "Page " in rendered
+        assert " of " in rendered
+        for heading in ("Profile", "Experience", "Education", "Skills", "Languages", "Projects"):
+            assert heading in rendered
+
+    def test_german_photo_alt_and_placeholder_localize(self, mocker, tmp_path):
+        photo_path = tmp_path / "photo.png"
+        photo_path.write_bytes(
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0"
+            b"\x00\x00\x03\x01\x01\x00\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        content = _full_content()
+        content["photo_path"] = str(photo_path)
+
+        with_photo = _rendered_html(mocker, template_id="classic", document_language="de", **content)
+        assert 'alt="Profilfoto"' in with_photo
+
+        preview = _rendered_html(
+            mocker, template_id="classic", document_language="de", preview=True, **_empty_content()
+        )
+        assert 'class="photo photo--placeholder">Foto</div>' in preview
+
+    def test_open_ended_user_entry_localizes_date_wording(self, mocker):
+        content = _full_content()
+        content["experiences"] = [
+            ExperienceEntry(
+                company="Acme GmbH",
+                role="Entwickler",
+                start_date="2021",
+                end_date=None,
+                description=None,
+            )
+        ]
+
+        german = _rendered_html(mocker, template_id="classic", document_language="de", **content)
+        english = _rendered_html(mocker, template_id="classic", **content)
+
+        assert "seit 2021" in german
+        assert "2021 – present" in english
+
+    def test_german_render_produces_a_real_pdf(self):
+        """KTD1: die deutschen Chrome-Strings (inkl. Umlaute) laufen durch die
+        echte WeasyPrint-Pipeline, nicht nur durch den gemockten HTML-String."""
+        pdf_bytes = pdf_service.render_cv_pdf(
+            template_id="classic", document_language="de", **_full_content()
         )
 
-        assert groups[0]["level"] == "Experte"
-        assert groups[0]["level_label"] == "Expert"
+        assert pdf_bytes.startswith(b"%PDF")
 
-    def test_skills_without_a_category_fall_into_other(self):
-        groups = pdf_service.group_skills([SkillEntry(name="Legacy", level="Gut")])
+    def test_user_content_is_never_translated(self, mocker):
+        content = _full_content()
+        content["summary"] = "Hand-typed English summary stays as-is."
 
-        assert groups[0]["category"] == "Other"
-        assert groups[0]["level_label"] == "Good"
+        rendered = _rendered_html(mocker, template_id="classic", document_language="de", **content)
 
-    def test_empty_skill_list_yields_no_groups(self):
-        assert pdf_service.group_skills([]) == []
+        assert "Hand-typed English summary stays as-is." in rendered
+
+    def test_german_preview_uses_german_sample(self, mocker):
+        rendered = _rendered_html(
+            mocker, template_id="classic", document_language="de", preview=True, **_empty_content()
+        )
+
+        assert "Erfahrene Fachkraft" in rendered
+        assert "seit 2022" in rendered
+
+    def test_english_preview_uses_english_sample(self, mocker):
+        rendered = _rendered_html(mocker, template_id="classic", preview=True, **_empty_content())
+
+        assert "Experienced professional" in rendered
+
+    def test_explicit_sample_overrides_language_selection(self, mocker):
+        rendered = _rendered_html(
+            mocker,
+            template_id="classic",
+            document_language="de",
+            preview=True,
+            sample=pdf_service.SAMPLE_EN,
+            **_empty_content(),
+        )
+
+        assert "Experienced professional" in rendered
+
+    def test_unknown_document_language_falls_back_to_english(self, mocker):
+        rendered = _rendered_html(
+            mocker, template_id="classic", document_language="fr", **_full_content()
+        )
+
+        assert 'lang="en"' in rendered
+        assert "Profile" in rendered
+
+
+class TestRenderCvPdfSkillsAndLanguagesContext:
+    """`render_cv_pdf` reichert jeden Skill/jede Sprache serverseitig mit den
+    Anzeige-Metadaten für den 5-Block-Balken bzw. den 6-Punkte-CEFR-Indikator
+    an (KTD1), statt dass die Vorlagen die Zuordnung lokal duplizieren."""
+
+    def _rendered_kwargs(self, mocker, **kwargs) -> dict:
+        mock_template = mocker.MagicMock()
+        mock_template.render.return_value = "<html></html>"
+        mocker.patch.object(pdf_service._env, "get_template", return_value=mock_template)
+        mock_html_cls = mocker.patch.object(pdf_service, "HTML")
+        mock_html_cls.return_value.write_pdf.return_value = b"%PDF-1.4 fake bytes"
+
+        pdf_service.render_cv_pdf(**kwargs)
+
+        return mock_template.render.call_args.kwargs
+
+    def test_skills_ctx_carries_level_blocks_and_english_level_label(self, mocker):
+        content = _full_content()
+        content["skills"] = [
+            SkillEntry(name="Python", level="Experte"),
+            SkillEntry(name="SQL", level="Grundkenntnisse"),
+        ]
+
+        kwargs = self._rendered_kwargs(mocker, template_id="classic", **content)
+
+        skills_ctx = kwargs["skills_ctx"]
+        assert [skill["name"] for skill in skills_ctx] == ["Python", "SQL"]
+        assert skills_ctx[0]["level_blocks"] == 5
+        assert skills_ctx[0]["level_label"] == "Expert"
+        assert skills_ctx[1]["level_blocks"] == 2
+        assert skills_ctx[1]["level_label"] == "Basic"
+
+    def test_languages_ctx_carries_level_dots(self, mocker):
+        content = _full_content()
+        content["languages"] = [
+            LanguageEntry(name="Deutsch", level="C2"),
+            LanguageEntry(name="Englisch", level="B1"),
+        ]
+
+        kwargs = self._rendered_kwargs(mocker, template_id="classic", **content)
+
+        languages_ctx = kwargs["languages_ctx"]
+        assert [lang["name"] for lang in languages_ctx] == ["Deutsch", "Englisch"]
+        assert languages_ctx[0]["level_dots"] == 6
+        assert languages_ctx[1]["level_dots"] == 3
+
+    def test_sample_skills_and_languages_ctx_populated_in_preview(self, mocker):
+        kwargs = self._rendered_kwargs(
+            mocker, template_id="classic", preview=True, **_empty_content()
+        )
+
+        assert kwargs["sample_skills_ctx"], "preview should populate sample skills context"
+        assert all("level_blocks" in skill for skill in kwargs["sample_skills_ctx"])
+        assert kwargs["sample_languages_ctx"], "preview should populate sample languages context"
+        assert all("level_dots" in lang for lang in kwargs["sample_languages_ctx"])
+
+    def test_sample_skills_and_languages_ctx_empty_outside_preview(self, mocker):
+        kwargs = self._rendered_kwargs(
+            mocker, template_id="classic", preview=False, **_empty_content()
+        )
+
+        assert kwargs["sample_skills_ctx"] == []
+        assert kwargs["sample_languages_ctx"] == []
+
+    def test_context_no_longer_carries_removed_grouping_keys(self, mocker):
+        kwargs = self._rendered_kwargs(mocker, template_id="classic", **_full_content())
+
+        assert "skill_groups" not in kwargs
+        assert "sample_skill_groups" not in kwargs
 
 
 class TestMultiPageFragmentation:
@@ -217,6 +448,399 @@ class TestMultiPageFragmentation:
         assert len(reader.pages) > 1
         first_page_text = reader.pages[0].extract_text() or ""
         assert "erika musterfrau" in first_page_text.lower()
+
+    def test_template_2_keeps_the_header_band_on_page_1_when_the_sidebar_overflows(self):
+        """Wie oben (template-1), aber für Template 2: das Kopfband liegt
+        VOR der Zwei-Spalten-Tabelle, muss also unabhängig davon auf Seite 1
+        bleiben, wenn die Sidebar (Sprachen + Ausbildung) über eine Seite
+        hinausragt."""
+        content = _empty_content()
+        content["summary"] = "Summary text that belongs on the first page."
+        content["languages"] = [
+            LanguageEntry(name=f"Language {i}", level="B2") for i in range(60)
+        ]
+        content["education"] = [
+            EducationEntry(
+                institution=f"University {i}",
+                degree="B.Sc.",
+                field_of_study="Computer Science",
+                start_date="2010",
+                end_date="2014",
+            )
+            for i in range(40)
+        ]
+
+        pdf_bytes = pdf_service.render_cv_pdf(template_id="template-2", **content)
+
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        reader = PdfReader(BytesIO(pdf_bytes))
+        assert len(reader.pages) > 1
+        first_page_text = reader.pages[0].extract_text() or ""
+        assert "erika musterfrau" in first_page_text.lower()
+
+    def test_template_3_keeps_the_header_on_page_1_when_the_sidebar_overflows(self):
+        """Wie oben (template-1/template-2), aber für Template 3: der Header
+        (Foto/Name/Berufsbezeichnung) liegt VOR der Zwei-Spalten-Tabelle,
+        muss also unabhängig davon auf Seite 1 bleiben, wenn die Sidebar
+        (Sprachen + Ausbildung) über eine Seite hinausragt. Anders als
+        template-2.html liegt die Sidebar hier rechts (schmal) statt links,
+        aber `display:table` fragmentiert unabhängig von der Spaltenreihenfolge
+        korrekt."""
+        content = _empty_content()
+        content["summary"] = "Summary text that belongs on the first page."
+        content["languages"] = [
+            LanguageEntry(name=f"Language {i}", level="B2") for i in range(60)
+        ]
+        content["education"] = [
+            EducationEntry(
+                institution=f"University {i}",
+                degree="B.Sc.",
+                field_of_study="Computer Science",
+                start_date="2010",
+                end_date="2014",
+            )
+            for i in range(40)
+        ]
+
+        pdf_bytes = pdf_service.render_cv_pdf(template_id="template-3", **content)
+
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        reader = PdfReader(BytesIO(pdf_bytes))
+        assert len(reader.pages) > 1
+        first_page_text = reader.pages[0].extract_text() or ""
+        assert "erika musterfrau" in first_page_text.lower()
+
+    def test_template_4_keeps_the_name_on_page_1_when_the_sidebar_overflows(self):
+        """Wie oben (template-1/2/3), aber für Template 4: die volle Höhe
+        einnehmende Sidebar (Foto/Kontakt/Skills/Sprachen/Ausbildung) liegt
+        NEBEN der Hauptspalte in derselben `display:table`-Zeile - eine
+        Sidebar, die länger als eine Seite ist, darf die Hauptspalte inkl.
+        Name nicht komplett auf Seite 2 schieben."""
+        content = _empty_content()
+        content["summary"] = "Summary text that belongs on the first page."
+        content["languages"] = [
+            LanguageEntry(name=f"Language {i}", level="B2") for i in range(60)
+        ]
+        content["education"] = [
+            EducationEntry(
+                institution=f"University {i}",
+                degree="B.Sc.",
+                field_of_study="Computer Science",
+                start_date="2010",
+                end_date="2014",
+            )
+            for i in range(40)
+        ]
+
+        pdf_bytes = pdf_service.render_cv_pdf(template_id="template-4", **content)
+
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        reader = PdfReader(BytesIO(pdf_bytes))
+        assert len(reader.pages) > 1
+        first_page_text = reader.pages[0].extract_text() or ""
+        assert "erika musterfrau" in first_page_text.lower()
+
+
+class TestClassicPerSkillRendering:
+    """R5: Classic listet jeden Skill einzeln als Klartext mit englischem
+    Kompetenzgrad-Suffix, ohne Kategorie und ohne Balken - für echte wie für
+    Beispiel-(Preview-)Skills."""
+
+    def test_real_skills_render_individually_as_plain_text_with_english_level(self, mocker):
+        content = _full_content()
+        content["skills"] = [
+            SkillEntry(name="Python", level="Experte"),
+            SkillEntry(name="SQL", level="Gut"),
+        ]
+
+        rendered = _rendered_html(mocker, template_id="classic", **content)
+
+        assert "Python <span class=\"tag__level\">&mdash; Expert</span>" in rendered
+        assert "SQL <span class=\"tag__level\">&mdash; Good</span>" in rendered
+        assert "tag__category" not in rendered
+        assert "class=\"bar\"" not in rendered
+
+    def test_sample_skills_render_individually_in_preview(self, mocker):
+        rendered = _rendered_html(
+            mocker, template_id="classic", preview=True, **_empty_content()
+        )
+
+        sample_skill = pdf_service.SAMPLE_EN["skills"][0]
+        assert sample_skill["name"] in rendered
+        assert "tag__category" not in rendered
+
+
+class TestTemplate1PerSkillRendering:
+    """R3/R4: Template 1 rendert jeden Skill als eigene Zeile mit einem
+    5-Block-Balken statt einer Kategorie-Gruppierung mit Breitenbalken."""
+
+    def test_renders_five_span_bar_with_correct_filled_count_per_level(self, mocker):
+        content = _full_content()
+        content["skills"] = [
+            SkillEntry(name="Python", level="Experte"),
+            SkillEntry(name="SQL", level="Grundkenntnisse"),
+        ]
+
+        rendered = _rendered_html(mocker, template_id="template-1", **content)
+
+        # Experte -> 5/5 gefüllt (kein "off"), Grundkenntnisse -> 2/5 gefüllt (3x "off").
+        assert '<i></i><i></i><i></i><i></i><i></i>' in rendered
+        assert '<i></i><i></i><i class="off"></i><i class="off"></i><i class="off"></i>' in rendered
+
+    def test_no_category_or_grouping_markup_remains(self, mocker):
+        content = _full_content()
+        content["skills"] = [SkillEntry(name="Python", level="Experte")]
+
+        rendered = _rendered_html(mocker, template_id="template-1", **content)
+
+        assert "skill-row__head" not in rendered
+        assert "skill-row__names" not in rendered
+        assert "category" not in rendered.lower()
+
+    def test_ktd10_hidden_level_text_present_for_skills_and_languages(self, mocker):
+        content = _full_content()
+        content["skills"] = [SkillEntry(name="Python", level="Experte")]
+        content["languages"] = [LanguageEntry(name="Deutsch", level="C2")]
+
+        rendered = _rendered_html(mocker, template_id="template-1", **content)
+
+        assert '<span class="sr-only">Expert</span>' in rendered
+        assert '<span class="sr-only">C2</span>' in rendered
+
+    def test_language_dots_source_from_languages_ctx_not_a_local_map(self, mocker):
+        content = _full_content()
+        content["languages"] = [LanguageEntry(name="Deutsch", level="B1")]
+
+        rendered = _rendered_html(mocker, template_id="template-1", **content)
+
+        assert "lang_dots" not in rendered
+        # B1 -> 3/6 gefüllt.
+        assert '<i></i><i></i><i></i><i class="off"></i><i class="off"></i><i class="off"></i>' in rendered
+
+
+class TestTemplate2PerSkillRendering:
+    """R3/R4/R6: Template 2 rendert jeden Skill als eigene Zeile mit einem
+    5-Block-Balken und jede Sprache mit dem 6-Punkte-CEFR-Indikator - wie
+    Template 1, nur im navy/amber-Farbschema der Referenzvorlage."""
+
+    def test_renders_five_block_bar_with_correct_filled_count_per_level(self, mocker):
+        content = _full_content()
+        content["skills"] = [
+            SkillEntry(name="Python", level="Experte"),
+            SkillEntry(name="SQL", level="Grundkenntnisse"),
+        ]
+
+        rendered = _rendered_html(mocker, template_id="template-2", **content)
+
+        # Experte -> 5/5 gefüllt (kein "off"), Grundkenntnisse -> 2/5 gefüllt (3x "off").
+        assert '<i></i><i></i><i></i><i></i><i></i>' in rendered
+        assert '<i></i><i></i><i class="off"></i><i class="off"></i><i class="off"></i>' in rendered
+
+    def test_ktd10_hidden_level_text_present_for_skills_and_languages(self, mocker):
+        content = _full_content()
+        content["skills"] = [SkillEntry(name="Python", level="Experte")]
+        content["languages"] = [LanguageEntry(name="Deutsch", level="C2")]
+
+        rendered = _rendered_html(mocker, template_id="template-2", **content)
+
+        assert '<span class="sr-only">Expert</span>' in rendered
+        assert '<span class="sr-only">C2</span>' in rendered
+
+    def test_language_dots_reflect_the_entered_cefr_level(self, mocker):
+        content = _full_content()
+        content["languages"] = [LanguageEntry(name="Deutsch", level="B2")]
+
+        rendered = _rendered_html(mocker, template_id="template-2", **content)
+
+        # B2 -> 4/6 gefüllt.
+        assert (
+            '<i></i><i></i><i></i><i></i><i class="off"></i><i class="off"></i>' in rendered
+        )
+
+    def test_no_category_or_grouping_markup_remains(self, mocker):
+        content = _full_content()
+        content["skills"] = [SkillEntry(name="Python", level="Experte")]
+
+        rendered = _rendered_html(mocker, template_id="template-2", **content)
+
+        assert "category" not in rendered.lower()
+
+
+class TestTemplate3PerSkillRendering:
+    """R3/R4/R6: Template 3 rendert jeden Skill als eigene Zeile mit einem
+    5-Block-Balken und jede Sprache mit dem 6-Punkte-CEFR-Indikator - wie
+    Template 1/2, nur im rot-akzentuierten Farbschema der Referenzvorlage
+    mit Hauptspalte links/Sidebar rechts."""
+
+    def test_renders_five_block_bar_with_correct_filled_count_per_level(self, mocker):
+        content = _full_content()
+        content["skills"] = [
+            SkillEntry(name="Python", level="Experte"),
+            SkillEntry(name="SQL", level="Grundkenntnisse"),
+        ]
+
+        rendered = _rendered_html(mocker, template_id="template-3", **content)
+
+        # Experte -> 5/5 gefüllt (kein "off"), Grundkenntnisse -> 2/5 gefüllt (3x "off").
+        assert '<i></i><i></i><i></i><i></i><i></i>' in rendered
+        assert '<i></i><i></i><i class="off"></i><i class="off"></i><i class="off"></i>' in rendered
+
+    def test_ktd10_hidden_level_text_present_for_skills_and_languages(self, mocker):
+        content = _full_content()
+        content["skills"] = [SkillEntry(name="Python", level="Experte")]
+        content["languages"] = [LanguageEntry(name="Deutsch", level="C2")]
+
+        rendered = _rendered_html(mocker, template_id="template-3", **content)
+
+        assert '<span class="sr-only">Expert</span>' in rendered
+        assert '<span class="sr-only">C2</span>' in rendered
+
+    def test_language_dots_reflect_the_entered_cefr_level(self, mocker):
+        content = _full_content()
+        content["languages"] = [LanguageEntry(name="Deutsch", level="B2")]
+
+        rendered = _rendered_html(mocker, template_id="template-3", **content)
+
+        # B2 -> 4/6 gefüllt.
+        assert (
+            '<i></i><i></i><i></i><i></i><i class="off"></i><i class="off"></i>' in rendered
+        )
+
+    def test_no_category_or_grouping_markup_remains(self, mocker):
+        content = _full_content()
+        content["skills"] = [SkillEntry(name="Python", level="Experte")]
+
+        rendered = _rendered_html(mocker, template_id="template-3", **content)
+
+        assert "category" not in rendered.lower()
+
+    def test_berufsbezeichnung_renders_beneath_the_name_in_header(self, mocker):
+        """Die statische Referenzvorlage zeigt bereits eine Rollen-/Job-Title-
+        Zeile unter dem Namen (KTD7/Plan-Annahme: Berufsbezeichnung rendert
+        in allen neuen Vorlagen konsistent unter dem Namen)."""
+        content = _full_content()
+        content["berufsbezeichnung"] = "Full-Stack Developer"
+
+        rendered = _rendered_html(mocker, template_id="template-3", **content)
+
+        assert '<div class="header__name">Max Mustermann</div>' in rendered
+        assert "Full-Stack Developer" in rendered
+        name_pos = rendered.index('<div class="header__name">')
+        title_pos = rendered.index('<div class="header__title">')
+        assert name_pos < title_pos
+
+
+class TestTemplate4PerSkillRendering:
+    """R3/R4/R6: Template 4 rendert jeden Skill als eigene Zeile mit einem
+    5-Block-Balken und jede Sprache mit dem 6-Punkte-CEFR-Indikator - wie
+    Template 1/2/3, nur im teal/navy-Farbschema der Referenzvorlage mit
+    volle-Höhe-Sidebar und zentriertem Namen in der Hauptspalte."""
+
+    def test_renders_five_block_bar_with_correct_filled_count_per_level(self, mocker):
+        content = _full_content()
+        content["skills"] = [
+            SkillEntry(name="Python", level="Experte"),
+            SkillEntry(name="SQL", level="Grundkenntnisse"),
+        ]
+
+        rendered = _rendered_html(mocker, template_id="template-4", **content)
+
+        # Experte -> 5/5 gefüllt (kein "off"), Grundkenntnisse -> 2/5 gefüllt (3x "off").
+        assert '<i></i><i></i><i></i><i></i><i></i>' in rendered
+        assert '<i></i><i></i><i class="off"></i><i class="off"></i><i class="off"></i>' in rendered
+
+    def test_ktd10_hidden_level_text_present_for_skills_and_languages(self, mocker):
+        content = _full_content()
+        content["skills"] = [SkillEntry(name="Python", level="Experte")]
+        content["languages"] = [LanguageEntry(name="Deutsch", level="C2")]
+
+        rendered = _rendered_html(mocker, template_id="template-4", **content)
+
+        assert '<span class="sr-only">Expert</span>' in rendered
+        assert '<span class="sr-only">C2</span>' in rendered
+
+    def test_language_dots_reflect_the_entered_cefr_level(self, mocker):
+        content = _full_content()
+        content["languages"] = [LanguageEntry(name="Deutsch", level="B2")]
+
+        rendered = _rendered_html(mocker, template_id="template-4", **content)
+
+        # B2 -> 4/6 gefüllt.
+        assert (
+            '<i></i><i></i><i></i><i></i><i class="off"></i><i class="off"></i>' in rendered
+        )
+
+    def test_no_category_or_grouping_markup_remains(self, mocker):
+        content = _full_content()
+        content["skills"] = [SkillEntry(name="Python", level="Experte")]
+
+        rendered = _rendered_html(mocker, template_id="template-4", **content)
+
+        assert "category" not in rendered.lower()
+
+    def test_language_dots_are_circular_not_bars(self):
+        """R6/Product-Contract-Key-Decision: Sprachen bekommen den
+        6-Punkte-Kreis-Indikator, nicht die rechteckige Balkenform der
+        Skill-Blöcke - auch wenn die statische Referenzvorlage für Template 4
+        an dieser Stelle bereits Kreise nutzt, wird das hier explizit
+        gegengeprüft, damit eine künftige Änderung die Regression aus U5
+        (Template 3, Balken statt Kreise) nicht wiederholt."""
+        template_path = (
+            Path(__file__).resolve().parent.parent.parent
+            / "app"
+            / "templates"
+            / "cv"
+            / "template-4.html"
+        )
+        css = template_path.read_text()
+
+        dots_rule_start = css.index(".dots i {")
+        dots_rule_end = css.index("}", dots_rule_start)
+        dots_rule = css[dots_rule_start:dots_rule_end]
+        assert "border-radius: 50%" in dots_rule
+
+        blocks_rule_start = css.index(".blocks i {")
+        blocks_rule_end = css.index("}", blocks_rule_start)
+        blocks_rule = css[blocks_rule_start:blocks_rule_end]
+        assert "border-radius: 50%" not in blocks_rule
+
+    def test_berufsbezeichnung_renders_beneath_the_centered_name(self, mocker):
+        """KTD7/Plan-Annahme: Berufsbezeichnung rendert in allen neuen
+        Vorlagen konsistent unter dem Namen - hier zusätzlich im zentrierten
+        Kopfblock der Hauptspalte (nicht in der Sidebar)."""
+        content = _full_content()
+        content["berufsbezeichnung"] = "Full-Stack Developer"
+
+        rendered = _rendered_html(mocker, template_id="template-4", **content)
+
+        assert '<div class="header-band__name">Max Mustermann</div>' in rendered
+        assert "Full-Stack Developer" in rendered
+        name_pos = rendered.index('<div class="header-band__name">')
+        title_pos = rendered.index('<div class="header-band__title">')
+        assert name_pos < title_pos
+
+    def test_no_photo_preview_shows_placeholder_with_photo_present_omits_it(self, mocker):
+        content = _full_content()
+        content["skills"] = []
+
+        rendered_no_photo_preview = _rendered_html(
+            mocker, template_id="template-4", preview=True, **_empty_content()
+        )
+        assert 'class="photo photo--placeholder"' in rendered_no_photo_preview
+
+        rendered_export_no_photo = _rendered_html(
+            mocker, template_id="template-4", preview=False, **content
+        )
+        assert "<img" not in rendered_export_no_photo
 
 
 class TestRenderCvPdfErrorHandling:
@@ -266,7 +890,7 @@ class TestRenderCvPdfPreviewMode:
             mocker,
             template_id="classic",
             preview=False,
-            sample=pdf_service.SAMPLE,
+            sample=pdf_service.SAMPLE_EN,
             **_empty_content(),
         )
 
@@ -306,13 +930,13 @@ class TestRenderCvPdfPreviewMode:
     def test_empty_berufsbezeichnung_shows_sample_in_preview(self, mocker, template_id):
         rendered = self._capture(mocker, template_id=template_id, preview=True, **_empty_content())
 
-        assert pdf_service.SAMPLE["berufsbezeichnung"] in rendered
+        assert pdf_service.SAMPLE_EN["berufsbezeichnung"] in rendered
 
     @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
     def test_empty_berufsbezeichnung_absent_in_export(self, mocker, template_id):
         rendered = self._capture(mocker, template_id=template_id, preview=False, **_empty_content())
 
-        assert pdf_service.SAMPLE["berufsbezeichnung"] not in rendered
+        assert pdf_service.SAMPLE_EN["berufsbezeichnung"] not in rendered
 
     @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
     def test_preview_without_photo_shows_placeholder(self, mocker, template_id):

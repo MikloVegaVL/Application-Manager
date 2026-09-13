@@ -61,7 +61,7 @@ def test_patch_profile_updates_only_sent_content_fields(client, tmp_path, monkey
     assert response.status_code == 200
     body = response.json()
     assert body["summary"] == "Erfahrener Entwickler"
-    assert body["skills_json"] == [{"name": "Python", "level": "Experte", "category": None}]
+    assert body["skills_json"] == [{"name": "Python", "level": "Experte"}]
     # Identitätsfelder bleiben unangetastet.
     assert body["full_name"] == "Max Mustermann"
     assert body["email"] == "max@example.com"
@@ -169,7 +169,7 @@ def test_patch_profile_partial_payload_leaves_other_fields_untouched(client, tmp
 
     assert response.status_code == 200
     body = response.json()
-    assert body["skills_json"] == [{"name": "SQL", "level": "Gut", "category": None}]
+    assert body["skills_json"] == [{"name": "SQL", "level": "Gut"}]
     assert body["summary"] == "Ursprüngliche Zusammenfassung"
     assert body["experiences_json"] == [
         {"company": "Acme", "role": "Entwickler", "start_date": "2020", "end_date": None, "description": None}
@@ -203,6 +203,103 @@ def test_patch_profile_round_trips_berufsbezeichnung(client, tmp_path, monkeypat
     # Ohne das Feld im Payload bleibt der Wert unangetastet (`exclude_unset`).
     untouched = test_client.patch("/api/profile", json={"summary": "Neu"})
     assert untouched.json()["berufsbezeichnung"] == "Frontend Developer"
+
+
+def test_patch_profile_round_trips_document_language(client, tmp_path, monkeypatch):
+    """U1: `document_language` persistiert und lädt; ohne das Feld im Payload
+    bleibt der Wert unangetastet (`exclude_unset`)."""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch("/api/profile", json={"document_language": "de"})
+
+    assert response.status_code == 200
+    assert response.json()["document_language"] == "de"
+
+    reloaded = test_client.get("/api/profile")
+    assert reloaded.status_code == 200
+    assert reloaded.json()["document_language"] == "de"
+
+    untouched = test_client.patch("/api/profile", json={"summary": "Neu"})
+    assert untouched.json()["document_language"] == "de"
+
+
+def test_get_profile_defaults_document_language_to_null(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.get("/api/profile")
+
+    assert response.status_code == 200
+    assert response.json()["document_language"] is None
+
+
+def test_patch_profile_rejects_unknown_document_language(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch("/api/profile", json={"document_language": "fr"})
+
+    assert response.status_code == 422
+
+
+def test_patch_profile_round_trips_template_2(client, tmp_path, monkeypatch):
+    """R2/U4: `template_id: "template-2"` persistiert und lädt genauso
+    korrekt wieder, wie es bereits für `classic`/`template-1` gilt (siehe
+    z. B. `test_patch_profile_partial_payload_leaves_other_fields_untouched`
+    oben)."""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch("/api/profile", json={"template_id": "template-2"})
+
+    assert response.status_code == 200
+    assert response.json()["template_id"] == "template-2"
+
+    reloaded = test_client.get("/api/profile")
+    assert reloaded.status_code == 200
+    assert reloaded.json()["template_id"] == "template-2"
+
+
+def test_patch_profile_round_trips_template_3(client, tmp_path, monkeypatch):
+    """R2/U5: `template_id: "template-3"` persistiert und lädt genauso
+    korrekt wieder, wie es bereits für `classic`/`template-1`/`template-2`
+    gilt (siehe `test_patch_profile_round_trips_template_2` oben)."""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch("/api/profile", json={"template_id": "template-3"})
+
+    assert response.status_code == 200
+    assert response.json()["template_id"] == "template-3"
+
+    reloaded = test_client.get("/api/profile")
+    assert reloaded.status_code == 200
+    assert reloaded.json()["template_id"] == "template-3"
+
+
+def test_patch_profile_round_trips_template_4(client, tmp_path, monkeypatch):
+    """R2/U6: `template_id: "template-4"` persistiert und lädt genauso
+    korrekt wieder, wie es bereits für `classic`/`template-1`/`template-2`/
+    `template-3` gilt (siehe `test_patch_profile_round_trips_template_3`
+    oben)."""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch("/api/profile", json={"template_id": "template-4"})
+
+    assert response.status_code == 200
+    assert response.json()["template_id"] == "template-4"
+
+    reloaded = test_client.get("/api/profile")
+    assert reloaded.status_code == 200
+    assert reloaded.json()["template_id"] == "template-4"
 
 
 def test_put_profile_round_trips_berufsbezeichnung(client, tmp_path, monkeypatch):

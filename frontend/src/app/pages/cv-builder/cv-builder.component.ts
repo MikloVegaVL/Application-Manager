@@ -9,6 +9,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTabsModule } from '@angular/material/tabs';
 
 import {
+  DocumentLanguage,
   EducationEntry,
   ExperienceEntry,
   LanguageEntry,
@@ -39,6 +40,11 @@ import { SkillsSectionComponent } from './sections/skills-section.component';
 import { SummarySectionComponent } from './sections/summary-section.component';
 
 type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
+
+/** R3: ein gespeichertes `null` (noch keine Wahl) rendert Englisch - derselbe
+ * Default, den die Control beim Laden erhält und den der Vergleich in
+ * `hasUnsavedChanges()` verwendet. */
+const DEFAULT_DOCUMENT_LANGUAGE: DocumentLanguage = 'en';
 
 /**
  * CV Builder-Seite (Lebenslauf-Editor). Baut auf dem bestehenden Master-
@@ -197,6 +203,7 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
                   [languagesArray]="languagesArray"
                   [projectsArray]="projectsArray"
                   [templateIdControl]="templateIdControl"
+                  [documentLanguageControl]="documentLanguageControl"
                 />
               </div>
             </mat-tab>
@@ -286,6 +293,13 @@ export class CvBuilderComponent implements OnInit {
    * damit die Wahl auf dem Profil persistiert wird. */
   protected readonly templateIdControl: FormControl<string | null> = this.formBuilder.control<string | null>(null);
 
+  /** R1/R2: gewählte Dokumentsprache (`de`/`en`) für die feste Dokument-Chrome
+   * des generierten Lebenslaufs. `'en'` ist der Default; ein `null` aus dem
+   * Profil wird beim Laden zu `'en'` normalisiert, damit der Vergleich in
+   * `hasUnsavedChanges()` direkt nach dem Laden sauber ist. */
+  protected readonly documentLanguageControl: FormControl<DocumentLanguage | null> =
+    this.formBuilder.control<DocumentLanguage | null>(DEFAULT_DOCUMENT_LANGUAGE);
+
   ngOnInit(): void {
     this.loadProfile();
   }
@@ -316,6 +330,7 @@ export class CvBuilderComponent implements OnInit {
       languages_json: this.languagesArray.getRawValue() as LanguageEntry[],
       projects_json: this.projectsArray.getRawValue() as ProjectEntry[],
       template_id: this.templateIdControl.value,
+      document_language: this.documentLanguageControl.value,
     };
 
     this.profileService.patchProfile(payload).subscribe({
@@ -351,7 +366,11 @@ export class CvBuilderComponent implements OnInit {
       // fix(review) #4: template_id is part of save()'s PATCH payload just
       // like the sections above, so switching templates and navigating away
       // without saving must also trip the unsaved-changes guard.
-      !sectionsEqual(this.templateIdControl.value, saved.template_id)
+      !sectionsEqual(this.templateIdControl.value, saved.template_id) ||
+      // A stored `null` document_language renders English, so compare against
+      // the same `'en'` default the control is set to on load - otherwise a
+      // fresh profile would report unsaved changes with zero edits.
+      !sectionsEqual(this.documentLanguageControl.value, saved.document_language ?? DEFAULT_DOCUMENT_LANGUAGE)
     );
   }
 
@@ -389,6 +408,7 @@ export class CvBuilderComponent implements OnInit {
     this.summaryControl.setValue(profile.summary ?? '');
     this.berufsbezeichnungControl.setValue(profile.berufsbezeichnung ?? '');
     this.templateIdControl.setValue(profile.template_id);
+    this.documentLanguageControl.setValue(profile.document_language ?? DEFAULT_DOCUMENT_LANGUAGE);
 
     // `replaceArray` tolerates a missing field - a version-skewed backend
     // (see ce-debug, 2026-09-12) can send a profile without a newer section

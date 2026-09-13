@@ -24,7 +24,7 @@ VALID_PROFILE = ParsedCvProfile(
     summary="Erfahrener Entwickler.",
     experiences=[],
     education=[],
-    skills=[ParsedSkill(name="Python", category="Backend")],
+    skills=[ParsedSkill(name="Python")],
     projects=[],
 )
 
@@ -68,15 +68,18 @@ class TestAnalyzeCvTextHappyPath:
         assert mock_generate.call_args.kwargs["model"] == settings.OLLAMA_MODEL_CV_PARSING
 
 
-    def test_system_prompt_always_requests_english_output_and_skill_categories(self):
+    def test_system_prompt_always_requests_english_output(self):
         """Der CV wird immer auf Englisch erzeugt (ce-debug, 2026-09-12): das
-        Prompt muss die KI anweisen, alle Textwerte zu übersetzen, und für
-        Skills eine Kategorie aus dem festen Wertebereich verlangen."""
+        Prompt muss die KI anweisen, alle Textwerte zu übersetzen."""
         prompt = pdf_parser._SYSTEM_PROMPT
 
         assert "ENGLISH" in prompt
-        for category in ("Frontend", "Backend", "Tools", "Soft Skills", "Other"):
-            assert category in prompt
+
+    def test_system_prompt_no_longer_mentions_skill_category(self):
+        """Skill-Kategorien wurden aus dem Produkt entfernt (R8, Session-
+        Entscheidung CV-Template-Erweiterungs-Plan 2026-09-13): die KI soll
+        weder eine Kategorie zuordnen noch danach gefragt werden."""
+        assert "category" not in pdf_parser._SYSTEM_PROMPT
 
 
 class TestAnalyzeCvTextValidationFailure:

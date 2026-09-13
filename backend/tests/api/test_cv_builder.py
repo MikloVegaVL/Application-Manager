@@ -110,7 +110,7 @@ def test_parse_cv_with_full_data_returns_no_warnings(client, mocker):
             {"company": "Acme GmbH", "role": "Entwickler", "start_date": "2020", "end_date": None}
         ],
         education=[{"institution": "TU Berlin", "degree": "B.Sc. Informatik"}],
-        skills=[{"name": "Python", "category": "Backend"}],
+        skills=[{"name": "Python"}],
         projects=[{"title": "Portfolio-Website", "description": "Persönliche Portfolio-Seite."}],
     )
 
@@ -127,9 +127,9 @@ def test_parse_cv_with_full_data_returns_no_warnings(client, mocker):
     assert len(body["parsed"]["experiences"]) == 1
     assert len(body["parsed"]["projects"]) == 1
     assert body["parsed"]["projects"][0]["title"] == "Portfolio-Website"
-    # Skills kommen als Objekte mit optionaler Kategorie zurück (R9-Folge),
-    # nicht mehr als reine Strings.
-    assert body["parsed"]["skills"] == [{"name": "Python", "category": "Backend"}]
+    # Skills kommen als Objekte zurück (R9-Folge), nicht mehr als reine
+    # Strings; keine Kategorie mehr (R8).
+    assert body["parsed"]["skills"] == [{"name": "Python"}]
 
 
 def test_parse_cv_with_no_identifiable_project_returns_empty_list_and_warning(client, mocker):
@@ -139,7 +139,7 @@ def test_parse_cv_with_no_identifiable_project_returns_empty_list_and_warning(cl
         experiences=[{"company": "Acme GmbH", "role": "Entwickler"}],
         education=[{"institution": "TU Berlin", "degree": "B.Sc. Informatik"}],
         summary="Erfahrener Entwickler.",
-        skills=[{"name": "Python", "category": "Backend"}],
+        skills=[{"name": "Python"}],
         projects=[],
     )
 
@@ -157,7 +157,7 @@ def test_parse_cv_with_missing_experience_and_education_reports_warnings(client,
         email="max@example.com",
         experiences=[],
         education=[],
-        skills=[{"name": "Python", "category": "Backend"}],
+        skills=[{"name": "Python"}],
         projects=[],
     )
 
@@ -218,8 +218,16 @@ def test_list_templates_returns_the_configured_template_ids(client):
     assert response.status_code == 200
     body = response.json()
     ids = {template["id"] for template in body}
-    assert ids == {"classic", "template-1"}
+    assert ids == {"classic", "template-1", "template-2", "template-3", "template-4"}
+    # AE1: die vollständige Menge aus fünf Vorlagen mit eindeutigen Labels.
+    assert len(body) == 5
+    labels = [template["label"] for template in body]
+    assert len(labels) == len(set(labels))
     assert all("label" in template for template in body)
+    labels_by_id = {template["id"]: template["label"] for template in body}
+    assert labels_by_id["template-2"] == "Template 2"
+    assert labels_by_id["template-3"] == "Template 3"
+    assert labels_by_id["template-4"] == "Template 4"
 
 
 # --- POST /cv-builder/preview & /export -----------------------------------
@@ -313,6 +321,107 @@ def test_preview_and_export_use_the_same_renderer_with_different_modes(client_wi
     export_response = test_client.post("/api/cv-builder/export", json=_RENDER_PAYLOAD)
     assert export_response.status_code == 200
     assert render_spy.call_args.kwargs["preview"] is False
+
+
+def test_preview_forwards_request_document_language(client_with_session, mocker):
+    """R4/U4: die im Request mitgeschickte Dokumentsprache erreicht den
+    Renderer unverändert."""
+    test_client, session_local = client_with_session
+    _create_profile(session_local)
+    render_spy = mocker.spy(cv_builder_module, "render_cv_pdf")
+    payload = {**_RENDER_PAYLOAD, "document_language": "de"}
+
+    response = test_client.post("/api/cv-builder/preview", json=payload)
+
+    assert response.status_code == 200
+    assert render_spy.call_args.kwargs["document_language"] == "de"
+
+
+def test_export_forwards_request_document_language(client_with_session, mocker):
+    """R4/U4: auch der Export reicht die Dokumentsprache an den Renderer weiter."""
+    test_client, session_local = client_with_session
+    _create_profile(session_local)
+    render_spy = mocker.spy(cv_builder_module, "render_cv_pdf")
+    payload = {**_RENDER_PAYLOAD, "document_language": "de"}
+
+    response = test_client.post("/api/cv-builder/export", json=payload)
+
+    assert response.status_code == 200
+    assert render_spy.call_args.kwargs["document_language"] == "de"
+
+
+def test_render_language_falls_back_to_stored_profile_language(client_with_session, mocker):
+    """KTD3: fehlt die Sprache im Request, gilt die auf dem Profil gespeicherte
+    Wahl."""
+    test_client, session_local = client_with_session
+    _create_profile(session_local, document_language="de")
+    render_spy = mocker.spy(cv_builder_module, "render_cv_pdf")
+
+    response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD)
+
+    assert response.status_code == 200
+    assert render_spy.call_args.kwargs["document_language"] == "de"
+
+
+def test_render_rejects_unknown_document_language(client_with_session):
+    test_client, session_local = client_with_session
+    _create_profile(session_local)
+    payload = {**_RENDER_PAYLOAD, "document_language": "fr"}
+
+    response = test_client.post("/api/cv-builder/preview", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_preview_and_export_render_successfully_with_template_2(client_with_session):
+    """R1/R2: `template-2` ist eine vollwertige, wählbare Vorlage wie
+    `classic`/`template-1` - Vorschau und Export müssen mit ihr genauso
+    durchlaufen."""
+    test_client, session_local = client_with_session
+    _create_profile(session_local)
+    payload = {**_RENDER_PAYLOAD, "template_id": "template-2"}
+
+    preview_response = test_client.post("/api/cv-builder/preview", json=payload)
+    export_response = test_client.post("/api/cv-builder/export", json=payload)
+
+    assert preview_response.status_code == 200
+    assert preview_response.content.startswith(b"%PDF")
+    assert export_response.status_code == 200
+    assert export_response.content.startswith(b"%PDF")
+
+
+def test_preview_and_export_render_successfully_with_template_3(client_with_session):
+    """R1/R2: `template-3` ist eine vollwertige, wählbare Vorlage wie
+    `classic`/`template-1`/`template-2` - Vorschau und Export müssen mit ihr
+    genauso durchlaufen."""
+    test_client, session_local = client_with_session
+    _create_profile(session_local)
+    payload = {**_RENDER_PAYLOAD, "template_id": "template-3"}
+
+    preview_response = test_client.post("/api/cv-builder/preview", json=payload)
+    export_response = test_client.post("/api/cv-builder/export", json=payload)
+
+    assert preview_response.status_code == 200
+    assert preview_response.content.startswith(b"%PDF")
+    assert export_response.status_code == 200
+    assert export_response.content.startswith(b"%PDF")
+
+
+def test_preview_and_export_render_successfully_with_template_4(client_with_session):
+    """R1/R2: `template-4` ist eine vollwertige, wählbare Vorlage wie
+    `classic`/`template-1`/`template-2`/`template-3` - Vorschau und Export
+    müssen mit ihr genauso durchlaufen."""
+    test_client, session_local = client_with_session
+    _create_profile(session_local)
+    payload = {**_RENDER_PAYLOAD, "template_id": "template-4"}
+
+    preview_response = test_client.post("/api/cv-builder/preview", json=payload)
+    export_response = test_client.post("/api/cv-builder/export", json=payload)
+
+    assert preview_response.status_code == 200
+    assert preview_response.content.startswith(b"%PDF")
+    assert export_response.status_code == 200
+    assert export_response.content.startswith(b"%PDF")
 
 
 def test_render_rejects_legacy_modern_template_id(client_with_session):

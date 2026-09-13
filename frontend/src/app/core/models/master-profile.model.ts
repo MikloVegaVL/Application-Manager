@@ -25,18 +25,10 @@ export interface EducationEntry {
  */
 export type SkillLevel = 'Grundkenntnisse' | 'Gut' | 'Sehr gut' | 'Experte';
 
-/**
- * Entspricht `SkillCategory` im Backend: Skills werden für den CV nach
- * Domäne gruppiert (statt einer langen, flachen Liste). `Other` ist der
- * Fallback für nicht zuordenbare/Altdaten.
- */
-export type SkillCategory = 'Frontend' | 'Backend' | 'Tools' | 'Soft Skills' | 'Other';
-
-/** Entspricht `SkillEntry`: ein Skill mit Kompetenzgrad und Kategorie. */
+/** Entspricht `SkillEntry`: ein Skill mit Kompetenzgrad. */
 export interface SkillEntry {
   name: string;
   level: SkillLevel;
-  category?: SkillCategory | null;
 }
 
 /**
@@ -44,6 +36,14 @@ export interface SkillEntry {
  * (A1-C2), kein bespoke-Design nötig.
  */
 export type LanguageLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
+
+/**
+ * Entspricht `DocumentLanguage`: die Sprache der festen Dokument-Chrome des
+ * generierten Lebenslaufs (Überschriften, Kompetenzgrade, Datums-Wording,
+ * Footer, Titel). Nutzerinhalte werden nie übersetzt. `null` = noch keine
+ * Wahl getroffen und rendert Englisch.
+ */
+export type DocumentLanguage = 'de' | 'en';
 
 /** Entspricht `LanguageEntry`: eine Sprachkenntnis mit CEFR-Niveau. */
 export interface LanguageEntry {
@@ -75,6 +75,7 @@ export interface MasterProfile {
   projects_json: ProjectEntry[];
   photo_filename: string | null;
   template_id: string | null;
+  document_language: DocumentLanguage | null;
 }
 
 /**
@@ -102,11 +103,10 @@ export interface MasterProfileRead extends MasterProfile {
 /**
  * Entspricht `ParsedSkill` im Backend: ein per KI aus dem CV extrahierter
  * Skill. Die KI leitet keinen Kompetenzgrad ab (R7) - das Frontend ergänzt
- * beim Übernehmen einen Default -, kann aber bereits eine Kategorie zuordnen.
+ * beim Übernehmen einen Default.
  */
 export interface ParsedSkill {
   name: string;
-  category?: SkillCategory | null;
 }
 
 /**
@@ -156,6 +156,7 @@ export interface ProfileContentUpdate {
   languages_json?: LanguageEntry[];
   projects_json?: ProjectEntry[];
   template_id?: string | null;
+  document_language?: DocumentLanguage | null;
 }
 
 /** Entspricht einem Eintrag der `GET /cv-builder/templates`-Antwort (R9): eine wählbare CV-Vorlage. */
@@ -174,6 +175,7 @@ export interface CvTemplate {
  */
 export interface CvRenderPayload {
   template_id: string;
+  document_language?: DocumentLanguage | null;
   summary: string | null;
   berufsbezeichnung: string | null;
   experiences_json: ExperienceEntry[];

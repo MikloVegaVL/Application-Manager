@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="{{ doc.lang }}">
+<head>
+<meta charset="utf-8">
+<title>{{ doc.title }} - {{ full_name }}</title>
+<style>
+  @page {
+    size: A4;
+    margin: 0;
+    @bottom-center {
+      content: "{{ doc.page_prefix }} " counter(page) " {{ doc.page_of }} " counter(pages);
+      font-size: 8pt;
+      color: #999;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
+    color: #2b2b2b;
+    margin: 0;
+  }
+
+  /* Vorschau-Platzhalter (R8/KTD3). */
+  .ph { color: #9aa0a8; font-style: italic; }
+
+  /* Kopfzeile (Foto/Name/Berufsbezeichnung) liegt VOR der Zwei-Spalten-
+     Tabelle und spannt beide Spalten - sie ist immer nur eine kurze, feste
+     Zeile am Seitenanfang, nie der paginierte Inhalt selbst, daher ist
+     `display:flex` hier unproblematisch (siehe KTD6-Begründung in
+     template-1.html/template-2.html). */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 8mm;
+    padding: 12mm 12mm 6mm;
+    border-bottom: 1pt solid #d8d8d8;
+  }
+
+  .photo {
+    width: 24mm;
+    height: 24mm;
+    object-fit: cover;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: #ccc;
+  }
+  .photo--placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #e2e2e2;
+    color: #8a8a8a;
+    font-size: 8pt;
+  }
+
+  .header__name {
+    font-size: 19pt;
+    font-weight: 700;
+    color: #2b2b2b;
+    margin: 0 0 1.5mm;
+  }
+  .header__title {
+    font-size: 10pt;
+    letter-spacing: .8pt;
+    text-transform: uppercase;
+    color: #8e3b3b;
+    font-weight: 700;
+  }
+
+  /* Zwei-Spalten-Layout über `display: table` statt `display: flex` (KTD6):
+     eine Sidebar, die länger als eine Seite ist, darf die Hauptspalte nicht
+     komplett auf Seite 2 schieben. Siehe
+     docs/solutions/ui-bugs/weasyprint-flexbox-does-not-fragment-across-pages.md.
+     Anders als template-2.html liegt hier die Hauptspalte LINKS (breit) und
+     die Sidebar RECHTS (schmal) - `table`/`table-cell` respektiert dafür
+     einfach die Quellreihenfolge der beiden `<div>`s unten. */
+  .cv { display: table; width: 100%; font-size: 9.4pt; line-height: 1.55; }
+
+  .main { display: table-cell; vertical-align: top; width: 66%; padding: 8mm 6mm 14mm 12mm; }
+  .sidebar { display: table-cell; vertical-align: top; padding: 8mm 12mm 14mm 6mm; }
+
+  /* Abschnittstitel: graue Box mit rotem linkem Rand, identisch für Haupt-
+     und Seitenspalte (so in der Referenzvorlage, anders als template-2.html,
+     das für die Sidebar eine reine Unterstreichung nutzt). */
+  .section-title {
+    background: #ececec;
+    border-left: 3.5pt solid #8e3b3b;
+    font-size: 9.6pt;
+    font-weight: 700;
+    letter-spacing: .3pt;
+    text-transform: uppercase;
+    color: #2b2b2b;
+    margin: 6mm 0 3mm;
+    padding: 1.8mm 3mm;
+  }
+  .main .section-title:first-child,
+  .sidebar .section-title:first-child { margin-top: 0; }
+
+  .contact-list { list-style: none; margin: 0; padding: 0; font-size: 8.4pt; color: #555; }
+  .contact-list li { margin-bottom: 1.8mm; word-break: break-word; }
+
+  .skill-row, .lang-row { margin-bottom: 2.8mm; }
+  .skill-row__name, .lang-row__name { font-size: 8.6pt; color: #2b2b2b; margin-bottom: 1mm; }
+
+  .blocks { white-space: nowrap; display: flex; gap: .8mm; }
+  .blocks i { flex: 1; height: 1.5mm; border-radius: .4mm; background: #8e3b3b; }
+  .blocks i.off { background: #d9d9d9; }
+
+  .dots { white-space: nowrap; }
+  .dots i {
+    display: inline-block;
+    width: 2.2mm;
+    height: 2.2mm;
+    border-radius: 50%;
+    background: #8e3b3b;
+    margin-right: 1mm;
+  }
+  .dots i.off { background: #d9d9d9; }
+
+  /* KTD10: Kompetenzgrad/CEFR-Stufe bleibt visuell auf Blöcke/Punkte
+     beschränkt, landet aber zusätzlich als unsichtbarer Text im PDF-
+     Textinhalt, damit ATS-Parser/Copy-Paste die Stufe extrahieren können. */
+  .sr-only { display: inline-block; width: 0; height: 0; overflow: hidden; font-size: 0; line-height: 0; }
+
+  .edu-entry { font-size: 8.6pt; margin-bottom: 3mm; }
+  .edu-entry__date { color: #8e3b3b; font-weight: 600; }
+
+  .main p { margin: 0 0 3mm; font-size: 9.2pt; color: #555; }
+  .entry { margin-bottom: 4mm; }
+  .entry__title-row { display: flex; justify-content: space-between; gap: 4mm; font-weight: 700; }
+  .entry__date { font-weight: 600; color: #8e3b3b; white-space: nowrap; font-size: 8.6pt; }
+  .entry__description { margin: 1mm 0 0; white-space: pre-line; color: #555; }
+  .entry__link { font-size: 8.4pt; color: #8e3b3b; }
+</style>
+</head>
+<body>
+  <div class="header">
+    {% if photo_url %}
+    <img class="photo" src="{{ photo_url }}" alt="{{ doc.photo_alt }}">
+    {% elif preview %}
+    <div class="photo photo--placeholder">{{ doc.photo_placeholder }}</div>
+    {% endif %}
+    <div>
+      <div class="header__name">{{ full_name }}</div>
+      <div class="header__title">
+        {%- if berufsbezeichnung %}{{ berufsbezeichnung }}
+        {%- elif preview %}<span class="ph">{{ sample.berufsbezeichnung }}</span>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <section class="cv">
+    <div class="main">
+      {% if summary or preview %}
+      <h2 class="section-title">{{ doc.profile }}</h2>
+      {% if summary %}<p>{{ summary }}</p>
+      {% elif preview %}<p class="ph">{{ sample.summary }}</p>{% endif %}
+      {% endif %}
+
+      {% if experiences or preview %}
+      <h2 class="section-title">{{ doc.experience }}</h2>
+      {% set exp_list = experiences if experiences else sample.experiences %}
+      {% set exp_sample = not experiences %}
+      {% for exp in exp_list %}
+      <div class="entry{% if exp_sample %} ph{% endif %}">
+        <div class="entry__title-row">
+          <span>{{ exp.role }}, {{ exp.company }}</span>
+          <span class="entry__date">{{ exp.date_range }}</span>
+        </div>
+        {% if exp.description %}<p class="entry__description">{{ exp.description }}</p>
+        {% elif preview %}<p class="entry__description ph">{{ sample.entry_description }}</p>{% endif %}
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      {% if education or preview %}
+      <h2 class="section-title">{{ doc.education }}</h2>
+      {% set edu_list = education if education else sample.education %}
+      {% set edu_sample = not education %}
+      {% for edu in edu_list %}
+      <div class="edu-entry{% if edu_sample %} ph{% endif %}">
+        <div><strong>{{ edu.degree }}</strong>{% if edu.field_of_study %}, {{ edu.field_of_study }}{% endif %}</div>
+        <div>{{ edu.institution }}</div>
+        <div class="edu-entry__date">{{ edu.date_range }}</div>
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      {% if projects or preview %}
+      <h2 class="section-title">{{ doc.projects }}</h2>
+      {% set project_list = projects if projects else sample.projects %}
+      {% set project_sample = not projects %}
+      {% for project in project_list %}
+      <div class="entry{% if project_sample %} ph{% endif %}">
+        <div class="entry__title-row">
+          <span>{{ project.title }}</span>
+          {% if project.date_range %}<span class="entry__date">{{ project.date_range }}</span>{% endif %}
+        </div>
+        {% if project.description %}<p class="entry__description">{{ project.description }}</p>
+        {% elif preview %}<p class="entry__description ph">{{ sample.project_description }}</p>{% endif %}
+        {% if project.link %}<p class="entry__link">{{ project.link }}</p>{% endif %}
+      </div>
+      {% endfor %}
+      {% endif %}
+    </div>
+
+    <aside class="sidebar">
+      <h2 class="section-title">{{ doc.contact }}</h2>
+      <ul class="contact-list">
+        <li>{{ email }}</li>
+        {% if phone %}<li>{{ phone }}</li>
+        {% elif preview %}<li class="ph">{{ sample.phone }}</li>{% endif %}
+        {% if address %}<li>{{ address }}</li>
+        {% elif preview %}<li class="ph">{{ sample.address }}</li>{% endif %}
+      </ul>
+
+      {% if skills_ctx or preview %}
+      <h2 class="section-title">{{ doc.skills }}</h2>
+      {% set skill_list = skills_ctx if skills_ctx else sample_skills_ctx %}
+      {% set skill_sample = not skills_ctx %}
+      {% for skill in skill_list %}
+      <div class="skill-row{% if skill_sample %} ph{% endif %}">
+        <div class="skill-row__name">{{ skill.name }}</div>
+        <div class="blocks">
+          {%- for i in range(5) %}<i{% if i >= skill.level_blocks %} class="off"{% endif %}></i>{% endfor -%}
+        </div>
+        <span class="sr-only">{{ skill.level_label }}</span>
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      {% if languages_ctx or preview %}
+      <h2 class="section-title">{{ doc.languages }}</h2>
+      {% set lang_list = languages_ctx if languages_ctx else sample_languages_ctx %}
+      {% set lang_sample = not languages_ctx %}
+      {% for language in lang_list %}
+      <div class="lang-row{% if lang_sample %} ph{% endif %}">
+        <div class="lang-row__name">{{ language.name }}</div>
+        <span class="dots">
+          {%- for i in range(6) %}<i{% if i >= language.level_dots %} class="off"{% endif %}></i>{% endfor -%}
+        </span>
+        <span class="sr-only">{{ language.level }}</span>
+      </div>
+      {% endfor %}
+      {% endif %}
+    </aside>
+  </section>
+</body>
+</html>

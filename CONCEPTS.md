@@ -17,3 +17,6 @@ The optional job title shown beneath the profile name in a CV template, set inde
 
 ### Skill category
 The domain a skill belongs to, used to group skills into compact sections in a rendered CV instead of listing every skill individually. A skill without a category falls into a catch-all group, so grouping never drops a skill.
+
+### Document language
+The language (German or English) in which a generated CV's fixed chrome — section headings, level labels, date wording, footer, title, and photo placeholder — renders. It is set per profile, persisted like the template choice, defaults to English when unset, and is independent of both the app-wide UI language and the language of the CV's own content.

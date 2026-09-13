@@ -1,14 +1,14 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ doc.lang }}">
 <head>
 <meta charset="utf-8">
-<title>Resume - {{ full_name }}</title>
+<title>{{ doc.title }} - {{ full_name }}</title>
 <style>
   @page {
     size: A4;
     margin: 2.2cm;
     @bottom-center {
-      content: "Page " counter(page) " of " counter(pages);
+      content: "{{ doc.page_prefix }} " counter(page) " {{ doc.page_of }} " counter(pages);
       font-size: 8pt;
       color: #999;
     }
@@ -84,7 +84,6 @@
 
   .tags { margin: 0; padding: 0; list-style: none; }
   .tags li { margin-bottom: 1.5mm; }
-  .tag__category { font-weight: 700; }
   .tag__level { color: #777; }
 </style>
 </head>
@@ -92,9 +91,9 @@
   <section class="cv">
     <div class="header">
       {% if photo_url %}
-      <img class="photo" src="{{ photo_url }}" alt="Profile photo">
+      <img class="photo" src="{{ photo_url }}" alt="{{ doc.photo_alt }}">
       {% elif preview %}
-      <div class="photo photo--placeholder">Photo</div>
+      <div class="photo photo--placeholder">{{ doc.photo_placeholder }}</div>
       {% endif %}
       <div class="header__text">
         <h1 class="header__name">{{ full_name }}</h1>
@@ -115,7 +114,7 @@
         </div>
         <div class="dash"></div>
         {% if summary or preview %}
-        <h2 class="sec-label" style="margin-top: 4mm">Profile</h2>
+        <h2 class="sec-label" style="margin-top: 4mm">{{ doc.profile }}</h2>
         <div class="rule"></div>
         {% endif %}
       </div>
@@ -127,7 +126,7 @@
 
     {% if experiences or preview %}
     <div class="section">
-      <div><h2 class="sec-label">Experience</h2><div class="rule"></div></div>
+      <div><h2 class="sec-label">{{ doc.experience }}</h2><div class="rule"></div></div>
       <div class="main">
         {% set exp_list = experiences if experiences else sample.experiences %}
         {% set exp_sample = not experiences %}
@@ -147,7 +146,7 @@
 
     {% if education or preview %}
     <div class="section">
-      <div><h2 class="sec-label">Education</h2><div class="rule"></div></div>
+      <div><h2 class="sec-label">{{ doc.education }}</h2><div class="rule"></div></div>
       <div class="main">
         {% set edu_list = education if education else sample.education %}
         {% set edu_sample = not education %}
@@ -163,31 +162,27 @@
     </div>
     {% endif %}
 
-    {% if skills or preview %}
+    {% if skills_ctx or preview %}
     <div class="section">
-      <div><h2 class="sec-label">Skills</h2><div class="rule"></div></div>
+      <div><h2 class="sec-label">{{ doc.skills }}</h2><div class="rule"></div></div>
       <div class="main">
-        {% set group_list = skill_groups if skills else sample_skill_groups %}
-        {% set group_sample = not skills %}
-        <ul class="tags{% if group_sample %} ph{% endif %}">
-          {% for group in group_list %}
-          <li>
-            <span class="tag__category">{{ group.category }}</span>:
-            {{ group.skills | map(attribute='name') | join(', ') }}
-            <span class="tag__level">&mdash; {{ group.level_label }}</span>
-          </li>
+        {% set skill_list = skills_ctx if skills_ctx else sample_skills_ctx %}
+        {% set skill_sample = not skills_ctx %}
+        <ul class="tags{% if skill_sample %} ph{% endif %}">
+          {% for skill in skill_list %}
+          <li>{{ skill.name }} <span class="tag__level">&mdash; {{ skill.level_label }}</span></li>
           {% endfor %}
         </ul>
       </div>
     </div>
     {% endif %}
 
-    {% if languages or preview %}
+    {% if languages_ctx or preview %}
     <div class="section">
-      <div><h2 class="sec-label">Languages</h2><div class="rule"></div></div>
+      <div><h2 class="sec-label">{{ doc.languages }}</h2><div class="rule"></div></div>
       <div class="main">
-        {% set lang_list = languages if languages else sample.languages %}
-        <ul class="tags{% if not languages %} ph{% endif %}">
+        {% set lang_list = languages_ctx if languages_ctx else sample_languages_ctx %}
+        <ul class="tags{% if not languages_ctx %} ph{% endif %}">
           {% for language in lang_list %}
           <li>{{ language.name }} <span class="tag__level">&mdash; {{ language.level }}</span></li>
           {% endfor %}
@@ -198,7 +193,7 @@
 
     {% if projects or preview %}
     <div class="section">
-      <div><h2 class="sec-label">Projects</h2><div class="rule"></div></div>
+      <div><h2 class="sec-label">{{ doc.projects }}</h2><div class="rule"></div></div>
       <div class="main">
         {% set project_list = projects if projects else sample.projects %}
         {% set project_sample = not projects %}

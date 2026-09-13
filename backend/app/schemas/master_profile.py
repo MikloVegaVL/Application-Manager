@@ -13,22 +13,26 @@ SkillLevel = Literal["Grundkenntnisse", "Gut", "Sehr gut", "Experte"]
 # (A1-C2), kein bespoke-Design nötig.
 LanguageLevel = Literal["A1", "A2", "B1", "B2", "C1", "C2"]
 
-# Gruppierung der Skills für den CV (R9-Folge): statt einer langen, flachen
-# Liste wird je Kategorie eine kompakte Zeile gerendert (siehe
-# `app.services.pdf_service.group_skills`). Fixer, geschlossener Wertebereich
-# wie bei `SkillLevel`/`LanguageLevel` - die KI ordnet beim CV-Parsen eine
-# dieser Kategorien zu, das Frontend bietet dieselben Optionen an.
-# `Other` ist der Fallback für nicht zuordenbare oder noch nicht kategorisierte
-# Skills (z. B. Altdaten ohne `category`).
-SkillCategory = Literal["Frontend", "Backend", "Tools", "Soft Skills", "Other"]
-
+# Die Sprache, in der die feste Dokument-Chrome des generierten Lebenslaufs
+# gerendert wird (Überschriften, Kompetenzgrade, Datums-Wording, Footer, Titel,
+# Foto-Platzhalter). `None` bedeutet "noch keine Wahl" und rendert Englisch.
+# Nutzer- und KI-Inhalte werden dabei nie übersetzt - siehe
+# `docs/plans/2026-09-13-002-feat-cv-document-language-plan.md`.
+DocumentLanguage = Literal["de", "en"]
 
 class SkillEntry(BaseModel):
-    """Ein Skill mit Kompetenzgrad und optionaler Kategorie (siehe KTD3)."""
+    """Ein Skill mit Kompetenzgrad (siehe KTD3).
+
+    Trägt bewusst keine Kategorie mehr (Session-Entscheidung, CV-Template-
+    Erweiterungs-Plan 2026-09-13): Skills werden nicht mehr gruppiert
+    dargestellt, sondern als individuelle Balken gerendert, daher hätte eine
+    Kategorie keinen Verwendungszweck mehr. Ein legacy gespeicherter
+    `category`-Schlüssel wird dank Pydantics Default-Verhalten (`extra`
+    nicht gesetzt = ignorieren) beim Laden stillschweigend verworfen, statt
+    einen Validierungsfehler auszulösen (R9)."""
 
     name: str = Field(..., max_length=255)
     level: SkillLevel
-    category: SkillCategory | None = None
 
 
 class LanguageEntry(BaseModel):
@@ -84,6 +88,7 @@ class MasterProfileBase(BaseModel):
     projects_json: list[ProjectEntry] = Field(default_factory=list)
     photo_filename: str | None = None
     template_id: str | None = None
+    document_language: DocumentLanguage | None = None
 
 
 class MasterProfileCreate(MasterProfileBase):
@@ -114,6 +119,7 @@ class MasterProfileUpdate(BaseModel):
     languages_json: list[LanguageEntry] | None = None
     projects_json: list[ProjectEntry] | None = None
     template_id: str | None = None
+    document_language: DocumentLanguage | None = None
 
 
 class ProfileAttachmentRead(BaseModel):
@@ -153,12 +159,11 @@ class ParsedSkill(BaseModel):
 
     Anders als das gespeicherte `SkillEntry` trägt ein geparster Skill noch
     keinen Kompetenzgrad - den leitet die KI bewusst nicht ab (R7), das
-    Frontend ergänzt beim Übernehmen einen Default. Die Kategorie hingegen
-    kann die KI bereits zuordnen, damit die CV-Vorlage Skills gruppieren kann.
+    Frontend ergänzt beim Übernehmen einen Default. Keine Kategorie mehr
+    (R8): das Konzept wurde aus dem Produkt entfernt, siehe `SkillEntry`.
     """
 
     name: str = Field(..., max_length=255)
-    category: SkillCategory | None = None
 
 
 class ParsedCvProfile(BaseModel):

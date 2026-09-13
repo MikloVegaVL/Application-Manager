@@ -11,6 +11,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import {
   CvRenderPayload,
   CvTemplate,
+  DocumentLanguage,
   EducationEntry,
   ExperienceEntry,
   LanguageEntry,
@@ -55,23 +56,39 @@ const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
         Formularinhalt, auch wenn er noch nicht gespeichert wurde.
       </p>
 
-      @if (templatesLoading()) {
-        <div class="cv-preview-export__templates-loading">
-          <mat-progress-spinner mode="indeterminate" diameter="24" />
-          <p>Vorlagen werden geladen ...</p>
+      <div class="cv-preview-export__picker-row">
+        <div class="cv-preview-export__control">
+          <span class="cv-preview-export__control-label">Dokumentsprache</span>
+          <mat-button-toggle-group
+            [formControl]="documentLanguageControl"
+            aria-label="Dokumentsprache wählen"
+          >
+            <mat-button-toggle value="de">Deutsch</mat-button-toggle>
+            <mat-button-toggle value="en">English</mat-button-toggle>
+          </mat-button-toggle-group>
         </div>
-      } @else if (templatesError()) {
-        <div class="cv-preview-export__error">
-          <p>{{ templatesError() }}</p>
-          <button mat-stroked-button type="button" (click)="loadTemplates()">Erneut versuchen</button>
-        </div>
-      } @else {
-        <mat-button-toggle-group [formControl]="templateIdControl" aria-label="Vorlage wählen">
-          @for (template of templates(); track template.id) {
-            <mat-button-toggle [value]="template.id">{{ template.label }}</mat-button-toggle>
+
+        <div class="cv-preview-export__control">
+          <span class="cv-preview-export__control-label">Vorlage</span>
+          @if (templatesLoading()) {
+            <div class="cv-preview-export__templates-loading">
+              <mat-progress-spinner mode="indeterminate" diameter="24" />
+              <p>Vorlagen werden geladen ...</p>
+            </div>
+          } @else if (templatesError()) {
+            <div class="cv-preview-export__error">
+              <p>{{ templatesError() }}</p>
+              <button mat-stroked-button type="button" (click)="loadTemplates()">Erneut versuchen</button>
+            </div>
+          } @else {
+            <mat-button-toggle-group [formControl]="templateIdControl" aria-label="Vorlage wählen">
+              @for (template of templates(); track template.id) {
+                <mat-button-toggle [value]="template.id">{{ template.label }}</mat-button-toggle>
+              }
+            </mat-button-toggle-group>
           }
-        </mat-button-toggle-group>
-      }
+        </div>
+      </div>
 
       <div class="cv-preview-export__actions">
         <button
@@ -135,6 +152,23 @@ const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
         }
       }
 
+      &__picker-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+      }
+
+      &__control {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      &__control-label {
+        font-size: 0.8125rem;
+        color: rgba(0, 0, 0, 0.6);
+      }
+
       &__actions {
         display: flex;
         gap: 12px;
@@ -174,6 +208,8 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
   @Input({ required: true }) projectsArray!: FormArray<FormGroup>;
   /** Von der Elternform gehaltene FormControl (KTD8) - round-tripped über `save()`/`PATCH /profile`. */
   @Input({ required: true }) templateIdControl!: FormControl<string | null>;
+  /** Von der Elternform gehaltene FormControl: die gewählte Dokumentsprache. */
+  @Input({ required: true }) documentLanguageControl!: FormControl<DocumentLanguage | null>;
 
   protected readonly templates = signal<CvTemplate[]>([]);
   protected readonly templatesLoading = signal(true);
@@ -290,6 +326,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
 
     return {
       template_id: templateId,
+      document_language: this.documentLanguageControl.value,
       summary: this.summaryControl.value,
       berufsbezeichnung: this.berufsbezeichnungControl.value,
       experiences_json: this.experiencesArray.getRawValue() as ExperienceEntry[],
