@@ -102,6 +102,30 @@ def test_master_profile_base_rejects_plain_string_skills_json() -> None:
         MasterProfileBase(full_name="Max Mustermann", email="max@example.com", skills_json=["Python"])
 
 
+# --- MasterProfileBase.document_language (U1) -------------------------------
+
+
+def test_master_profile_base_defaults_document_language_to_none() -> None:
+    profile = MasterProfileBase(full_name="Max Mustermann", email="max@example.com")
+
+    assert profile.document_language is None
+
+
+def test_master_profile_base_accepts_de_and_en_document_language() -> None:
+    for language in ("de", "en"):
+        profile = MasterProfileBase(
+            full_name="Max Mustermann",
+            email="max@example.com",
+            document_language=language,
+        )
+        assert profile.document_language == language
+
+
+def test_master_profile_base_rejects_unknown_document_language() -> None:
+    with pytest.raises(ValidationError):
+        MasterProfileBase(full_name="Max Mustermann", email="max@example.com", document_language="fr")
+
+
 # --- Migration 17c15ce91b4e: skills_json backfill ---------------------------
 
 
@@ -205,6 +229,32 @@ def test_migration_upgrade_downgrade_upgrade_round_trips(migration_db) -> None:
     import json
 
     assert json.loads(row.skills_json) == [{"name": "Python", "level": "Grundkenntnisse"}]
+
+
+def test_migration_adds_and_drops_document_language(migration_db) -> None:
+    """U1: `e2b7c9a41f60` adds the nullable `document_language` column and its
+    downgrade removes it again, leaving existing rows with `NULL` (English)."""
+    alembic_cfg, engine = migration_db
+    _insert_master_profile(engine, email="language@example.com", skills_json="[]")
+
+    upgrade(alembic_cfg, "head")
+
+    with engine.connect() as conn:
+        columns_after_upgrade = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
+        row = conn.execute(
+            sa.text("SELECT document_language FROM master_profiles WHERE email = :email"),
+            {"email": "language@example.com"},
+        ).fetchone()
+
+    assert "document_language" in columns_after_upgrade
+    assert row.document_language is None
+
+    downgrade(alembic_cfg, "c3d5e7f9a1b2")
+
+    with engine.connect() as conn:
+        columns_after_downgrade = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
+
+    assert "document_language" not in columns_after_downgrade
 
 
 # --- Merge revision d98463c22408: heals a database stuck on one sibling ----

@@ -26,6 +26,7 @@ from app.db.database import get_db
 from app.models.master_profile import MasterProfile
 from app.schemas.master_profile import (
     CvParseResponse,
+    DocumentLanguage,
     EducationEntry,
     ExperienceEntry,
     LanguageEntry,
@@ -57,6 +58,7 @@ class CvRenderRequest(BaseModel):
     """
 
     template_id: CvTemplateId
+    document_language: DocumentLanguage | None = None
     summary: str | None = None
     berufsbezeichnung: str | None = Field(default=None, max_length=255)
     experiences_json: list[ExperienceEntry] = Field(default_factory=list)
@@ -93,6 +95,7 @@ def _render_cv_for_current_profile(
     try:
         pdf_bytes = render_cv_pdf(
             template_id=payload.template_id,
+            document_language=payload.document_language or profile.document_language,
             full_name=profile.full_name,
             email=profile.email,
             phone=profile.phone,

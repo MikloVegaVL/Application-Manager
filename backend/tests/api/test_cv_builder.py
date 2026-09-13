@@ -323,6 +323,43 @@ def test_preview_and_export_use_the_same_renderer_with_different_modes(client_wi
     assert render_spy.call_args.kwargs["preview"] is False
 
 
+def test_preview_forwards_request_document_language(client_with_session, mocker):
+    """R4/U4: die im Request mitgeschickte Dokumentsprache erreicht den
+    Renderer unverändert."""
+    test_client, session_local = client_with_session
+    _create_profile(session_local)
+    render_spy = mocker.spy(cv_builder_module, "render_cv_pdf")
+    payload = {**_RENDER_PAYLOAD, "document_language": "de"}
+
+    response = test_client.post("/api/cv-builder/preview", json=payload)
+
+    assert response.status_code == 200
+    assert render_spy.call_args.kwargs["document_language"] == "de"
+
+
+def test_render_language_falls_back_to_stored_profile_language(client_with_session, mocker):
+    """KTD3: fehlt die Sprache im Request, gilt die auf dem Profil gespeicherte
+    Wahl."""
+    test_client, session_local = client_with_session
+    _create_profile(session_local, document_language="de")
+    render_spy = mocker.spy(cv_builder_module, "render_cv_pdf")
+
+    response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD)
+
+    assert response.status_code == 200
+    assert render_spy.call_args.kwargs["document_language"] == "de"
+
+
+def test_render_rejects_unknown_document_language(client_with_session):
+    test_client, session_local = client_with_session
+    _create_profile(session_local)
+    payload = {**_RENDER_PAYLOAD, "document_language": "fr"}
+
+    response = test_client.post("/api/cv-builder/preview", json=payload)
+
+    assert response.status_code == 422
+
+
 def test_preview_and_export_render_successfully_with_template_2(client_with_session):
     """R1/R2: `template-2` ist eine vollwertige, wählbare Vorlage wie
     `classic`/`template-1` - Vorschau und Export müssen mit ihr genauso

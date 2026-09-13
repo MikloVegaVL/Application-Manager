@@ -1,14 +1,14 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ doc_lang }}">
 <head>
 <meta charset="utf-8">
-<title>Resume - {{ full_name }}</title>
+<title>{{ doc.title }} - {{ full_name }}</title>
 <style>
   @page {
     size: A4;
     margin: 0;
     @bottom-center {
-      content: "Page " counter(page) " of " counter(pages);
+      content: "{{ doc.page_prefix }} " counter(page) " {{ doc.page_of }} " counter(pages);
       font-size: 8pt;
       color: #999;
     }
@@ -138,9 +138,9 @@
 <body>
   <div class="header">
     {% if photo_url %}
-    <img class="photo" src="{{ photo_url }}" alt="Profile photo">
+    <img class="photo" src="{{ photo_url }}" alt="{{ doc.photo_alt }}">
     {% elif preview %}
-    <div class="photo photo--placeholder">Photo</div>
+    <div class="photo photo--placeholder">{{ doc.photo_placeholder }}</div>
     {% endif %}
     <div>
       <div class="header__name">{{ full_name }}</div>
@@ -154,13 +154,13 @@
   <section class="cv">
     <div class="main">
       {% if summary or preview %}
-      <h2 class="section-title">Profile</h2>
+      <h2 class="section-title">{{ doc.profile }}</h2>
       {% if summary %}<p>{{ summary }}</p>
       {% elif preview %}<p class="ph">{{ sample.summary }}</p>{% endif %}
       {% endif %}
 
       {% if experiences or preview %}
-      <h2 class="section-title">Experience</h2>
+      <h2 class="section-title">{{ doc.experience }}</h2>
       {% set exp_list = experiences if experiences else sample.experiences %}
       {% set exp_sample = not experiences %}
       {% for exp in exp_list %}
@@ -176,7 +176,7 @@
       {% endif %}
 
       {% if education or preview %}
-      <h2 class="section-title">Education</h2>
+      <h2 class="section-title">{{ doc.education }}</h2>
       {% set edu_list = education if education else sample.education %}
       {% set edu_sample = not education %}
       {% for edu in edu_list %}
@@ -189,7 +189,7 @@
       {% endif %}
 
       {% if projects or preview %}
-      <h2 class="section-title">Projects</h2>
+      <h2 class="section-title">{{ doc.projects }}</h2>
       {% set project_list = projects if projects else sample.projects %}
       {% set project_sample = not projects %}
       {% for project in project_list %}
@@ -207,7 +207,7 @@
     </div>
 
     <aside class="sidebar">
-      <h2 class="section-title">Contact</h2>
+      <h2 class="section-title">{{ doc.contact }}</h2>
       <ul class="contact-list">
         <li>{{ email }}</li>
         {% if phone %}<li>{{ phone }}</li>
@@ -217,7 +217,7 @@
       </ul>
 
       {% if skills_ctx or preview %}
-      <h2 class="section-title">Skills</h2>
+      <h2 class="section-title">{{ doc.skills }}</h2>
       {% set skill_list = skills_ctx if skills_ctx else sample_skills_ctx %}
       {% set skill_sample = not skills_ctx %}
       {% for skill in skill_list %}
@@ -232,7 +232,7 @@
       {% endif %}
 
       {% if languages_ctx or preview %}
-      <h2 class="section-title">Languages</h2>
+      <h2 class="section-title">{{ doc.languages }}</h2>
       {% set lang_list = languages_ctx if languages_ctx else sample_languages_ctx %}
       {% set lang_sample = not languages_ctx %}
       {% for language in lang_list %}

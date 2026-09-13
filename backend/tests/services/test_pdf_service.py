@@ -191,6 +191,109 @@ class TestSkillLevelBlocksAndLanguageLevelDots:
         assert not hasattr(pdf_service, "_OTHER_SKILL_CATEGORY")
 
 
+class TestDocumentLanguageLocalization:
+    """R4/R5/R8/KTD1/KTD4/KTD5: die feste Dokument-Chrome und das
+    Vorschau-Skeleton folgen der gewählten Dokumentsprache; Nutzerinhalte
+    werden nie übersetzt (R6)."""
+
+    def test_doc_chrome_defines_every_key_for_both_languages(self):
+        expected = {
+            "title",
+            "page_prefix",
+            "page_of",
+            "photo_alt",
+            "photo_placeholder",
+            "contact",
+            "profile",
+            "experience",
+            "education",
+            "skills",
+            "languages",
+            "projects",
+        }
+
+        assert set(pdf_service._DOC_CHROME["en"]) == expected
+        assert set(pdf_service._DOC_CHROME["de"]) == expected
+
+    def test_format_date_range_localizes_open_ended_ranges(self):
+        assert pdf_service._format_date_range("2021", None, "en") == "2021 – present"
+        assert pdf_service._format_date_range("2021", None, "de") == "seit 2021"
+        assert pdf_service._format_date_range("2020", "2022", "de") == "2020 – 2022"
+        assert pdf_service._format_date_range(None, None, "en") == ""
+
+    def test_german_skill_level_labels_are_the_enum_values(self, mocker):
+        content = _full_content()
+        content["skills"] = [SkillEntry(name="Python", level="Sehr gut")]
+
+        rendered = _rendered_html(mocker, template_id="classic", document_language="de", **content)
+
+        assert 'Python <span class="tag__level">&mdash; Sehr gut</span>' in rendered
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_german_render_localizes_chrome(self, mocker, template_id):
+        rendered = _rendered_html(
+            mocker, template_id=template_id, document_language="de", **_full_content()
+        )
+
+        assert 'lang="de"' in rendered
+        assert "Lebenslauf -" in rendered
+        assert "Seite " in rendered
+        for heading in ("Profil", "Berufserfahrung", "Ausbildung", "Sprachen", "Projekte"):
+            assert heading in rendered
+        for english_only in ("Profile", "Experience", "Education", "Languages", "Projects"):
+            assert english_only not in rendered
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_default_render_stays_english(self, mocker, template_id):
+        rendered = _rendered_html(mocker, template_id=template_id, **_full_content())
+
+        assert 'lang="en"' in rendered
+        assert "Resume -" in rendered
+        for heading in ("Profile", "Experience", "Education", "Skills", "Languages", "Projects"):
+            assert heading in rendered
+
+    def test_user_content_is_never_translated(self, mocker):
+        content = _full_content()
+        content["summary"] = "Hand-typed English summary stays as-is."
+
+        rendered = _rendered_html(mocker, template_id="classic", document_language="de", **content)
+
+        assert "Hand-typed English summary stays as-is." in rendered
+
+    def test_german_preview_uses_german_sample(self, mocker):
+        rendered = _rendered_html(
+            mocker, template_id="classic", document_language="de", preview=True, **_empty_content()
+        )
+
+        assert "Erfahrene Fachkraft" in rendered
+        assert "seit 2022" in rendered
+
+    def test_english_preview_uses_english_sample(self, mocker):
+        rendered = _rendered_html(mocker, template_id="classic", preview=True, **_empty_content())
+
+        assert "Experienced professional" in rendered
+
+    def test_explicit_sample_overrides_language_selection(self, mocker):
+        rendered = _rendered_html(
+            mocker,
+            template_id="classic",
+            document_language="de",
+            preview=True,
+            sample=pdf_service.SAMPLE_EN,
+            **_empty_content(),
+        )
+
+        assert "Experienced professional" in rendered
+
+    def test_unknown_document_language_falls_back_to_english(self, mocker):
+        rendered = _rendered_html(
+            mocker, template_id="classic", document_language="fr", **_full_content()
+        )
+
+        assert 'lang="en"' in rendered
+        assert "Profile" in rendered
+
+
 class TestRenderCvPdfSkillsAndLanguagesContext:
     """`render_cv_pdf` reichert jeden Skill/jede Sprache serverseitig mit den
     Anzeige-Metadaten für den 5-Block-Balken bzw. den 6-Punkte-CEFR-Indikator
@@ -422,7 +525,7 @@ class TestClassicPerSkillRendering:
             mocker, template_id="classic", preview=True, **_empty_content()
         )
 
-        sample_skill = pdf_service.SAMPLE["skills"][0]
+        sample_skill = pdf_service.SAMPLE_EN["skills"][0]
         assert sample_skill["name"] in rendered
         assert "tag__category" not in rendered
 
@@ -738,7 +841,7 @@ class TestRenderCvPdfPreviewMode:
             mocker,
             template_id="classic",
             preview=False,
-            sample=pdf_service.SAMPLE,
+            sample=pdf_service.SAMPLE_EN,
             **_empty_content(),
         )
 
@@ -778,13 +881,13 @@ class TestRenderCvPdfPreviewMode:
     def test_empty_berufsbezeichnung_shows_sample_in_preview(self, mocker, template_id):
         rendered = self._capture(mocker, template_id=template_id, preview=True, **_empty_content())
 
-        assert pdf_service.SAMPLE["berufsbezeichnung"] in rendered
+        assert pdf_service.SAMPLE_EN["berufsbezeichnung"] in rendered
 
     @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
     def test_empty_berufsbezeichnung_absent_in_export(self, mocker, template_id):
         rendered = self._capture(mocker, template_id=template_id, preview=False, **_empty_content())
 
-        assert pdf_service.SAMPLE["berufsbezeichnung"] not in rendered
+        assert pdf_service.SAMPLE_EN["berufsbezeichnung"] not in rendered
 
     @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
     def test_preview_without_photo_shows_placeholder(self, mocker, template_id):

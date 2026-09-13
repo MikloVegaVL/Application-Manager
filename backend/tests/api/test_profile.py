@@ -205,6 +205,47 @@ def test_patch_profile_round_trips_berufsbezeichnung(client, tmp_path, monkeypat
     assert untouched.json()["berufsbezeichnung"] == "Frontend Developer"
 
 
+def test_patch_profile_round_trips_document_language(client, tmp_path, monkeypatch):
+    """U1: `document_language` persistiert und lädt; ohne das Feld im Payload
+    bleibt der Wert unangetastet (`exclude_unset`)."""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch("/api/profile", json={"document_language": "de"})
+
+    assert response.status_code == 200
+    assert response.json()["document_language"] == "de"
+
+    reloaded = test_client.get("/api/profile")
+    assert reloaded.status_code == 200
+    assert reloaded.json()["document_language"] == "de"
+
+    untouched = test_client.patch("/api/profile", json={"summary": "Neu"})
+    assert untouched.json()["document_language"] == "de"
+
+
+def test_get_profile_defaults_document_language_to_null(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.get("/api/profile")
+
+    assert response.status_code == 200
+    assert response.json()["document_language"] is None
+
+
+def test_patch_profile_rejects_unknown_document_language(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch("/api/profile", json={"document_language": "fr"})
+
+    assert response.status_code == 422
+
+
 def test_patch_profile_round_trips_template_2(client, tmp_path, monkeypatch):
     """R2/U4: `template_id: "template-2"` persistiert und lädt genauso
     korrekt wieder, wie es bereits für `classic`/`template-1` gilt (siehe

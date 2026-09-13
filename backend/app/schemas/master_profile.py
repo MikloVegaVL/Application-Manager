@@ -13,6 +13,13 @@ SkillLevel = Literal["Grundkenntnisse", "Gut", "Sehr gut", "Experte"]
 # (A1-C2), kein bespoke-Design nötig.
 LanguageLevel = Literal["A1", "A2", "B1", "B2", "C1", "C2"]
 
+# Die Sprache, in der die feste Dokument-Chrome des generierten Lebenslaufs
+# gerendert wird (Überschriften, Kompetenzgrade, Datums-Wording, Footer, Titel,
+# Foto-Platzhalter). `None` bedeutet "noch keine Wahl" und rendert Englisch.
+# Nutzer- und KI-Inhalte werden dabei nie übersetzt - siehe
+# `docs/plans/2026-09-13-002-feat-cv-document-language-plan.md`.
+DocumentLanguage = Literal["de", "en"]
+
 class SkillEntry(BaseModel):
     """Ein Skill mit Kompetenzgrad (siehe KTD3).
 
@@ -81,6 +88,7 @@ class MasterProfileBase(BaseModel):
     projects_json: list[ProjectEntry] = Field(default_factory=list)
     photo_filename: str | None = None
     template_id: str | None = None
+    document_language: DocumentLanguage | None = None
 
 
 class MasterProfileCreate(MasterProfileBase):
@@ -111,6 +119,7 @@ class MasterProfileUpdate(BaseModel):
     languages_json: list[LanguageEntry] | None = None
     projects_json: list[ProjectEntry] | None = None
     template_id: str | None = None
+    document_language: DocumentLanguage | None = None
 
 
 class ProfileAttachmentRead(BaseModel):
