@@ -218,8 +218,10 @@ def test_list_templates_returns_the_configured_template_ids(client):
     assert response.status_code == 200
     body = response.json()
     ids = {template["id"] for template in body}
-    assert ids == {"classic", "template-1"}
+    assert ids == {"classic", "template-1", "template-2"}
     assert all("label" in template for template in body)
+    labels_by_id = {template["id"]: template["label"] for template in body}
+    assert labels_by_id["template-2"] == "Template 2"
 
 
 # --- POST /cv-builder/preview & /export -----------------------------------
@@ -313,6 +315,23 @@ def test_preview_and_export_use_the_same_renderer_with_different_modes(client_wi
     export_response = test_client.post("/api/cv-builder/export", json=_RENDER_PAYLOAD)
     assert export_response.status_code == 200
     assert render_spy.call_args.kwargs["preview"] is False
+
+
+def test_preview_and_export_render_successfully_with_template_2(client_with_session):
+    """R1/R2: `template-2` ist eine vollwertige, wählbare Vorlage wie
+    `classic`/`template-1` - Vorschau und Export müssen mit ihr genauso
+    durchlaufen."""
+    test_client, session_local = client_with_session
+    _create_profile(session_local)
+    payload = {**_RENDER_PAYLOAD, "template_id": "template-2"}
+
+    preview_response = test_client.post("/api/cv-builder/preview", json=payload)
+    export_response = test_client.post("/api/cv-builder/export", json=payload)
+
+    assert preview_response.status_code == 200
+    assert preview_response.content.startswith(b"%PDF")
+    assert export_response.status_code == 200
+    assert export_response.content.startswith(b"%PDF")
 
 
 def test_render_rejects_legacy_modern_template_id(client_with_session):

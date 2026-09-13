@@ -45,11 +45,12 @@ _env = Environment(
 # Template-IDs: `CvTemplateId` treibt sowohl die Pydantic-Validierung des
 # Preview-/Export-Payloads (unbekannte ID -> automatisch 422 durch FastAPI)
 # als auch `GET /cv-builder/templates` (siehe `app.api.cv_builder`).
-CvTemplateId = Literal["classic", "template-1"]
+CvTemplateId = Literal["classic", "template-1", "template-2"]
 
 CV_TEMPLATES: list[dict[str, str]] = [
     {"id": "classic", "label": "Classic"},
     {"id": "template-1", "label": "Template 1"},
+    {"id": "template-2", "label": "Template 2"},
 ]
 
 

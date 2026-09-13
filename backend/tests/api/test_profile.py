@@ -205,6 +205,25 @@ def test_patch_profile_round_trips_berufsbezeichnung(client, tmp_path, monkeypat
     assert untouched.json()["berufsbezeichnung"] == "Frontend Developer"
 
 
+def test_patch_profile_round_trips_template_2(client, tmp_path, monkeypatch):
+    """R2/U4: `template_id: "template-2"` persistiert und lädt genauso
+    korrekt wieder, wie es bereits für `classic`/`template-1` gilt (siehe
+    z. B. `test_patch_profile_partial_payload_leaves_other_fields_untouched`
+    oben)."""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch("/api/profile", json={"template_id": "template-2"})
+
+    assert response.status_code == 200
+    assert response.json()["template_id"] == "template-2"
+
+    reloaded = test_client.get("/api/profile")
+    assert reloaded.status_code == 200
+    assert reloaded.json()["template_id"] == "template-2"
+
+
 def test_put_profile_round_trips_berufsbezeichnung(client, tmp_path, monkeypatch):
     test_client, _session_local = client
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
