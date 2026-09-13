@@ -7,6 +7,8 @@ Kompetenzgrad statt reiner Namens-Strings, `ProjectEntry`, Foto,
 Template-Auswahl)."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from app.schemas.master_profile import EducationEntry, ExperienceEntry, LanguageEntry, ProjectEntry, SkillEntry
@@ -352,6 +354,39 @@ class TestMultiPageFragmentation:
         first_page_text = reader.pages[0].extract_text() or ""
         assert "erika musterfrau" in first_page_text.lower()
 
+    def test_template_4_keeps_the_name_on_page_1_when_the_sidebar_overflows(self):
+        """Wie oben (template-1/2/3), aber für Template 4: die volle Höhe
+        einnehmende Sidebar (Foto/Kontakt/Skills/Sprachen/Ausbildung) liegt
+        NEBEN der Hauptspalte in derselben `display:table`-Zeile - eine
+        Sidebar, die länger als eine Seite ist, darf die Hauptspalte inkl.
+        Name nicht komplett auf Seite 2 schieben."""
+        content = _empty_content()
+        content["summary"] = "Summary text that belongs on the first page."
+        content["languages"] = [
+            LanguageEntry(name=f"Language {i}", level="B2") for i in range(60)
+        ]
+        content["education"] = [
+            EducationEntry(
+                institution=f"University {i}",
+                degree="B.Sc.",
+                field_of_study="Computer Science",
+                start_date="2010",
+                end_date="2014",
+            )
+            for i in range(40)
+        ]
+
+        pdf_bytes = pdf_service.render_cv_pdf(template_id="template-4", **content)
+
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        reader = PdfReader(BytesIO(pdf_bytes))
+        assert len(reader.pages) > 1
+        first_page_text = reader.pages[0].extract_text() or ""
+        assert "erika musterfrau" in first_page_text.lower()
+
 
 class TestClassicPerSkillRendering:
     """R5: Classic listet jeden Skill einzeln als Klartext mit englischem
@@ -564,6 +599,116 @@ class TestTemplate3PerSkillRendering:
         name_pos = rendered.index('<div class="header__name">')
         title_pos = rendered.index('<div class="header__title">')
         assert name_pos < title_pos
+
+
+class TestTemplate4PerSkillRendering:
+    """R3/R4/R6: Template 4 rendert jeden Skill als eigene Zeile mit einem
+    5-Block-Balken und jede Sprache mit dem 6-Punkte-CEFR-Indikator - wie
+    Template 1/2/3, nur im teal/navy-Farbschema der Referenzvorlage mit
+    volle-Höhe-Sidebar und zentriertem Namen in der Hauptspalte."""
+
+    def _rendered(self, mocker, **kwargs) -> str:
+        mock_html_cls = mocker.patch.object(pdf_service, "HTML")
+        mock_html_cls.return_value.write_pdf.return_value = b"%PDF-1.4 fake bytes"
+        pdf_service.render_cv_pdf(**kwargs)
+        return mock_html_cls.call_args.kwargs["string"]
+
+    def test_renders_five_block_bar_with_correct_filled_count_per_level(self, mocker):
+        content = _full_content()
+        content["skills"] = [
+            SkillEntry(name="Python", level="Experte"),
+            SkillEntry(name="SQL", level="Grundkenntnisse"),
+        ]
+
+        rendered = self._rendered(mocker, template_id="template-4", **content)
+
+        # Experte -> 5/5 gefüllt (kein "off"), Grundkenntnisse -> 2/5 gefüllt (3x "off").
+        assert '<i></i><i></i><i></i><i></i><i></i>' in rendered
+        assert '<i></i><i></i><i class="off"></i><i class="off"></i><i class="off"></i>' in rendered
+
+    def test_ktd10_hidden_level_text_present_for_skills_and_languages(self, mocker):
+        content = _full_content()
+        content["skills"] = [SkillEntry(name="Python", level="Experte")]
+        content["languages"] = [LanguageEntry(name="Deutsch", level="C2")]
+
+        rendered = self._rendered(mocker, template_id="template-4", **content)
+
+        assert '<span class="sr-only">Expert</span>' in rendered
+        assert '<span class="sr-only">C2</span>' in rendered
+
+    def test_language_dots_reflect_the_entered_cefr_level(self, mocker):
+        content = _full_content()
+        content["languages"] = [LanguageEntry(name="Deutsch", level="B2")]
+
+        rendered = self._rendered(mocker, template_id="template-4", **content)
+
+        # B2 -> 4/6 gefüllt.
+        assert (
+            '<i></i><i></i><i></i><i></i><i class="off"></i><i class="off"></i>' in rendered
+        )
+
+    def test_no_category_or_grouping_markup_remains(self, mocker):
+        content = _full_content()
+        content["skills"] = [SkillEntry(name="Python", level="Experte")]
+
+        rendered = self._rendered(mocker, template_id="template-4", **content)
+
+        assert "category" not in rendered.lower()
+
+    def test_language_dots_are_circular_not_bars(self):
+        """R6/Product-Contract-Key-Decision: Sprachen bekommen den
+        6-Punkte-Kreis-Indikator, nicht die rechteckige Balkenform der
+        Skill-Blöcke - auch wenn die statische Referenzvorlage für Template 4
+        an dieser Stelle bereits Kreise nutzt, wird das hier explizit
+        gegengeprüft, damit eine künftige Änderung die Regression aus U5
+        (Template 3, Balken statt Kreise) nicht wiederholt."""
+        template_path = (
+            Path(__file__).resolve().parent.parent.parent
+            / "app"
+            / "templates"
+            / "cv"
+            / "template-4.html"
+        )
+        css = template_path.read_text()
+
+        dots_rule_start = css.index(".dots i {")
+        dots_rule_end = css.index("}", dots_rule_start)
+        dots_rule = css[dots_rule_start:dots_rule_end]
+        assert "border-radius: 50%" in dots_rule
+
+        blocks_rule_start = css.index(".blocks i {")
+        blocks_rule_end = css.index("}", blocks_rule_start)
+        blocks_rule = css[blocks_rule_start:blocks_rule_end]
+        assert "border-radius: 50%" not in blocks_rule
+
+    def test_berufsbezeichnung_renders_beneath_the_centered_name(self, mocker):
+        """KTD7/Plan-Annahme: Berufsbezeichnung rendert in allen neuen
+        Vorlagen konsistent unter dem Namen - hier zusätzlich im zentrierten
+        Kopfblock der Hauptspalte (nicht in der Sidebar)."""
+        content = _full_content()
+        content["berufsbezeichnung"] = "Full-Stack Developer"
+
+        rendered = self._rendered(mocker, template_id="template-4", **content)
+
+        assert '<div class="header-band__name">Max Mustermann</div>' in rendered
+        assert "Full-Stack Developer" in rendered
+        name_pos = rendered.index('<div class="header-band__name">')
+        title_pos = rendered.index('<div class="header-band__title">')
+        assert name_pos < title_pos
+
+    def test_no_photo_preview_shows_placeholder_with_photo_present_omits_it(self, mocker):
+        content = _full_content()
+        content["skills"] = []
+
+        rendered_no_photo_preview = self._rendered(
+            mocker, template_id="template-4", preview=True, **_empty_content()
+        )
+        assert 'class="photo photo--placeholder"' in rendered_no_photo_preview
+
+        rendered_export_no_photo = self._rendered(
+            mocker, template_id="template-4", preview=False, **content
+        )
+        assert "<img" not in rendered_export_no_photo
 
 
 class TestRenderCvPdfErrorHandling:

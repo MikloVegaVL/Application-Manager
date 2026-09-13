@@ -242,6 +242,25 @@ def test_patch_profile_round_trips_template_3(client, tmp_path, monkeypatch):
     assert reloaded.json()["template_id"] == "template-3"
 
 
+def test_patch_profile_round_trips_template_4(client, tmp_path, monkeypatch):
+    """R2/U6: `template_id: "template-4"` persistiert und lädt genauso
+    korrekt wieder, wie es bereits für `classic`/`template-1`/`template-2`/
+    `template-3` gilt (siehe `test_patch_profile_round_trips_template_3`
+    oben)."""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch("/api/profile", json={"template_id": "template-4"})
+
+    assert response.status_code == 200
+    assert response.json()["template_id"] == "template-4"
+
+    reloaded = test_client.get("/api/profile")
+    assert reloaded.status_code == 200
+    assert reloaded.json()["template_id"] == "template-4"
+
+
 def test_put_profile_round_trips_berufsbezeichnung(client, tmp_path, monkeypatch):
     test_client, _session_local = client
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
