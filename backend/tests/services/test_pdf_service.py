@@ -246,8 +246,22 @@ class TestDocumentLanguageLocalization:
             assert english_only not in rendered
 
     @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
-    def test_default_render_stays_english(self, mocker, template_id):
+    def test_default_render_uses_german(self, mocker, template_id):
+        """KTD3: ohne Angabe gilt die App-Standardsprache Deutsch."""
         rendered = _rendered_html(mocker, template_id=template_id, **_full_content())
+
+        assert 'lang="de"' in rendered
+        assert "Lebenslauf -" in rendered
+        assert "Seite " in rendered
+        assert " von " in rendered
+        for heading in ("Profil", "Berufserfahrung", "Ausbildung", "Sprachen", "Projekte"):
+            assert heading in rendered
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_english_render_localizes_chrome(self, mocker, template_id):
+        rendered = _rendered_html(
+            mocker, template_id=template_id, document_language="en", **_full_content()
+        )
 
         assert 'lang="en"' in rendered
         assert "Resume -" in rendered
@@ -287,7 +301,7 @@ class TestDocumentLanguageLocalization:
         ]
 
         german = _rendered_html(mocker, template_id="classic", document_language="de", **content)
-        english = _rendered_html(mocker, template_id="classic", **content)
+        english = _rendered_html(mocker, template_id="classic", document_language="en", **content)
 
         assert "seit 2021" in german
         assert "2021 – present" in english
@@ -318,7 +332,9 @@ class TestDocumentLanguageLocalization:
         assert "seit 2022" in rendered
 
     def test_english_preview_uses_english_sample(self, mocker):
-        rendered = _rendered_html(mocker, template_id="classic", preview=True, **_empty_content())
+        rendered = _rendered_html(
+            mocker, template_id="classic", document_language="en", preview=True, **_empty_content()
+        )
 
         assert "Experienced professional" in rendered
 
@@ -334,13 +350,13 @@ class TestDocumentLanguageLocalization:
 
         assert "Experienced professional" in rendered
 
-    def test_unknown_document_language_falls_back_to_english(self, mocker):
+    def test_unknown_document_language_falls_back_to_german(self, mocker):
         rendered = _rendered_html(
             mocker, template_id="classic", document_language="fr", **_full_content()
         )
 
-        assert 'lang="en"' in rendered
-        assert "Profile" in rendered
+        assert 'lang="de"' in rendered
+        assert "Profil" in rendered
 
 
 class TestRenderCvPdfSkillsAndLanguagesContext:
@@ -366,7 +382,7 @@ class TestRenderCvPdfSkillsAndLanguagesContext:
             SkillEntry(name="SQL", level="Grundkenntnisse"),
         ]
 
-        kwargs = self._rendered_kwargs(mocker, template_id="classic", **content)
+        kwargs = self._rendered_kwargs(mocker, template_id="classic", document_language="en", **content)
 
         skills_ctx = kwargs["skills_ctx"]
         assert [skill["name"] for skill in skills_ctx] == ["Python", "SQL"]
@@ -562,7 +578,7 @@ class TestClassicPerSkillRendering:
             SkillEntry(name="SQL", level="Gut"),
         ]
 
-        rendered = _rendered_html(mocker, template_id="classic", **content)
+        rendered = _rendered_html(mocker, template_id="classic", document_language="en", **content)
 
         assert "Python <span class=\"tag__level\">&mdash; Expert</span>" in rendered
         assert "SQL <span class=\"tag__level\">&mdash; Good</span>" in rendered
@@ -571,7 +587,7 @@ class TestClassicPerSkillRendering:
 
     def test_sample_skills_render_individually_in_preview(self, mocker):
         rendered = _rendered_html(
-            mocker, template_id="classic", preview=True, **_empty_content()
+            mocker, template_id="classic", document_language="en", preview=True, **_empty_content()
         )
 
         sample_skill = pdf_service.SAMPLE_EN["skills"][0]
@@ -611,7 +627,7 @@ class TestTemplate1PerSkillRendering:
         content["skills"] = [SkillEntry(name="Python", level="Experte")]
         content["languages"] = [LanguageEntry(name="Deutsch", level="C2")]
 
-        rendered = _rendered_html(mocker, template_id="template-1", **content)
+        rendered = _rendered_html(mocker, template_id="template-1", document_language="en", **content)
 
         assert '<span class="sr-only">Expert</span>' in rendered
         assert '<span class="sr-only">C2</span>' in rendered
@@ -650,7 +666,7 @@ class TestTemplate2PerSkillRendering:
         content["skills"] = [SkillEntry(name="Python", level="Experte")]
         content["languages"] = [LanguageEntry(name="Deutsch", level="C2")]
 
-        rendered = _rendered_html(mocker, template_id="template-2", **content)
+        rendered = _rendered_html(mocker, template_id="template-2", document_language="en", **content)
 
         assert '<span class="sr-only">Expert</span>' in rendered
         assert '<span class="sr-only">C2</span>' in rendered
@@ -699,7 +715,7 @@ class TestTemplate3PerSkillRendering:
         content["skills"] = [SkillEntry(name="Python", level="Experte")]
         content["languages"] = [LanguageEntry(name="Deutsch", level="C2")]
 
-        rendered = _rendered_html(mocker, template_id="template-3", **content)
+        rendered = _rendered_html(mocker, template_id="template-3", document_language="en", **content)
 
         assert '<span class="sr-only">Expert</span>' in rendered
         assert '<span class="sr-only">C2</span>' in rendered
@@ -763,7 +779,7 @@ class TestTemplate4PerSkillRendering:
         content["skills"] = [SkillEntry(name="Python", level="Experte")]
         content["languages"] = [LanguageEntry(name="Deutsch", level="C2")]
 
-        rendered = _rendered_html(mocker, template_id="template-4", **content)
+        rendered = _rendered_html(mocker, template_id="template-4", document_language="en", **content)
 
         assert '<span class="sr-only">Expert</span>' in rendered
         assert '<span class="sr-only">C2</span>' in rendered
@@ -872,14 +888,18 @@ class TestRenderCvPdfPreviewMode:
 
     @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
     def test_preview_renders_all_canonical_sections(self, mocker, template_id):
-        rendered = self._capture(mocker, template_id=template_id, preview=True, **_empty_content())
+        rendered = self._capture(
+            mocker, template_id=template_id, document_language="en", preview=True, **_empty_content()
+        )
 
         for heading in ("Profile", "Experience", "Education", "Skills", "Languages", "Projects"):
             assert heading in rendered
 
     @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
     def test_preview_fills_empty_sections_with_muted_sample_content(self, mocker, template_id):
-        rendered = self._capture(mocker, template_id=template_id, preview=True, **_empty_content())
+        rendered = self._capture(
+            mocker, template_id=template_id, document_language="en", preview=True, **_empty_content()
+        )
 
         assert "Experienced professional" in rendered
         assert "Example GmbH" in rendered
@@ -889,6 +909,7 @@ class TestRenderCvPdfPreviewMode:
         rendered = self._capture(
             mocker,
             template_id="classic",
+            document_language="en",
             preview=False,
             sample=pdf_service.SAMPLE_EN,
             **_empty_content(),
@@ -911,7 +932,9 @@ class TestRenderCvPdfPreviewMode:
             )
         ]
 
-        rendered = self._capture(mocker, template_id="classic", preview=True, **content)
+        rendered = self._capture(
+            mocker, template_id="classic", document_language="en", preview=True, **content
+        )
 
         assert "Acme GmbH" in rendered
         assert "Entwickler" in rendered
@@ -928,13 +951,17 @@ class TestRenderCvPdfPreviewMode:
 
     @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
     def test_empty_berufsbezeichnung_shows_sample_in_preview(self, mocker, template_id):
-        rendered = self._capture(mocker, template_id=template_id, preview=True, **_empty_content())
+        rendered = self._capture(
+            mocker, template_id=template_id, document_language="en", preview=True, **_empty_content()
+        )
 
         assert pdf_service.SAMPLE_EN["berufsbezeichnung"] in rendered
 
     @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
     def test_empty_berufsbezeichnung_absent_in_export(self, mocker, template_id):
-        rendered = self._capture(mocker, template_id=template_id, preview=False, **_empty_content())
+        rendered = self._capture(
+            mocker, template_id=template_id, document_language="en", preview=False, **_empty_content()
+        )
 
         assert pdf_service.SAMPLE_EN["berufsbezeichnung"] not in rendered
 

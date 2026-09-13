@@ -68,12 +68,30 @@ class TestAnalyzeCvTextHappyPath:
         assert mock_generate.call_args.kwargs["model"] == settings.OLLAMA_MODEL_CV_PARSING
 
 
-    def test_system_prompt_always_requests_english_output(self):
-        """Der CV wird immer auf Englisch erzeugt (ce-debug, 2026-09-12): das
-        Prompt muss die KI anweisen, alle Textwerte zu übersetzen."""
-        prompt = pdf_parser._SYSTEM_PROMPT
+    def test_system_prompt_defaults_to_german_output(self):
+        """R10 (Global Language Unification, 2026-09-13): der Default-Prompt
+        fordert Deutsch (App-Standardsprache) statt fest Englisch."""
+        assert "GERMAN" in pdf_parser._SYSTEM_PROMPT
 
-        assert "ENGLISH" in prompt
+    def test_system_prompt_targets_the_requested_language(self):
+        assert "GERMAN" in pdf_parser._build_system_prompt("de")
+        assert "ENGLISH" in pdf_parser._build_system_prompt("en")
+        # Genau eine Zielsprache pro Prompt - keine widersprüchliche Anweisung.
+        assert "ENGLISH" not in pdf_parser._build_system_prompt("de")
+        assert "GERMAN" not in pdf_parser._build_system_prompt("en")
+
+    def test_analyze_cv_text_forwards_language_to_the_prompt(self, mocker):
+        mock_generate = mocker.patch.object(
+            pdf_parser.llm_client, "generate_structured", return_value=VALID_PROFILE
+        )
+
+        pdf_parser.analyze_cv_text("Lebenslauf-Text von Max Mustermann.", language="en")
+
+        _called_model_cls, called_messages = mock_generate.call_args[0]
+        assert called_messages[0] == {
+            "role": "system",
+            "content": pdf_parser._build_system_prompt("en"),
+        }
 
     def test_system_prompt_no_longer_mentions_skill_category(self):
         """Skill-Kategorien wurden aus dem Produkt entfernt (R8, Session-

@@ -160,7 +160,9 @@ _LANGUAGE_LEVEL_DOTS: dict[str, int] = {
 # Strings lokal zu duplizieren. `title` ist das Substantiv im Dokumenttitel
 # (`<title>{{ doc.title }} - {{ full_name }}</title>`), `page_prefix`/`page_of`
 # bilden den `@page`-Footer. Die Nutzerinhalte werden nie übersetzt (R6).
-_DEFAULT_DOCUMENT_LANGUAGE: DocumentLanguage = "en"
+# KTD3 (Global Language Unification, 2026-09-13): die App-Standardsprache ist
+# Deutsch - fehlt/ungültig ist die Dokumentsprache, wird Deutsch gerendert.
+_DEFAULT_DOCUMENT_LANGUAGE: DocumentLanguage = "de"
 _DOC_CHROME: dict[DocumentLanguage, dict[str, str]] = {
     "en": {
         "lang": "en",
@@ -259,9 +261,9 @@ def render_cv_pdf(
     """Rendert den Lebenslauf als PDF (bytes).
 
     `template_id` wählt eines der `templates/cv/*.html`-Templates (R9).
-    `document_language` (`"de"`/`"en"`, `None` = Englisch) steuert die Sprache
+    `document_language` (`"de"`/`"en"`, `None` = Deutsch) steuert die Sprache
     der festen Dokument-Chrome (R4/R5) und des Vorschau-Skeletons (R8);
-    unbekannte Werte fallen auf Englisch zurück.
+    unbekannte Werte fallen auf die App-Standardsprache Deutsch zurück.
     `full_name`/`email`/`phone`/`address` sind die serverseitig aus dem
     gespeicherten `MasterProfile` gemergten Identitätsfelder (KTD11);
     `photo_path` ist der Dateisystempfad des gespeicherten Profilfotos

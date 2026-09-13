@@ -80,10 +80,19 @@ class MasterProfile(Base):
     # `None` bedeutet "noch keine Vorlage gewählt".
     template_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
-    # Sprache der festen Dokument-Chrome des generierten Lebenslaufs (`de`/`en`).
-    # `None` bedeutet "noch keine Wahl getroffen" und rendert Englisch - siehe
-    # `app.services.pdf_service` und den CV-Document-Language-Plan 2026-09-13.
-    document_language: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # KTD1 (Global Language Unification, 2026-09-13): `content_language` sagt,
+    # in welcher Sprache die aktiven Inhaltsfelder (`summary`,
+    # `berufsbezeichnung`, `*_json`) gehalten werden - Default `de`, da
+    # bestehende Profile als deutsch gelten. `content_translations_json` hält
+    # die Prosa-Übersetzung der jeweils anderen Sprache als Snapshot
+    # (`{feldname: übersetzter_text}`); er wird bei einem Save invalidiert und
+    # bei Bedarf neu erzeugt (R5/R7). Die feste Dokument-Chrome des PDFs folgt
+    # dagegen der Sprache aus dem Render-Request (siehe
+    # `app.services.pdf_service`), nicht mehr einem Profilfeld.
+    content_language: Mapped[str] = mapped_column(String(10), nullable=False, default="de")
+    content_translations_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
 
     # Bis zu drei zusätzliche PDF-Anhänge (z. B. Zeugnisse, Zertifikate),
     # die beim Versand einer Bewerbung neben dem Lebenslauf mitgeschickt

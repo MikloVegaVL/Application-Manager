@@ -96,7 +96,8 @@ describe('ProfileComponent', () => {
         projects_json: [],
         photo_filename: null,
         template_id: null,
-        document_language: null,
+        content_language: 'de',
+        content_translations_json: {},
         cv_filename: 'lebenslauf.pdf',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -126,7 +127,8 @@ describe('ProfileComponent', () => {
         projects_json: [],
         photo_filename: null,
         template_id: null,
-        document_language: null,
+        content_language: 'de',
+        content_translations_json: {},
         cv_filename: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -152,7 +154,8 @@ describe('ProfileComponent', () => {
       projects_json: [],
       photo_filename: null,
       template_id: null,
-      document_language: null,
+      content_language: 'de',
+      content_translations_json: {},
       cv_filename: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -235,7 +238,8 @@ describe('ProfileComponent - non-destructive identity save (KTD14)', () => {
     ],
     photo_filename: 'photo.jpg',
     template_id: 'template-1',
-    document_language: 'de',
+    content_language: 'de',
+    content_translations_json: { summary: 'Experienced software developer.' },
     cv_filename: null,
     attachments: [],
     created_at: new Date().toISOString(),
@@ -285,8 +289,10 @@ describe('ProfileComponent - non-destructive identity save (KTD14)', () => {
     expect(body.projects_json).toEqual(loadedProfileFixture.projects_json);
     expect(body.photo_filename).toBe(loadedProfileFixture.photo_filename);
     expect(body.template_id).toBe(loadedProfileFixture.template_id);
-    // R9/AE5: der Full-Overwrite-Save darf die CV-Dokumentsprache nicht zurücksetzen.
-    expect(body.document_language).toBe(loadedProfileFixture.document_language);
+    // KTD1: der Full-Overwrite-Save muss die aktive Sprache und den
+    // Übersetzungs-Snapshot aus dem frisch geladenen Basis-Profil bewahren.
+    expect(body.content_language).toBe(loadedProfileFixture.content_language);
+    expect(body.content_translations_json).toEqual(loadedProfileFixture.content_translations_json);
 
     req.flush(loadedProfileFixture);
   });

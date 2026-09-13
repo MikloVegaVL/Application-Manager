@@ -13,11 +13,11 @@ SkillLevel = Literal["Grundkenntnisse", "Gut", "Sehr gut", "Experte"]
 # (A1-C2), kein bespoke-Design nötig.
 LanguageLevel = Literal["A1", "A2", "B1", "B2", "C1", "C2"]
 
-# Die Sprache, in der die feste Dokument-Chrome des generierten Lebenslaufs
-# gerendert wird (Überschriften, Kompetenzgrade, Datums-Wording, Footer, Titel,
-# Foto-Platzhalter). `None` bedeutet "noch keine Wahl" und rendert Englisch.
-# Nutzer- und KI-Inhalte werden dabei nie übersetzt - siehe
-# `docs/plans/2026-09-13-002-feat-cv-document-language-plan.md`.
+# Die unterstützten Sprachen (`de`/`en`). Wird sowohl für die Sprache der
+# festen Dokument-Chrome des generierten Lebenslaufs als auch für die
+# KI-Übersetzung (`app.services.translation_service`) und den CV-Import
+# verwendet. Es gibt bewusst nur Deutsch und Englisch (Scope-Grenze des
+# Global-Language-Unification-Plans 2026-09-13).
 DocumentLanguage = Literal["de", "en"]
 
 class SkillEntry(BaseModel):
@@ -88,7 +88,15 @@ class MasterProfileBase(BaseModel):
     projects_json: list[ProjectEntry] = Field(default_factory=list)
     photo_filename: str | None = None
     template_id: str | None = None
-    document_language: DocumentLanguage | None = None
+    # KTD1 (Global Language Unification, 2026-09-13): `content_language` sagt,
+    # in welcher Sprache die aktiven Inhaltsfelder (summary,
+    # berufsbezeichnung, *_json) gehalten werden - Default `de`, da
+    # bestehende Profile als deutsch gelten. `content_translations_json` hält
+    # die Prosa-Übersetzung der jeweils anderen Sprache als Snapshot
+    # (`{feldname: übersetzter_text}`); er wird bei einem Save invalidiert und
+    # bei Bedarf neu erzeugt (R5/R7).
+    content_language: DocumentLanguage = "de"
+    content_translations_json: dict[str, str] = Field(default_factory=dict)
 
 
 class MasterProfileCreate(MasterProfileBase):
@@ -119,7 +127,8 @@ class MasterProfileUpdate(BaseModel):
     languages_json: list[LanguageEntry] | None = None
     projects_json: list[ProjectEntry] | None = None
     template_id: str | None = None
-    document_language: DocumentLanguage | None = None
+    content_language: DocumentLanguage | None = None
+    content_translations_json: dict[str, str] | None = None
 
 
 class ProfileAttachmentRead(BaseModel):

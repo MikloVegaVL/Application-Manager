@@ -7,7 +7,9 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 
+import { TranslatePipe } from '../../../core/i18n/translate.pipe';
 import { ProjectEntry } from '../../../core/models/master-profile.model';
+import { TranslationService } from '../../../core/services/translation.service';
 import { createProjectGroup } from '../cv-section-forms.util';
 
 /**
@@ -26,49 +28,62 @@ import { createProjectGroup } from '../cv-section-forms.util';
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
+    TranslatePipe,
   ],
   template: `
     <section class="form-array-section">
       <div class="form-array-section__header">
-        <h3>Projekte</h3>
+        <h3>{{ 'cvBuilder.projects.heading' | translate: i18n.language() }}</h3>
         <button mat-stroked-button type="button" (click)="add()">
           <mat-icon>add</mat-icon>
-          Projekt hinzufügen
+          {{ 'cvBuilder.projects.add' | translate: i18n.language() }}
         </button>
       </div>
 
       @if (formArray.length === 0) {
-        <p class="form-array-section__empty">Noch keine Projekte erfasst.</p>
+        <p class="form-array-section__empty">{{ 'cvBuilder.projects.empty' | translate: i18n.language() }}</p>
       }
 
       @for (group of formArray.controls; track $index) {
         <mat-card class="entry-card" appearance="outlined" [formGroup]="group">
           <mat-card-content class="entry-card__grid">
             <mat-form-field appearance="outline">
-              <mat-label>Titel</mat-label>
+              <mat-label>{{ 'cvBuilder.projects.title' | translate: i18n.language() }}</mat-label>
               <input matInput formControlName="title" />
             </mat-form-field>
             <mat-form-field appearance="outline">
-              <mat-label>Link</mat-label>
-              <input matInput formControlName="link" placeholder="optional" />
+              <mat-label>{{ 'cvBuilder.projects.link' | translate: i18n.language() }}</mat-label>
+              <input
+                matInput
+                formControlName="link"
+                [placeholder]="'cvBuilder.optional' | translate: i18n.language()"
+              />
             </mat-form-field>
             <mat-form-field appearance="outline">
-              <mat-label>Start</mat-label>
-              <input matInput formControlName="start_date" placeholder="z. B. 2022" />
+              <mat-label>{{ 'cvBuilder.start' | translate: i18n.language() }}</mat-label>
+              <input
+                matInput
+                formControlName="start_date"
+                [placeholder]="'cvBuilder.projects.startPlaceholder' | translate: i18n.language()"
+              />
             </mat-form-field>
             <mat-form-field appearance="outline">
-              <mat-label>Ende</mat-label>
-              <input matInput formControlName="end_date" placeholder="leer = aktuell" />
+              <mat-label>{{ 'cvBuilder.end' | translate: i18n.language() }}</mat-label>
+              <input
+                matInput
+                formControlName="end_date"
+                [placeholder]="'cvBuilder.endPlaceholder' | translate: i18n.language()"
+              />
             </mat-form-field>
             <mat-form-field appearance="outline" class="entry-card__description">
-              <mat-label>Beschreibung</mat-label>
+              <mat-label>{{ 'cvBuilder.description' | translate: i18n.language() }}</mat-label>
               <textarea matInput formControlName="description" rows="2"></textarea>
             </mat-form-field>
           </mat-card-content>
           <mat-card-actions align="end">
             <button mat-button color="warn" type="button" (click)="remove($index)">
               <mat-icon>delete</mat-icon>
-              Entfernen
+              {{ 'common.remove' | translate: i18n.language() }}
             </button>
           </mat-card-actions>
         </mat-card>
@@ -128,6 +143,7 @@ import { createProjectGroup } from '../cv-section-forms.util';
 export class ProjectsSectionComponent {
   private readonly formBuilder = inject(FormBuilder);
   private readonly changeDetectorRef = inject(ChangeDetectorRef);
+  protected readonly i18n = inject(TranslationService);
 
   /** FormArray von Projekt-FormGroups, verwaltet von der Elternform. */
   @Input({ required: true }) formArray!: FormArray<FormGroup>;

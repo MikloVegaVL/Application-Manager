@@ -19,4 +19,7 @@ The optional job title shown beneath the profile name in a CV template, set inde
 The domain a skill belongs to, used to group skills into compact sections in a rendered CV instead of listing every skill individually. A skill without a category falls into a catch-all group, so grouping never drops a skill.
 
 ### Document language
-The language (German or English) in which a generated CV's fixed chrome — section headings, level labels, date wording, footer, title, and photo placeholder — renders. It is set per profile, persisted like the template choice, defaults to English when unset, and is independent of both the app-wide UI language and the language of the CV's own content.
+The language (German or English) in which a generated CV's fixed chrome — section headings, level labels, date wording, footer, title, and photo placeholder — renders. It is not a separate per-profile setting: it follows the app-wide language selected in the header, which is the single language control for the whole app.
+
+### Content translation
+The automatic production of a translatable CV/profile prose field in the other language while both versions stay stored. Switching the app language translates missing or stale prose; editing a field marks the other language's copy stale so it re-translates. Proper nouns (person, company, institution, skill names) and externally sourced content are never translated.
