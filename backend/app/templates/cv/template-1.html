@@ -73,7 +73,7 @@
 
   .contact-list { list-style: none; margin: 0; padding: 0; font-size: 8.8pt; color: #d9dce2; }
   .contact-list li { display: flex; align-items: flex-start; gap: 1.5mm; margin-bottom: 1.5mm; word-break: break-word; }
-  .c-icon { width: 3mm; height: 3mm; margin-top: 0.3mm; flex-shrink: 0; color: #c9a24b; }
+  .c-icon { width: 3mm; height: 3mm; margin-top: 0.3mm; flex-shrink: 0; }
 
   .skill-row { display: flex; justify-content: space-between; align-items: center; gap: 2mm; font-size: 8.8pt; font-weight: 700; margin-bottom: 2mm; }
   .blocks { white-space: nowrap; }
@@ -158,15 +158,15 @@
 
       <h2>{{ doc.contact }}</h2>
       <ul class="contact-list">
-        <li>{{ icon_mail() }}<span>{{ email }}</span></li>
-        {% if phone %}<li>{{ icon_phone() }}<span>{{ phone }}</span></li>
-        {% elif preview %}<li class="ph">{{ icon_phone() }}<span>{{ sample.phone }}</span></li>{% endif %}
-        {% if address %}<li>{{ icon_pin() }}<span>{{ address }}</span></li>
-        {% elif preview %}<li class="ph">{{ icon_pin() }}<span>{{ sample.address }}</span></li>{% endif %}
-        {% if linkedin %}<li>{{ icon_linkedin() }}<span>{{ linkedin }}</span></li>
-        {% elif preview %}<li class="ph">{{ icon_linkedin() }}<span>{{ sample.linkedin }}</span></li>{% endif %}
-        {% if website %}<li>{{ icon_globe() }}<span>{{ website }}</span></li>
-        {% elif preview %}<li class="ph">{{ icon_globe() }}<span>{{ sample.website }}</span></li>{% endif %}
+        <li>{{ icon_mail('#c9a24b') }}<span>{{ email }}</span></li>
+        {% if phone %}<li>{{ icon_phone('#c9a24b') }}<span>{{ phone }}</span></li>
+        {% elif preview %}<li class="ph">{{ icon_phone('#c9a24b') }}<span>{{ sample.phone }}</span></li>{% endif %}
+        {% if address %}<li>{{ icon_pin('#c9a24b') }}<span>{{ address }}</span></li>
+        {% elif preview %}<li class="ph">{{ icon_pin('#c9a24b') }}<span>{{ sample.address }}</span></li>{% endif %}
+        {% if linkedin %}<li>{{ icon_linkedin('#c9a24b') }}<span>{{ linkedin }}</span></li>
+        {% elif preview %}<li class="ph">{{ icon_linkedin('#c9a24b') }}<span>{{ sample.linkedin }}</span></li>{% endif %}
+        {% if website %}<li>{{ icon_globe('#c9a24b') }}<span>{{ website }}</span></li>
+        {% elif preview %}<li class="ph">{{ icon_globe('#c9a24b') }}<span>{{ sample.website }}</span></li>{% endif %}
       </ul>
 
       {% if skills_ctx or preview %}

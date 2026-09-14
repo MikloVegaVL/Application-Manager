@@ -46,7 +46,7 @@
     color: #444;
   }
   .header__email { color: #2f6fd0; }
-  .c-icon { width: 3mm; height: 3mm; flex-shrink: 0; color: #e8543f; }
+  .c-icon { width: 3mm; height: 3mm; flex-shrink: 0; }
 
   .photo { width: 30mm; height: 30mm; object-fit: cover; }
   .photo--placeholder {
@@ -108,15 +108,15 @@
       {% endif %}
       <div class="header__text">
         <h1 class="header__name">{{ full_name }}</h1>
-        {% if address %}<div class="header__line">{{ icon_pin() }}<span>{{ address }}</span></div>
-        {% elif preview %}<div class="header__line ph">{{ icon_pin() }}<span>{{ sample.address }}</span></div>{% endif %}
-        {% if phone %}<div class="header__line">{{ icon_phone() }}<span>{{ phone }}</span></div>
-        {% elif preview %}<div class="header__line ph">{{ icon_phone() }}<span>{{ sample.phone }}</span></div>{% endif %}
-        <div class="header__line header__email">{{ icon_mail() }}<span>{{ email }}</span></div>
-        {% if linkedin %}<div class="header__line">{{ icon_linkedin() }}<span>{{ linkedin }}</span></div>
-        {% elif preview %}<div class="header__line ph">{{ icon_linkedin() }}<span>{{ sample.linkedin }}</span></div>{% endif %}
-        {% if website %}<div class="header__line">{{ icon_globe() }}<span>{{ website }}</span></div>
-        {% elif preview %}<div class="header__line ph">{{ icon_globe() }}<span>{{ sample.website }}</span></div>{% endif %}
+        {% if address %}<div class="header__line">{{ icon_pin('#e8543f') }}<span>{{ address }}</span></div>
+        {% elif preview %}<div class="header__line ph">{{ icon_pin('#e8543f') }}<span>{{ sample.address }}</span></div>{% endif %}
+        {% if phone %}<div class="header__line">{{ icon_phone('#e8543f') }}<span>{{ phone }}</span></div>
+        {% elif preview %}<div class="header__line ph">{{ icon_phone('#e8543f') }}<span>{{ sample.phone }}</span></div>{% endif %}
+        <div class="header__line header__email">{{ icon_mail('#e8543f') }}<span>{{ email }}</span></div>
+        {% if linkedin %}<div class="header__line">{{ icon_linkedin('#e8543f') }}<span>{{ linkedin }}</span></div>
+        {% elif preview %}<div class="header__line ph">{{ icon_linkedin('#e8543f') }}<span>{{ sample.linkedin }}</span></div>{% endif %}
+        {% if website %}<div class="header__line">{{ icon_globe('#e8543f') }}<span>{{ website }}</span></div>
+        {% elif preview %}<div class="header__line ph">{{ icon_globe('#e8543f') }}<span>{{ sample.website }}</span></div>{% endif %}
       </div>
     </div>
 
