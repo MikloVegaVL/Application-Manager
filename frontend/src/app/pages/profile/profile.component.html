@@ -53,6 +53,15 @@
                 <mat-label>Website</mat-label>
                 <input matInput formControlName="website" placeholder="example.com" />
               </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Sender email</mat-label>
+                <mat-select formControlName="sender_email">
+                  @for (option of senderEmailOptions; track option) {
+                    <mat-option [value]="option">{{ option }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
             </div>
           </div>
         </mat-tab>

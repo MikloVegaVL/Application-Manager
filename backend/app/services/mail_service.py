@@ -23,6 +23,7 @@ def send_application_email(
     attachment_bytes: bytes,
     attachment_filename: str,
     extra_attachments: list[tuple[bytes, str]] | None = None,
+    from_email: str | None = None,
 ) -> None:
     """Versendet eine Bewerbungsmail inkl. PDF-Anhang via SMTP.
 
@@ -30,19 +31,22 @@ def send_application_email(
     Anhang). `extra_attachments` sind die zusätzlichen, im Profil hochgeladenen
     PDF-Anhänge (siehe `ProfileAttachment`, `app.api.profile`) - jeweils
     `(bytes, filename)`, optional und auf `MAX_PROFILE_ATTACHMENTS` begrenzt
-    (die Begrenzung erfolgt bereits beim Upload, nicht hier).
+    (die Begrenzung erfolgt bereits beim Upload, nicht hier). `from_email` ist
+    die im Profil gewählte Absenderadresse (`MasterProfile.sender_email`) -
+    fehlt sie, greift `settings.SMTP_FROM_EMAIL` als Fallback.
 
     Nutzt STARTTLS, sofern `SMTP_USE_TLS` aktiv ist (Standard), sowie
     SMTP-Auth, falls Zugangsdaten konfiguriert sind.
     """
-    if not settings.SMTP_HOST or not settings.SMTP_FROM_EMAIL:
+    sender = from_email or settings.SMTP_FROM_EMAIL
+    if not settings.SMTP_HOST or not sender:
         raise MailSendError(
             "SMTP ist nicht konfiguriert (SMTP_HOST/SMTP_FROM_EMAIL fehlen in der .env) "
             "- Mailversand ist nicht verfügbar."
         )
 
     message = MIMEMultipart()
-    message["From"] = settings.SMTP_FROM_EMAIL
+    message["From"] = sender
     message["To"] = to_email
     message["Subject"] = subject
     message.attach(MIMEText(body_text, "plain", "utf-8"))
@@ -60,7 +64,7 @@ def send_application_email(
                 server.ehlo()
             if settings.SMTP_USERNAME and settings.SMTP_PASSWORD:
                 server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
-            server.sendmail(settings.SMTP_FROM_EMAIL, [to_email], message.as_string())
+            server.sendmail(sender, [to_email], message.as_string())
     except (smtplib.SMTPException, OSError) as exc:
         logger.exception("SMTP-Mailversand fehlgeschlagen.")
         raise MailSendError(f"Mailversand fehlgeschlagen: {exc}") from exc

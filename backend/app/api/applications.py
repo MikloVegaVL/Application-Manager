@@ -237,6 +237,7 @@ def send_application(
             attachment_bytes=cv_bytes,
             attachment_filename=profile.cv_filename or "lebenslauf.pdf",
             extra_attachments=extra_attachments,
+            from_email=profile.sender_email,
         )
     except MailSendError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc

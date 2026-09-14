@@ -62,6 +62,7 @@ export interface MasterProfile {
   address: string | null;
   linkedin: string | null;
   website: string | null;
+  sender_email: string | null;
   summary: string | null;
   berufsbezeichnung: string | null;
   experiences_json: ExperienceEntry[];

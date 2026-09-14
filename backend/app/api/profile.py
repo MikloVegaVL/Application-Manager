@@ -141,7 +141,7 @@ def upsert_profile(payload: MasterProfileCreate, db: Session = Depends(get_db)) 
 # Identitätsfelder bleiben exklusiv `PUT /profile` vorbehalten (KTD2) - der
 # CV-Builder darf sie über `PATCH /profile` nicht mitändern, selbst wenn er
 # sie (versehentlich) im Payload mitschickt.
-_IDENTITY_FIELDS = {"full_name", "email", "phone", "address", "linkedin", "website"}
+_IDENTITY_FIELDS = {"full_name", "email", "phone", "address", "linkedin", "website", "sender_email"}
 
 
 @router.patch("", response_model=MasterProfileRead)
@@ -152,7 +152,7 @@ def update_profile_content(payload: MasterProfileUpdate, db: Session = Depends(g
     ein echtes partielles Update: nur die im Payload tatsächlich gesetzten
     Felder werden geändert (`exclude_unset`), fehlende Felder bleiben
     unangetastet. Identitätsfelder (`full_name`, `email`, `phone`, `address`,
-    `linkedin`, `website`)
+    `linkedin`, `website`, `sender_email`)
     bleiben `PUT` vorbehalten und werden hier mit 422 abgelehnt, sofern sie
     überhaupt im Payload gesetzt sind - auch als explizites `null` (siehe
     fix(review): `data.get(field) is not None` hätte ein absichtlich
@@ -172,7 +172,7 @@ def update_profile_content(payload: MasterProfileUpdate, db: Session = Depends(g
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
-                "Identitätsfelder (full_name, email, phone, address, linkedin, website) können nicht über "
+                "Identitätsfelder (full_name, email, phone, address, linkedin, website, sender_email) können nicht über "
                 f"PATCH /profile geändert werden: {', '.join(sorted(identity_violations))}. "
                 "Bitte PUT /api/profile verwenden."
             ),

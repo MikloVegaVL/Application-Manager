@@ -9,11 +9,18 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatTabsModule } from '@angular/material/tabs';
 
 import { MasterProfile, MasterProfileRead, ProfileAttachment } from '../../core/models/master-profile.model';
 import { ProfileService } from '../../core/services/profile.service';
+
+/** Auswahl der Absenderadressen fürs `sender_email`-Select (Default: erster Eintrag). */
+export const SENDER_EMAIL_OPTIONS: readonly string[] = [
+  'sayhello@thomastritscher.com',
+  'thomas.tritscher@mail.de',
+];
 
 /**
  * Profil-Seite: nur noch Identitätsfelder (Name, E-Mail, Telefon, Adresse)
@@ -34,6 +41,7 @@ import { ProfileService } from '../../core/services/profile.service';
     MatIconModule,
     MatInputModule,
     MatProgressSpinnerModule,
+    MatSelectModule,
     MatTabsModule,
   ],
   templateUrl: './profile.component.html',
@@ -68,6 +76,8 @@ export class ProfileComponent implements OnInit {
   protected readonly uploadingAttachment = signal(false);
   protected readonly deletingAttachmentId = signal<number | null>(null);
 
+  protected readonly senderEmailOptions = SENDER_EMAIL_OPTIONS;
+
   protected readonly profileForm: FormGroup = this.formBuilder.nonNullable.group({
     full_name: ['', [Validators.required, Validators.maxLength(255)]],
     email: ['', [Validators.required, Validators.email]],
@@ -75,6 +85,7 @@ export class ProfileComponent implements OnInit {
     address: [''],
     linkedin: [''],
     website: [''],
+    sender_email: [SENDER_EMAIL_OPTIONS[0]],
   });
 
   ngOnInit(): void {
@@ -138,7 +149,15 @@ export class ProfileComponent implements OnInit {
   }
 
   private submitWithBase(
-    raw: { full_name: string; email: string; phone: string; address: string; linkedin: string; website: string },
+    raw: {
+      full_name: string;
+      email: string;
+      phone: string;
+      address: string;
+      linkedin: string;
+      website: string;
+      sender_email: string;
+    },
     base: MasterProfileRead | null,
   ): void {
     const payload: MasterProfile = {
@@ -148,6 +167,7 @@ export class ProfileComponent implements OnInit {
       address: raw.address || null,
       linkedin: raw.linkedin || null,
       website: raw.website || null,
+      sender_email: raw.sender_email || null,
       summary: base?.summary ?? null,
       berufsbezeichnung: base?.berufsbezeichnung ?? null,
       experiences_json: base?.experiences_json ?? [],
@@ -183,6 +203,7 @@ export class ProfileComponent implements OnInit {
       address: profile.address ?? '',
       linkedin: profile.linkedin ?? '',
       website: profile.website ?? '',
+      sender_email: profile.sender_email ?? SENDER_EMAIL_OPTIONS[0],
     });
   }
 
