@@ -47,6 +47,7 @@ export interface LanguageEntry {
 /** Entspricht `ProjectEntry`: ein Projekt im CV-Builder. */
 export interface ProjectEntry {
   title: string;
+  role: string | null;
   description: string;
   start_date: string | null;
   end_date: string | null;

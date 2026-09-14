@@ -50,7 +50,9 @@ const parsedFixture: ParsedCvProfile = {
     },
   ],
   skills: [{ name: 'TypeScript' }, { name: 'Angular' }],
-  projects: [{ title: 'Side Project', description: 'A thing.', start_date: null, end_date: null, link: null }],
+  projects: [
+    { title: 'Side Project', role: null, description: 'A thing.', start_date: null, end_date: null, link: null },
+  ],
 };
 
 describe('CvImportComponent', () => {

@@ -59,6 +59,7 @@ export function createLanguageGroup(fb: FormBuilder, entry?: LanguageEntry): For
 export function createProjectGroup(fb: FormBuilder, entry?: ProjectEntry): FormGroup {
   return fb.nonNullable.group({
     title: [entry?.title ?? '', Validators.required],
+    role: [entry?.role ?? ''],
     description: [entry?.description ?? '', Validators.required],
     start_date: [entry?.start_date ?? ''],
     end_date: [entry?.end_date ?? ''],

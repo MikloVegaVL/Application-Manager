@@ -72,6 +72,7 @@ SAMPLE_EN: dict[str, Any] = {
     "projects": [
         {
             "title": "Portfolio Website",
+            "role": "Lead Developer",
             "description": "Personal portfolio site with a project overview.",
             "date_range": "2023",
             "link": "https://example.com/portfolio",

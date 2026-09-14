@@ -67,6 +67,7 @@ Answer EXCLUSIVELY with a JSON object in exactly the following shape \
   "projects": [
     {
       "title": "Project name",
+      "role": "Your role in the project, or null",
       "description": "Short project description",
       "start_date": "e.g. 2020-01 or 2020, or null",
       "end_date": "e.g. 2023-06, or null if ongoing",

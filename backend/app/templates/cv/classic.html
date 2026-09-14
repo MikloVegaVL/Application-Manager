@@ -219,7 +219,10 @@
         {% for project in project_list %}
         <div class="entry{% if project_sample %} ph{% endif %}">
           <div class="entry__title-row">
-            <span>{{ project.title }}</span>
+            <span>
+              <span class="entry__role">{{ project.title }}</span>
+              {% if project.role %}<span class="entry__company"> — {{ project.role }}</span>{% endif %}
+            </span>
             {% if project.date_range %}<span class="entry__date">{{ project.date_range }}</span>{% endif %}
           </div>
           {% if project.description %}<p class="entry__description">{{ project.description }}</p>

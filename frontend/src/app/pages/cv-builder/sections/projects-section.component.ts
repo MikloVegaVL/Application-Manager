@@ -49,6 +49,10 @@ import { createProjectGroup } from '../cv-section-forms.util';
               <input matInput formControlName="title" />
             </mat-form-field>
             <mat-form-field appearance="outline">
+              <mat-label>Role</mat-label>
+              <input matInput formControlName="role" placeholder="optional" />
+            </mat-form-field>
+            <mat-form-field appearance="outline">
               <mat-label>Link</mat-label>
               <input matInput formControlName="link" placeholder="optional" />
             </mat-form-field>

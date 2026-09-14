@@ -40,6 +40,7 @@ class ProjectEntry(BaseModel):
     """Ein Projekt im CV-Builder - mindestens Titel und Beschreibung (R3)."""
 
     title: str = Field(..., max_length=255)
+    role: str | None = Field(default=None, max_length=255, description="eigene Rolle im Projekt, optional")
     description: str
     start_date: str | None = Field(default=None, description="z. B. '2020-01' oder '2020'")
     end_date: str | None = Field(default=None, description="leer/None = laufend")
