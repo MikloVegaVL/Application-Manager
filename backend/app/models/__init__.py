@@ -9,5 +9,13 @@ from app.models.application import Application, ApplicationStatus
 from app.models.job_offer import JobOffer
 from app.models.master_profile import MasterProfile
 from app.models.profile_attachment import ProfileAttachment
+from app.models.sent_email import SentEmail
 
-__all__ = ["Application", "ApplicationStatus", "JobOffer", "MasterProfile", "ProfileAttachment"]
+__all__ = [
+    "Application",
+    "ApplicationStatus",
+    "JobOffer",
+    "MasterProfile",
+    "ProfileAttachment",
+    "SentEmail",
+]
