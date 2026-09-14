@@ -3,13 +3,17 @@ Filterung und PDF-Export (siehe docs/plans/2026-09-14-001-feat-application-
 email-log-plan.md)."""
 from __future__ import annotations
 
+import io
+
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Query, Session
 
 from app.db.database import get_db
 from app.models.sent_email import SentEmail
 from app.schemas.sent_email import SentEmailFilter, SentEmailRead
+from app.services.pdf_service import render_sent_emails_pdf
 
 router = APIRouter(prefix="/sent-emails", tags=["Sent Emails"])
 
@@ -40,3 +44,31 @@ def list_sent_emails(
     """Listet alle protokollierten Bewerbungsmail-Versände, neueste zuerst,
     optional gefiltert nach Firma, Absender-Account und Zeitraum (R4/R7)."""
     return _query_entries(db, filters)
+
+
+def _pdf_response(entries: list[SentEmail], *, filtered: bool, filename: str) -> StreamingResponse:
+    pdf_bytes = render_sent_emails_pdf(entries, filtered=filtered)
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export")
+def export_sent_emails(
+    filters: SentEmailFilter = Depends(), db: Session = Depends(get_db)
+) -> StreamingResponse:
+    """Exportiert die aktuell gefilterte Ansicht als PDF (R8) - nutzt exakt
+    denselben Filter-Vertrag wie `GET /sent-emails` (KTD4), damit "Export der
+    aktuellen Ansicht" wirklich die angezeigte Ansicht exportiert."""
+    entries = _query_entries(db, filters)
+    return _pdf_response(entries, filtered=True, filename="sent-emails-filtered.pdf")
+
+
+@router.get("/export/all")
+def export_all_sent_emails(db: Session = Depends(get_db)) -> StreamingResponse:
+    """Exportiert das vollständige Protokoll als PDF, unabhängig von einer
+    ggf. aktiven Filterung im Frontend (R9)."""
+    entries = _query_entries(db, SentEmailFilter())
+    return _pdf_response(entries, filtered=False, filename="sent-emails-full-log.pdf")

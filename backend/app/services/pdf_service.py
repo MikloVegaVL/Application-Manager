@@ -302,3 +302,48 @@ def render_cv_pdf(
         raise PdfRenderError("WeasyPrint lieferte ein leeres PDF-Ergebnis.")
 
     return pdf_bytes
+
+
+def _sent_email_row(entry: Any) -> dict[str, Any]:
+    """Normalisiert einen `SentEmail`-Eintrag (ORM-Objekt) für das PDF-
+    Template per Attribut-Zugriff - `None`-Felder rendert das Template selbst
+    als "unknown" (R10/AE5, docs/plans/2026-09-14-001-feat-application-email-
+    log-plan.md)."""
+    sent_at = getattr(entry, "sent_at", None)
+    return {
+        "company": getattr(entry, "company", None),
+        "job_title": getattr(entry, "job_title", None),
+        "recipient_email": getattr(entry, "recipient_email", None),
+        "sent_at": sent_at.strftime("%Y-%m-%d %H:%M") if sent_at else "",
+        "sender_email": getattr(entry, "sender_email", None),
+        "subject": getattr(entry, "subject", None),
+        "attachment_filename": getattr(entry, "attachment_filename", None),
+    }
+
+
+def render_sent_emails_pdf(entries: list[Any], *, filtered: bool = False) -> bytes:
+    """Rendert das Bewerbungsmail-Protokoll (`SentEmail`-Einträge) als PDF
+    (U4 des Plans: docs/plans/2026-09-14-001-feat-application-email-log-
+    plan.md). `filtered` steuert nur die Überschrift ("(filtered view)"),
+    nicht die Ergebnismenge selbst - welche Einträge übergeben werden,
+    entscheidet der aufrufende Endpunkt (KTD4/KTD5)."""
+    template = _env.get_template("sent_emails/log.html")
+    html_content = template.render(
+        entries=[_sent_email_row(entry) for entry in entries],
+        filtered=filtered,
+    )
+
+    try:
+        pdf_bytes = HTML(
+            string=html_content,
+            base_url=str(_TEMPLATES_DIR / "sent_emails"),
+            url_fetcher=_LOCAL_ONLY_URL_FETCHER,
+        ).write_pdf()
+    except Exception as exc:  # noqa: BLE001 - WeasyPrint kann diverse Fehlerklassen werfen
+        logger.exception("PDF-Erzeugung des Sent-Emails-Protokolls via WeasyPrint fehlgeschlagen.")
+        raise PdfRenderError(f"PDF konnte nicht erzeugt werden: {exc}") from exc
+
+    if not pdf_bytes:
+        raise PdfRenderError("WeasyPrint lieferte ein leeres PDF-Ergebnis.")
+
+    return pdf_bytes

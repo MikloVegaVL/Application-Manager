@@ -205,3 +205,70 @@ def test_entry_with_deleted_application_is_still_returned_with_snapshot_intact(
     assert entry["application_id"] is None
     assert entry["company"] == "Acme GmbH"
     assert entry["job_title"] == "Backend Engineer"
+
+
+# --- PDF export endpoints (U4) ----------------------------------------
+
+
+def test_export_with_no_filters_returns_a_pdf_with_every_entry(client, db_session_local) -> None:
+    session = db_session_local()
+    try:
+        _insert_sent_email(session, application_id=1, recipient_email="a@example.com")
+        _insert_sent_email(session, application_id=2, recipient_email="b@example.com")
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails/export")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF")
+
+
+def test_export_with_company_filter_returns_a_pdf_with_only_that_companys_entries(
+    client, db_session_local
+) -> None:
+    """Covers AE4."""
+    from io import BytesIO
+
+    from pypdf import PdfReader
+
+    session = db_session_local()
+    try:
+        _insert_sent_email(session, application_id=1, company="Acme GmbH", recipient_email="a@example.com")
+        _insert_sent_email(session, application_id=2, company="Globex", recipient_email="b@example.com")
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails/export", params={"company": "Acme GmbH"})
+
+    assert response.status_code == 200
+    reader = PdfReader(BytesIO(response.content))
+    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    assert "a@example.com" in text
+    assert "b@example.com" not in text
+
+
+def test_export_all_ignores_active_filter_params_and_returns_every_entry(
+    client, db_session_local
+) -> None:
+    """Covers AE4: /export/all must return every entry even when a filter
+    param that would narrow GET /sent-emails is also supplied."""
+    from io import BytesIO
+
+    from pypdf import PdfReader
+
+    session = db_session_local()
+    try:
+        _insert_sent_email(session, application_id=1, company="Acme GmbH", recipient_email="a@example.com")
+        _insert_sent_email(session, application_id=2, company="Globex", recipient_email="b@example.com")
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails/export/all", params={"company": "Acme GmbH"})
+
+    assert response.status_code == 200
+    reader = PdfReader(BytesIO(response.content))
+    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    assert "a@example.com" in text
+    assert "b@example.com" in text
