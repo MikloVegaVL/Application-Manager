@@ -94,6 +94,16 @@ JOB_CLASS_PATTERN = re.compile(r"job|stelle|vacan", re.IGNORECASE)
 COMPANY_CLASS_PATTERN = re.compile(r"company|arbeitgeber|employer|firma", re.IGNORECASE)
 LOCATION_CLASS_PATTERN = re.compile(r"location|ort|city|standort", re.IGNORECASE)
 
+# Der blanket-`<article>`-Fallback unten (für Boards ohne "job"-artige
+# Klassennamen, z. B. Stepstone) greift auch auf `<article>`-Karten, die gar
+# keine Stellenanzeige sind - z. B. Freelancer-/Bewerberprofile, wie sie
+# programmiererjobboerse.de als "Empfohlene Freelancer"-Widget auf derselben
+# Suchergebnisseite rendert (ce-debug 2026-09-14, live verifiziert: zwei
+# `<article class="profile-card">`-Profile landeten als Fake-Jobangebote in
+# den Suchtreffern). Eine Karte mit einer dieser Klassen wird verworfen,
+# unabhängig davon, über welchen der beiden `find_all`-Pfade sie gefunden wurde.
+NON_JOB_CLASS_PATTERN = re.compile(r"profile-card|bewerber|freelancer|candidate", re.IGNORECASE)
+
 MAX_HEURISTIC_RESULTS = 25
 
 
@@ -493,6 +503,9 @@ def extract_heuristic_offers(
         if id(node) in seen_nodes:
             continue
         seen_nodes.add(id(node))
+        node_classes = " ".join(node.get("class") or [])
+        if NON_JOB_CLASS_PATTERN.search(node_classes):
+            continue
         candidates.append(node)
 
     for node in candidates:

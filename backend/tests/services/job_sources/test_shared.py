@@ -106,6 +106,38 @@ def test_board_without_json_ld_falls_back_to_heuristic_extraction():
     assert offers[0].source_url == "https://devjobs.de/jobs/angular-developer-123"
 
 
+# Wie HEURISTIC_HTML, plus ein `<article class="profile-card">` ohne
+# job-artige Klasse - fällt nur über den blanket-`<article>`-Fallback rein.
+PROFILE_CARD_AMONG_JOBS_HTML = """
+<html><body>
+  <article class="job-card">
+    <a class="job-card__overlay-link" href="/jobs/angular-developer-123"></a>
+    <div class="job-card__body">
+      <h2>Angular Developer</h2>
+      <span class="company">Acme GmbH</span>
+      <span class="location">Berlin</span>
+    </div>
+  </article>
+  <article class="profile-card">
+    <a href="/profil/marlamuster"><h2>Marla Mustermann</h2></a>
+  </article>
+</body></html>
+"""
+
+
+def test_non_job_article_is_excluded_from_heuristic_extraction():
+    """Regression (ce-debug 2026-09-14): programmiererjobboerse.de rendert ein
+    "Empfohlene Freelancer"-Widget als `<article class="profile-card">` auf
+    derselben Suchergebnisseite. Der blanket-`<article>`-Fallback (für Boards
+    ohne job-artige Klassennamen, z. B. Stepstone) darf so eine Karte nicht
+    als Stellenangebot durchreichen."""
+    offers = shared_module.extract_offers(
+        PROFILE_CARD_AMONG_JOBS_HTML, "https://example.de/jobs", "programmiererjobboerse"
+    )
+
+    assert [offer.title for offer in offers] == ["Angular Developer"]
+
+
 def test_json_ld_takes_precedence_and_strips_html_description():
     offers = shared_module.extract_offers(
         JSON_LD_HTML, "https://devjobs.de/jobs", "devjobs"

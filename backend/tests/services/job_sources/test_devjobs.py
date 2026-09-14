@@ -89,7 +89,11 @@ def _restore_semaphore():
 def test_happy_path_returns_mapped_offers(mocker):
     mocker.patch.object(shared_module, "sync_playwright", _fake_sync_playwright_factory(TWO_CARDS_HTML))
 
-    offers = DevjobsScraper().search("Angular", "Berlin")
+    # "Engineer" statt "Angular": beide Fixture-Titel enthalten "Engineer" -
+    # das Keyword muss zum Titel passen, damit der neue Relevanz-Filter (siehe
+    # test_offers_unrelated_to_the_keyword_are_filtered_out) die Treffer nicht
+    # verwirft.
+    offers = DevjobsScraper().search("Engineer", "Berlin")
 
     assert len(offers) == 2
     assert all(offer.source_platform == "devjobs" for offer in offers)
@@ -117,7 +121,7 @@ def test_one_malformed_card_does_not_discard_the_others(mocker):
         shared_module, "sync_playwright", _fake_sync_playwright_factory(ONE_BROKEN_ONE_VALID_HTML)
     )
 
-    offers = DevjobsScraper().search("Angular")
+    offers = DevjobsScraper().search("Safe")
 
     assert [offer.title for offer in offers] == ["Safe Job"]
 
@@ -131,6 +135,26 @@ def test_unsafe_result_url_is_rejected(mocker):
     """
     mocker.patch.object(shared_module, "sync_playwright", _fake_sync_playwright_factory(html))
 
-    offers = DevjobsScraper().search("Angular")
+    offers = DevjobsScraper().search("Safe")
 
     assert [offer.title for offer in offers] == ["Safe Job"]
+
+
+def test_offers_unrelated_to_the_keyword_are_filtered_out(mocker):
+    """Regression (ce-debug 2026-09-14): devjobs.de's `?search=`-Parameter
+    wird von der Seite ignoriert (live verifiziert - identische Treffer
+    unabhängig vom Keyword). Ohne clientseitigen Nachfilter wären ALLE
+    Karten der (unveränderten) Seite Treffer, egal wonach gesucht wird."""
+    mocker.patch.object(shared_module, "sync_playwright", _fake_sync_playwright_factory(TWO_CARDS_HTML))
+
+    offers = DevjobsScraper().search("Applied AI")
+
+    assert [offer.title for offer in offers] == ["Applied AI Engineer"]
+
+
+def test_keyword_match_also_checks_company_and_description(mocker):
+    mocker.patch.object(shared_module, "sync_playwright", _fake_sync_playwright_factory(TWO_CARDS_HTML))
+
+    offers = DevjobsScraper().search("SIXT")
+
+    assert [offer.title for offer in offers] == ["Applied AI Engineer"]

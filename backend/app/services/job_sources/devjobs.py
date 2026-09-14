@@ -31,11 +31,32 @@ _DESCRIPTION_CLASS_PATTERN = re.compile(r"line-clamp")
 
 
 class DevjobsScraper:
-    """Scraped devjobs.de's per Playwright gerenderte Suchergebnisseite."""
+    """Scraped devjobs.de's per Playwright gerenderte Suchergebnisseite.
+
+    Der `?search=`-Query-Parameter unten wird von devjobs.de NICHT
+    ausgewertet (ce-debug 2026-09-14, live verifiziert): `/jobs?search=...`
+    verwirft den Query-String beim Redirect auf `/jobs/search`, und selbst
+    `/jobs/search?search=...`/`?q=...` liefern für jedes Keyword exakt
+    dieselben ~15 Angebote - die Suche der Seite läuft rein clientseitig
+    über React-State, nicht über die URL. Ohne Gegenmaßnahme wären ALLE
+    Treffer unabhängig vom Suchbegriff. `_matches_keywords` filtert daher
+    selbst nach, statt sich (wie alle anderen Quellen) auf die Zielseite zu
+    verlassen - und zwar VOR dem `_MAX_RESULTS`-Cap in `_extract_offers`
+    (analog zu `shared.extract_heuristic_offers`' `include`-Parameter),
+    damit eine irrelevante Karte unter den ersten `_MAX_RESULTS` keiner
+    relevanten Karte weiter unten den Platz wegnimmt.
+    """
 
     SOURCE_PLATFORM = "devjobs"
     SEARCH_URL = "https://devjobs.de/jobs"
     _MAX_RESULTS = 25
+    # ponytail: reiner Substring-Abgleich auf Titel/Firma/Beschreibung, keine
+    # echte Relevanzsuche - reicht, um klar unpassende Treffer (z. B. "Business
+    # Analyst Controlling" bei Suche "Python") auszusortieren. Falls das zu
+    # strikt/lasch ist: die eigentliche clientseitige Such-Interaktion der
+    # Seite nachbauen (Tippen ins Suchfeld + auf die gefilterte Kartenliste
+    # warten) statt eines URL-Parameters.
+    _KEYWORD_PATTERN = re.compile(r"\w+")
 
     def __init__(self, inner_timeout: float = 15.0) -> None:
         self._inner_timeout = inner_timeout
@@ -59,10 +80,22 @@ class DevjobsScraper:
         html = render_html(url, timeout=self._inner_timeout)
         if not html:
             return []
-        return self._extract_offers(html, source_url=url)
+        return self._extract_offers(html, source_url=url, keywords=keywords)
 
-    def _extract_offers(self, html: str, source_url: str) -> list[JobOfferCreate]:
+    def _keyword_set(self, keywords: str) -> set[str]:
+        return {w.lower() for w in self._KEYWORD_PATTERN.findall(keywords) if len(w) >= 3}
+
+    def _matches_keywords(self, offer: JobOfferCreate, keyword_set: set[str]) -> bool:
+        if not keyword_set:
+            return True
+        haystack = " ".join(
+            filter(None, [offer.title, offer.company, offer.description_text])
+        ).lower()
+        return any(word in haystack for word in keyword_set)
+
+    def _extract_offers(self, html: str, source_url: str, keywords: str) -> list[JobOfferCreate]:
         soup = BeautifulSoup(html, "html.parser")
+        keyword_set = self._keyword_set(keywords)
         offers: list[JobOfferCreate] = []
         seen_titles: set[str] = set()
 
@@ -99,6 +132,8 @@ class DevjobsScraper:
                 )
             except Exception:  # noqa: BLE001 - eine defekte Karte darf die übrigen nicht verwerfen
                 logger.exception("Konnte devjobs-Karte nicht verarbeiten.")
+                continue
+            if not self._matches_keywords(offer, keyword_set):
                 continue
             offers.append(offer)
             if len(offers) >= self._MAX_RESULTS:
