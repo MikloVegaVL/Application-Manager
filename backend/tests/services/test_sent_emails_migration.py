@@ -122,6 +122,7 @@ def test_upgrade_creates_sent_emails_table_with_expected_columns(migration_db) -
         "application_id",
         "company",
         "job_title",
+        "source_platform",
         "recipient_email",
         "sent_at",
         "sender_email",
@@ -154,6 +155,10 @@ def test_upgrade_backfills_one_row_per_sent_application_with_correct_field_value
     acme_row = rows["hr@acme.example"]
     assert acme_row.company == "Acme"
     assert acme_row.job_title == "Backend Dev"
+    # `_insert_job_offer` hardcodes source_platform='test' - backfilled here
+    # by the follow-up 5b1e9f7a2c3d migration via a live join, since the
+    # original 40770d5086f1 backfill (above) predates that column.
+    assert acme_row.source_platform == "test"
     assert acme_row.sent_at.replace(tzinfo=timezone.utc) == sent_at_a
     assert acme_row.sender_email is None
     assert acme_row.subject is None
@@ -163,6 +168,7 @@ def test_upgrade_backfills_one_row_per_sent_application_with_correct_field_value
     globex_row = rows["jobs@globex.example"]
     assert globex_row.company == "Globex"
     assert globex_row.job_title == "Frontend Dev"
+    assert globex_row.source_platform == "test"
 
 
 def test_upgrade_backfills_an_application_whose_status_later_advanced_past_sent(migration_db) -> None:

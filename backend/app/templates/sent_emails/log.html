@@ -81,6 +81,7 @@
       <tr>
         <th>Company</th>
         <th>Job title</th>
+        <th>Source</th>
         <th>Recipient</th>
         <th>Sent</th>
         <th>Sender account</th>
@@ -93,6 +94,7 @@
       <tr>
         <td>{{ entry.company or "unknown" }}</td>
         <td>{{ entry.job_title or "unknown" }}</td>
+        <td{% if not entry.source_platform %} class="unknown"{% endif %}>{{ entry.source_platform or "unknown" }}</td>
         <td>{{ entry.recipient_email }}</td>
         <td>{{ entry.sent_at }}</td>
         <td{% if not entry.sender_email %} class="unknown"{% endif %}>{{ entry.sender_email or "unknown" }}</td>

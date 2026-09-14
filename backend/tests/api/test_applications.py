@@ -666,6 +666,7 @@ def test_send_application_creates_one_sent_email_log_entry(
     assert row.attachment_filename == "mein-lebenslauf.pdf"
     assert row.company == "Acme GmbH"
     assert row.job_title == "Backend Engineer"
+    assert row.source_platform == "arbeitsagentur"
     assert row.sent_at is not None
 
 

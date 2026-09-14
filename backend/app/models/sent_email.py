@@ -40,6 +40,7 @@ class SentEmail(Base):
     # lesbar (siehe Docstring oben).
     company: Mapped[str | None] = mapped_column(String(255), nullable=True)
     job_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_platform: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     recipient_email: Mapped[str] = mapped_column(String(320), nullable=False)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)

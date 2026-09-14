@@ -13,6 +13,7 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 
 import { Application, ApplicationStatus } from '../../core/models/application.model';
 import { ApplicationService } from '../../core/services/application.service';
+import { sourceLabel as getSourceLabel } from '../../core/utils/source-label.util';
 
 /** Auswahl der Status-Filter über der Bewerbungsliste. */
 type ApplicationFilter = 'all' | ApplicationStatus;
@@ -89,6 +90,10 @@ export class ApplicationsComponent implements OnInit {
 
   statusLabel(status: ApplicationStatus): string {
     return ApplicationsComponent.STATUS_LABELS[status];
+  }
+
+  sourceLabel(platform: string): string {
+    return getSourceLabel(platform);
   }
 
   onFilterChange(filter: ApplicationFilter): void {

@@ -15,6 +15,7 @@ import { SENDER_EMAIL_OPTIONS } from '../../core/models/master-profile.model';
 import { SentEmail, SentEmailFilterParams } from '../../core/models/sent-email.model';
 import { SentEmailService } from '../../core/services/sent-email.service';
 import { downloadBlobResponse } from '../../core/utils/download-blob-response.util';
+import { sourceLabel } from '../../core/utils/source-label.util';
 
 const DEFAULT_FILTERED_FILENAME = 'sent-emails-filtered.pdf';
 const DEFAULT_FULL_LOG_FILENAME = 'sent-emails-full-log.pdf';
@@ -55,8 +56,10 @@ export class SentEmailsComponent implements OnInit {
   private readonly sentEmailService = inject(SentEmailService);
 
   protected readonly senderEmailOptions = SENDER_EMAIL_OPTIONS;
+  protected readonly sourceLabel = sourceLabel;
   protected readonly displayedColumns = [
     'company',
+    'source_platform',
     'recipient_email',
     'sent_at',
     'sender_email',

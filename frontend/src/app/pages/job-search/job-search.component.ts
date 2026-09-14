@@ -15,6 +15,7 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 import { JobOffer, JobSaveConflictDetail } from '../../core/models/job-offer.model';
 import { JobSearchStateService } from '../../core/services/job-search-state.service';
 import { JobService } from '../../core/services/job.service';
+import { sourceLabel as getSourceLabel } from '../../core/utils/source-label.util';
 
 @Component({
   selector: 'app-job-search',
@@ -81,20 +82,6 @@ export class JobSearchComponent {
     () => this.sourceStatuses().length > 0 && this.unavailableSources().length === this.sourceStatuses().length,
   );
 
-  private static readonly SOURCE_LABELS: Record<string, string> = {
-    arbeitsagentur: 'Arbeitsagentur',
-    linkedin: 'LinkedIn',
-    xing: 'Xing',
-    adzuna: 'Adzuna',
-    jooble: 'Jooble',
-    devjobs: 'DEVjobs.de',
-    kimeta: 'Kimeta',
-    stepstone: 'Stepstone',
-    germantechjobs: 'GermanTechJobs',
-    indeed: 'Indeed',
-    programmiererjobboerse: 'Programmiererjobboerse.de',
-  };
-
   private readonly savedJobIds = this.state.savedJobIds;
   protected readonly savingSourceUrl = signal<string | null>(null);
   protected readonly generatingSourceUrl = signal<string | null>(null);
@@ -152,9 +139,8 @@ export class JobSearchComponent {
     this.selectedSources.set([]);
   }
 
-  /** Menschenlesbares Label für einen Quellen-Platform-Key (z. B. "linkedin" -> "LinkedIn"). */
   sourceLabel(platform: string): string {
-    return JobSearchComponent.SOURCE_LABELS[platform] ?? platform;
+    return getSourceLabel(platform);
   }
 
   isSaved(job: JobOffer): boolean {

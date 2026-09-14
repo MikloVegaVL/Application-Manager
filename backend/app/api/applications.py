@@ -259,6 +259,7 @@ def send_application(
             application_id=application.id,
             company=job_offer.company if job_offer else None,
             job_title=job_offer.title if job_offer else None,
+            source_platform=job_offer.source_platform if job_offer else None,
             recipient_email=payload.to_email,
             sent_at=application.sent_at,
             sender_email=used_from_email,

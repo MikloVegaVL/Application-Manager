@@ -121,6 +121,13 @@
           </td>
         </ng-container>
 
+        <ng-container matColumnDef="source_platform">
+          <th mat-header-cell *matHeaderCellDef>Source</th>
+          <td mat-cell *matCellDef="let entry" [class.sent-emails__unknown]="!entry.source_platform">
+            {{ entry.source_platform ? sourceLabel(entry.source_platform) : '—' }}
+          </td>
+        </ng-container>
+
         <ng-container matColumnDef="recipient_email">
           <th mat-header-cell *matHeaderCellDef>Recipient</th>
           <td mat-cell *matCellDef="let entry">{{ entry.recipient_email }}</td>

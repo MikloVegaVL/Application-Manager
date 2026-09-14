@@ -1036,6 +1036,7 @@ class TestRenderSentEmailsPdf:
         defaults = dict(
             company="Acme GmbH",
             job_title="Backend Engineer",
+            source_platform="linkedin",
             recipient_email="recruiter@example.com",
             sent_at=datetime(2026, 9, 1, 10, 30, tzinfo=timezone.utc),
             sender_email="absender@example.com",
@@ -1067,11 +1068,14 @@ class TestRenderSentEmailsPdf:
         assert "b@example.com" in text
         assert "Acme GmbH" in text
         assert "Globex" in text
+        assert "linkedin" in text
 
     def test_unknown_fields_render_as_the_literal_word_unknown(self):
         """Covers AE5: a backfilled entry's unknown fields must show
         "unknown" in the PDF, not blank or "None"."""
-        entry = self._entry(sender_email=None, subject=None, attachment_filename=None)
+        entry = self._entry(
+            source_platform=None, sender_email=None, subject=None, attachment_filename=None
+        )
 
         pdf_bytes = pdf_service.render_sent_emails_pdf([entry])
 

@@ -6,6 +6,7 @@ export interface SentEmail {
   job_offer_id: number | null;
   company: string | null;
   job_title: string | null;
+  source_platform: string | null;
   recipient_email: string;
   sent_at: string;
   sender_email: string | null;
