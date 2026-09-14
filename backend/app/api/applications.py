@@ -220,6 +220,9 @@ def send_application(
         "Mit freundlichen Grüßen"
     )
     cv_bytes = Path(profile.cv_file_path).read_bytes()
+    # Ein Wert, an zwei Stellen genutzt (Mailversand + SentEmail-Log-Eintrag
+    # unten) - einmal berechnet, damit beide nie auseinanderlaufen können.
+    attachment_filename = profile.cv_filename or "lebenslauf.pdf"
     # Zusätzliche, im Profil hochgeladene PDF-Anhänge (siehe `ProfileAttachment`,
     # `app.api.profile`) werden neben dem Lebenslauf mitgeschickt. Eine fehlende
     # Datei auf der Festplatte überspringt den jeweiligen Anhang, statt den
@@ -236,7 +239,7 @@ def send_application(
             subject=subject,
             body_text=body_text,
             attachment_bytes=cv_bytes,
-            attachment_filename=profile.cv_filename or "lebenslauf.pdf",
+            attachment_filename=attachment_filename,
             extra_attachments=extra_attachments,
             from_email=profile.sender_email,
         )
@@ -260,7 +263,7 @@ def send_application(
             sent_at=application.sent_at,
             sender_email=used_from_email,
             subject=subject,
-            attachment_filename=profile.cv_filename or "lebenslauf.pdf",
+            attachment_filename=attachment_filename,
         )
     )
     db.commit()

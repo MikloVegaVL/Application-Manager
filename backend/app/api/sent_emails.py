@@ -36,16 +36,22 @@ def _apply_filters(query: Query, filters: SentEmailFilter) -> Query:
     return query
 
 
-def _query_entries(db: Session, filters: SentEmailFilter) -> list[SentEmail]:
+def _base_query(db: Session, filters: SentEmailFilter) -> Query:
+    query = db.query(SentEmail).order_by(SentEmail.sent_at.desc())
+    return _apply_filters(query, filters)
+
+
+def _query_entries_for_list(db: Session, filters: SentEmailFilter) -> list[SentEmail]:
     # `joinedload`: `SentEmailRead.job_offer_id` liest `entry.application.
     # job_offer_id` (siehe `SentEmail.job_offer_id`-Property) - ohne Eager-
     # Load würde das pro Zeile eine eigene Nachlade-Query auslösen (N+1).
-    query = (
-        db.query(SentEmail)
-        .options(joinedload(SentEmail.application))
-        .order_by(SentEmail.sent_at.desc())
-    )
-    return _apply_filters(query, filters).all()
+    # Nur hier nötig: die PDF-Exports (`_query_entries_for_export`) lesen
+    # `job_offer_id` nie, der Join würde dort nur unnötig mitlaufen.
+    return _base_query(db, filters).options(joinedload(SentEmail.application)).all()
+
+
+def _query_entries_for_export(db: Session, filters: SentEmailFilter) -> list[SentEmail]:
+    return _base_query(db, filters).all()
 
 
 @router.get("", response_model=list[SentEmailRead])
@@ -54,7 +60,7 @@ def list_sent_emails(
 ) -> list[SentEmail]:
     """Listet alle protokollierten Bewerbungsmail-Versände, neueste zuerst,
     optional gefiltert nach Firma, Absender-Account und Zeitraum (R4/R7)."""
-    return _query_entries(db, filters)
+    return _query_entries_for_list(db, filters)
 
 
 def _pdf_response(entries: list[SentEmail], *, filtered: bool, filename: str) -> StreamingResponse:
@@ -73,7 +79,7 @@ def export_sent_emails(
     """Exportiert die aktuell gefilterte Ansicht als PDF (R8) - nutzt exakt
     denselben Filter-Vertrag wie `GET /sent-emails` (KTD4), damit "Export der
     aktuellen Ansicht" wirklich die angezeigte Ansicht exportiert."""
-    entries = _query_entries(db, filters)
+    entries = _query_entries_for_export(db, filters)
     return _pdf_response(entries, filtered=True, filename="sent-emails-filtered.pdf")
 
 
@@ -81,5 +87,5 @@ def export_sent_emails(
 def export_all_sent_emails(db: Session = Depends(get_db)) -> StreamingResponse:
     """Exportiert das vollständige Protokoll als PDF, unabhängig von einer
     ggf. aktiven Filterung im Frontend (R9)."""
-    entries = _query_entries(db, SentEmailFilter())
+    entries = _query_entries_for_export(db, SentEmailFilter())
     return _pdf_response(entries, filtered=False, filename="sent-emails-full-log.pdf")

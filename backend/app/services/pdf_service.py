@@ -288,14 +288,22 @@ def render_cv_pdf(
         sample=sample,
     )
 
+    return _write_pdf_or_raise(
+        html_content, base_url=str(_CV_TEMPLATES_DIR), error_log_message="PDF-Erzeugung via WeasyPrint fehlgeschlagen."
+    )
+
+
+def _write_pdf_or_raise(html_content: str, *, base_url: str, error_log_message: str) -> bytes:
+    """Gemeinsame WeasyPrint-Rendering-/Fehlerbehandlung für alle PDF-Renderer
+    dieses Moduls (`render_cv_pdf`, `render_sent_emails_pdf`)."""
     try:
         pdf_bytes = HTML(
             string=html_content,
-            base_url=str(_CV_TEMPLATES_DIR),
+            base_url=base_url,
             url_fetcher=_LOCAL_ONLY_URL_FETCHER,
         ).write_pdf()
     except Exception as exc:  # noqa: BLE001 - WeasyPrint kann diverse Fehlerklassen werfen
-        logger.exception("PDF-Erzeugung via WeasyPrint fehlgeschlagen.")
+        logger.exception(error_log_message)
         raise PdfRenderError(f"PDF konnte nicht erzeugt werden: {exc}") from exc
 
     if not pdf_bytes:
@@ -333,17 +341,8 @@ def render_sent_emails_pdf(entries: list[Any], *, filtered: bool = False) -> byt
         filtered=filtered,
     )
 
-    try:
-        pdf_bytes = HTML(
-            string=html_content,
-            base_url=str(_TEMPLATES_DIR / "sent_emails"),
-            url_fetcher=_LOCAL_ONLY_URL_FETCHER,
-        ).write_pdf()
-    except Exception as exc:  # noqa: BLE001 - WeasyPrint kann diverse Fehlerklassen werfen
-        logger.exception("PDF-Erzeugung des Sent-Emails-Protokolls via WeasyPrint fehlgeschlagen.")
-        raise PdfRenderError(f"PDF konnte nicht erzeugt werden: {exc}") from exc
-
-    if not pdf_bytes:
-        raise PdfRenderError("WeasyPrint lieferte ein leeres PDF-Ergebnis.")
-
-    return pdf_bytes
+    return _write_pdf_or_raise(
+        html_content,
+        base_url=str(_TEMPLATES_DIR / "sent_emails"),
+        error_log_message="PDF-Erzeugung des Sent-Emails-Protokolls via WeasyPrint fehlgeschlagen.",
+    )

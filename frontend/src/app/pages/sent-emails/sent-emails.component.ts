@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
-import { DatePipe } from '@angular/common';
-import { HttpErrorResponse, HttpResponse } from '@angular/common/http';
+import { DatePipe, NgTemplateOutlet } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
 
 import { MatButtonModule } from '@angular/material/button';
@@ -11,9 +11,10 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
 
+import { SENDER_EMAIL_OPTIONS } from '../../core/models/master-profile.model';
 import { SentEmail, SentEmailFilterParams } from '../../core/models/sent-email.model';
 import { SentEmailService } from '../../core/services/sent-email.service';
-import { SENDER_EMAIL_OPTIONS } from '../profile/profile.component';
+import { downloadBlobResponse } from '../../core/utils/download-blob-response.util';
 
 const DEFAULT_FILTERED_FILENAME = 'sent-emails-filtered.pdf';
 const DEFAULT_FULL_LOG_FILENAME = 'sent-emails-full-log.pdf';
@@ -36,6 +37,7 @@ const DEFAULT_FULL_LOG_FILENAME = 'sent-emails-full-log.pdf';
   standalone: true,
   imports: [
     DatePipe,
+    NgTemplateOutlet,
     RouterLink,
     MatButtonModule,
     MatFormFieldModule,
@@ -97,7 +99,9 @@ export class SentEmailsComponent implements OnInit {
     this.sentEmailService.exportCurrent(this.currentFilter()).subscribe({
       next: (response) => {
         this.exportingCurrent.set(false);
-        this.downloadResponse(response, DEFAULT_FILTERED_FILENAME);
+        if (!downloadBlobResponse(response, DEFAULT_FILTERED_FILENAME)) {
+          this.exportError.set('Export failed. Please try again.');
+        }
       },
       error: () => {
         this.exportingCurrent.set(false);
@@ -115,7 +119,9 @@ export class SentEmailsComponent implements OnInit {
     this.sentEmailService.exportAll().subscribe({
       next: (response) => {
         this.exportingAll.set(false);
-        this.downloadResponse(response, DEFAULT_FULL_LOG_FILENAME);
+        if (!downloadBlobResponse(response, DEFAULT_FULL_LOG_FILENAME)) {
+          this.exportError.set('Export failed. Please try again.');
+        }
       },
       error: () => {
         this.exportingAll.set(false);
@@ -151,26 +157,4 @@ export class SentEmailsComponent implements OnInit {
     });
   }
 
-  private downloadResponse(response: HttpResponse<Blob>, fallbackFilename: string): void {
-    const blob = response.body;
-    if (!blob) {
-      this.exportError.set('Export failed. Please try again.');
-      return;
-    }
-    const filename = this.resolveFilename(response.headers.get('Content-Disposition')) ?? fallbackFilename;
-    const objectUrl = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = objectUrl;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(objectUrl);
-  }
-
-  private resolveFilename(contentDisposition: string | null): string | null {
-    if (!contentDisposition) {
-      return null;
-    }
-    const match = /filename="?([^";]+)"?/.exec(contentDisposition);
-    return match?.[1] ?? null;
-  }
 }

@@ -103,19 +103,19 @@
         <ng-container matColumnDef="company">
           <th mat-header-cell *matHeaderCellDef>Company</th>
           <td mat-cell *matCellDef="let entry">
+            <ng-template #companyCell>
+              {{ entry.company ?? '—' }}
+              @if (entry.job_title) {
+                <span class="sent-emails__job-title">{{ entry.job_title }}</span>
+              }
+            </ng-template>
             @if (entry.job_offer_id !== null) {
               <a [routerLink]="['/editor', entry.job_offer_id]">
-                {{ entry.company ?? '—' }}
-                @if (entry.job_title) {
-                  <span class="sent-emails__job-title">{{ entry.job_title }}</span>
-                }
+                <ng-container [ngTemplateOutlet]="companyCell" />
               </a>
             } @else {
               <span>
-                {{ entry.company ?? '—' }}
-                @if (entry.job_title) {
-                  <span class="sent-emails__job-title">{{ entry.job_title }}</span>
-                }
+                <ng-container [ngTemplateOutlet]="companyCell" />
               </span>
             }
           </td>

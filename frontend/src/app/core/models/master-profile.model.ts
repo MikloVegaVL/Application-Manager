@@ -54,6 +54,17 @@ export interface ProjectEntry {
   link: string | null;
 }
 
+/**
+ * Auswahl der Absenderadressen fürs `sender_email`-Select (Default: erster
+ * Eintrag) - auch von `sent-emails.component.ts` als Filter-Optionen
+ * wiederverwendet, daher hier statt in `profile.component.ts` (core statt
+ * page-zu-page-Import).
+ */
+export const SENDER_EMAIL_OPTIONS: readonly string[] = [
+  'sayhello@thomastritscher.com',
+  'thomas.tritscher@mail.de',
+];
+
 /** Entspricht `MasterProfileCreate` - Payload für `PUT /api/profile` (Upsert). */
 export interface MasterProfile {
   full_name: string;
