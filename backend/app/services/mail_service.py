@@ -73,7 +73,7 @@ def send_application_email(
     attachment_filename: str,
     extra_attachments: list[tuple[bytes, str]] | None = None,
     from_email: str | None = None,
-) -> None:
+) -> str:
     """Versendet eine Bewerbungsmail inkl. PDF-Anhang via SMTP.
 
     `attachment_bytes`/`attachment_filename` ist der Lebenslauf (Pflicht-
@@ -89,6 +89,13 @@ def send_application_email(
 
     Nutzt je Account STARTTLS oder implizites SSL (siehe `_SmtpAccount`),
     sowie SMTP-Auth, falls Zugangsdaten konfiguriert sind.
+
+    Gibt die tatsächlich genutzte Absenderadresse (`account.from_email`)
+    zurück - kann von `from_email` abweichen, wenn `_account_for` auf den
+    Primär-Account zurückfällt. Aufrufer (siehe `app.api.applications`)
+    protokollieren damit den wirklich genutzten Account, nicht nur den
+    angefragten (KTD2, docs/plans/2026-09-14-001-feat-application-email-log-
+    plan.md).
     """
     account = _account_for(from_email)
     if account is None:
@@ -123,3 +130,4 @@ def send_application_email(
         raise MailSendError(f"Mailversand fehlgeschlagen: {exc}") from exc
 
     logger.info("Bewerbungsmail erfolgreich an %s versendet.", to_email)
+    return account.from_email
