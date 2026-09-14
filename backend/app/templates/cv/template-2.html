@@ -82,6 +82,28 @@
     vertical-align: top;
     background: #f2f2f2;
     padding: 10mm 8mm 14mm;
+    /* Keep top/bottom padding on every page fragment instead of only the
+       first/last (WeasyPrint's default `slice` strips it at each break),
+       so content never sits flush against the page edge at a page break. */
+    box-decoration-break: clone;
+  }
+
+  /* Table-cell/row height in WeasyPrint is content-driven, not page-driven:
+     on the last page the sidebar's own box stops wherever its content ends,
+     short of the physical page bottom. A `position: fixed` layer repaints
+     identically on every generated page regardless of in-flow content, so
+     it fills the colored column down to the true page bottom everywhere,
+     including the last page. It sits behind the header-band/table (painted
+     first, before other stacking-context content) and behind the sidebar's
+     own background wherever that one already reaches full height. */
+  .sidebar-bg {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 62mm;
+    height: 297mm;
+    background: #f2f2f2;
+    z-index: -1;
   }
 
   .main { display: table-cell; vertical-align: top; padding: 10mm 12mm 14mm; }
@@ -98,10 +120,12 @@
   .side-title:first-of-type { margin-top: 0; }
 
   .contact-list { list-style: none; margin: 0; padding: 0; font-size: 8.6pt; color: #555; }
-  .contact-list li { display: flex; align-items: center; gap: 1mm; margin-bottom: 3px; word-break: break-word; }
+  .contact-list li { display: flex; align-items: center; gap: 1mm; margin-bottom: 6px; word-break: break-word; }
   .c-icon { width: 3mm; height: 3mm; flex-shrink: 0; }
 
-  .skill-row, .lang-row { margin-bottom: 4px; break-inside: avoid; page-break-inside: avoid; }
+  .skill-row, .lang-row { break-inside: avoid; page-break-inside: avoid; }
+  .skill-row { margin-bottom: 2px; }
+  .lang-row { margin-bottom: 4px; }
   .skill-row__name, .lang-row__name { font-size: 8.8pt; color: #2b2b2b; margin-bottom: 1mm; }
 
   .blocks { white-space: nowrap; display: flex; gap: .8mm; }
@@ -138,14 +162,15 @@
   .main p { margin: 0 0 6px; }
   .entry { margin-bottom: 4px; break-inside: avoid; page-break-inside: avoid; }
   .entry__role { font-weight: 700; }
-  .entry__title-row { display: flex; justify-content: space-between; gap: 4mm; margin-top: 0.5mm; }
+  .entry__title-row { display: flex; justify-content: space-between; gap: 4mm; margin-top: 2mm; }
   .entry__company { color: #e0982b; font-weight: 600; }
   .entry__date { font-weight: 400; font-style: italic; color: #1c2b3a; white-space: nowrap; font-size: 8.8pt; }
-  .entry__description { margin: 1mm 0 0; white-space: pre-line; color: #555; }
+  .entry__description { margin: 2mm 0 0; white-space: pre-line; color: #555; }
   .entry__link { font-size: 8.6pt; color: #1c2b3a; }
 </style>
 </head>
 <body>
+  <div class="sidebar-bg"></div>
   <div class="header-band">
     {% if photo_url %}
     <img class="photo" src="{{ photo_url }}" alt="{{ doc.photo_alt }}">
