@@ -208,6 +208,39 @@ class TestLinkedinWebsiteAndEducationDescription:
         assert rendered.index(">Experience<") < rendered.index(">Education<") < rendered.index(">Projects<")
 
 
+class TestEntryRoleCompanyDateLayout:
+    """ce-debug, 2026-09-14: Experience/Education entries render the
+    position on its own line, with the company/institution (accent color)
+    and the date range (primary color, italic) on the line below - not all
+    combined into a single line as before."""
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_experience_role_and_company_render_as_separate_elements(self, mocker, template_id):
+        rendered = _rendered_html(mocker, template_id=template_id, **_full_content())
+
+        assert '<div class="entry__role">Backend-Entwickler</div>' in rendered
+        assert '<span class="entry__company">Beispiel GmbH</span>' in rendered
+        # The old combined "Role, Company" single-line form is gone.
+        assert "Backend-Entwickler, Beispiel GmbH" not in rendered
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_education_degree_and_institution_render_as_separate_elements(self, mocker, template_id):
+        rendered = _rendered_html(mocker, template_id=template_id, **_full_content())
+
+        assert "Universität Musterstadt" in rendered
+        assert '<span class="entry__company">Universität Musterstadt</span>' in rendered
+        assert "B.Sc. Informatik, Informatik, Universität Musterstadt" not in rendered
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_entry_blocks_avoid_breaking_across_a_page(self, mocker, template_id):
+        """Regression (ce-debug, 2026-09-14): an `.entry`/`.edu-entry` block
+        had no `break-inside` rule, so WeasyPrint could split an entry's
+        title-row onto one page and its description onto the next."""
+        rendered = _rendered_html(mocker, template_id=template_id, **_full_content())
+
+        assert "break-inside: avoid" in rendered
+
+
 class TestSkillLevelBlocksAndLanguageLevelDots:
     """R3/R4/R6/KTD1: die 4-stufige Skill-Skala wird serverseitig auf einen
     5-Block-Balken abgebildet, die CEFR-Stufe auf den bestehenden

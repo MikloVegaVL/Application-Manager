@@ -33,7 +33,7 @@
      komplett auf Seite 2. `table`/`table-cell` hält beide Spalten ab Seite 1
      nebeneinander, wie schon in template-1.html/template-2.html/
      template-3.html. */
-  .cv { display: table; width: 100%; font-size: 9.6pt; line-height: 1.5; }
+  .cv { display: table; width: 100%; font-size: 9.6pt; line-height: 1.3; }
 
   .sidebar {
     display: table-cell;
@@ -72,7 +72,6 @@
     margin: 7mm 0 3mm;
     padding-bottom: 1.5mm;
     border-bottom: 1.5pt solid #3f8f96;
-    display: inline-block;
   }
   .sidebar h2:first-of-type { margin-top: 0; }
 
@@ -150,9 +149,11 @@
   .main h2:first-child { margin-top: 0; }
 
   .main p { margin: 0 0 3mm; color: #666; }
-  .entry { margin-bottom: 4mm; }
-  .entry__title-row { display: flex; justify-content: space-between; gap: 4mm; font-weight: 700; color: #26364a; }
-  .entry__date { font-weight: 400; color: #666; white-space: nowrap; font-size: 8.8pt; }
+  .entry { margin-bottom: 4mm; break-inside: avoid; page-break-inside: avoid; }
+  .entry__role { font-weight: 700; color: #26364a; }
+  .entry__title-row { display: flex; justify-content: space-between; gap: 4mm; margin-top: 0.5mm; }
+  .entry__company { color: #3f8f96; font-weight: 600; }
+  .entry__date { font-weight: 400; font-style: italic; color: #26364a; white-space: nowrap; font-size: 8.8pt; }
   .entry__description { margin: 1mm 0 0; white-space: pre-line; color: #666; }
   .entry__link { font-size: 8.8pt; color: #3f8f96; }
 </style>
@@ -233,8 +234,9 @@
       {% set exp_sample = not experiences %}
       {% for exp in exp_list %}
       <div class="entry{% if exp_sample %} ph{% endif %}">
+        <div class="entry__role">{{ exp.role }}</div>
         <div class="entry__title-row">
-          <span>{{ exp.role }}, {{ exp.company }}</span>
+          <span class="entry__company">{{ exp.company }}</span>
           <span class="entry__date">{{ exp.date_range }}</span>
         </div>
         {% if exp.description %}<p class="entry__description">{{ exp.description }}</p>
@@ -249,8 +251,9 @@
       {% set edu_sample = not education %}
       {% for edu in edu_list %}
       <div class="entry{% if edu_sample %} ph{% endif %}">
+        <div class="entry__role">{{ edu.degree }}{% if edu.field_of_study %}, {{ edu.field_of_study }}{% endif %}</div>
         <div class="entry__title-row">
-          <span>{{ edu.degree }}{% if edu.field_of_study %}, {{ edu.field_of_study }}{% endif %}, {{ edu.institution }}</span>
+          <span class="entry__company">{{ edu.institution }}</span>
           <span class="entry__date">{{ edu.date_range }}</span>
         </div>
         {% if edu.description %}<p class="entry__description">{{ edu.description }}</p>

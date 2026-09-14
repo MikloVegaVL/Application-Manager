@@ -77,7 +77,7 @@
      Anders als template-2.html liegt hier die Hauptspalte LINKS (breit) und
      die Sidebar RECHTS (schmal) - `table`/`table-cell` respektiert dafür
      einfach die Quellreihenfolge der beiden `<div>`s unten. */
-  .cv { display: table; width: 100%; font-size: 9.4pt; line-height: 1.55; }
+  .cv { display: table; width: 100%; font-size: 9.4pt; line-height: 1.35; }
 
   .main { display: table-cell; vertical-align: top; width: 66%; padding: 8mm 6mm 14mm 12mm; }
   .sidebar { display: table-cell; vertical-align: top; padding: 8mm 12mm 14mm 6mm; }
@@ -126,13 +126,14 @@
      Textinhalt, damit ATS-Parser/Copy-Paste die Stufe extrahieren können. */
   .sr-only { display: inline-block; width: 0; height: 0; overflow: hidden; font-size: 0; line-height: 0; }
 
-  .edu-entry { font-size: 8.6pt; margin-bottom: 3mm; }
-  .edu-entry__date { color: #8e3b3b; font-weight: 600; }
+  .edu-entry { font-size: 8.6pt; margin-bottom: 3mm; break-inside: avoid; page-break-inside: avoid; }
 
   .main p { margin: 0 0 3mm; font-size: 9.2pt; color: #555; }
-  .entry { margin-bottom: 4mm; }
-  .entry__title-row { display: flex; justify-content: space-between; gap: 4mm; font-weight: 700; }
-  .entry__date { font-weight: 600; color: #8e3b3b; white-space: nowrap; font-size: 8.6pt; }
+  .entry { margin-bottom: 4mm; break-inside: avoid; page-break-inside: avoid; }
+  .entry__role { font-weight: 700; }
+  .entry__title-row { display: flex; justify-content: space-between; gap: 4mm; margin-top: 0.5mm; }
+  .entry__company { color: #8e3b3b; font-weight: 600; }
+  .entry__date { font-weight: 400; font-style: italic; color: #2b2b2b; white-space: nowrap; font-size: 8.6pt; }
   .entry__description { margin: 1mm 0 0; white-space: pre-line; color: #555; }
   .entry__link { font-size: 8.4pt; color: #8e3b3b; }
 </style>
@@ -167,8 +168,9 @@
       {% set exp_sample = not experiences %}
       {% for exp in exp_list %}
       <div class="entry{% if exp_sample %} ph{% endif %}">
+        <div class="entry__role">{{ exp.role }}</div>
         <div class="entry__title-row">
-          <span>{{ exp.role }}, {{ exp.company }}</span>
+          <span class="entry__company">{{ exp.company }}</span>
           <span class="entry__date">{{ exp.date_range }}</span>
         </div>
         {% if exp.description %}<p class="entry__description">{{ exp.description }}</p>
@@ -183,9 +185,11 @@
       {% set edu_sample = not education %}
       {% for edu in edu_list %}
       <div class="edu-entry{% if edu_sample %} ph{% endif %}">
-        <div><strong>{{ edu.degree }}</strong>{% if edu.field_of_study %}, {{ edu.field_of_study }}{% endif %}</div>
-        <div>{{ edu.institution }}</div>
-        <div class="edu-entry__date">{{ edu.date_range }}</div>
+        <div class="entry__role">{{ edu.degree }}{% if edu.field_of_study %}, {{ edu.field_of_study }}{% endif %}</div>
+        <div class="entry__title-row">
+          <span class="entry__company">{{ edu.institution }}</span>
+          <span class="entry__date">{{ edu.date_range }}</span>
+        </div>
         {% if edu.description %}<p class="entry__description">{{ edu.description }}</p>
         {% elif preview %}<p class="entry__description ph">{{ sample.education_description }}</p>{% endif %}
       </div>

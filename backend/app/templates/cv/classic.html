@@ -23,7 +23,7 @@
     margin: 0;
   }
 
-  .cv { font-size: 10.5pt; line-height: 1.45; }
+  .cv { font-size: 10.5pt; line-height: 1.3; }
 
   /* Vorschau-Platzhalter (R8/KTD3): nur Beispielwerte werden gedämpft. */
   .ph { color: #9a9a9a; font-style: italic; }
@@ -80,14 +80,16 @@
   .rule { border-top: 1.5pt solid #e8543f; margin-top: 1.5mm; }
 
   .main p { margin: 0 0 3mm; }
-  .entry { margin-bottom: 4mm; }
+  .entry { margin-bottom: 4mm; break-inside: avoid; page-break-inside: avoid; }
+  .entry__role { font-weight: 700; }
   .entry__title-row {
     display: flex;
     justify-content: space-between;
     gap: 4mm;
-    font-weight: 700;
+    margin-top: 0.5mm;
   }
-  .entry__date { font-weight: 400; color: #666; white-space: nowrap; }
+  .entry__company { color: #e8543f; font-weight: 600; }
+  .entry__date { font-weight: 400; font-style: italic; color: #1a1a1a; white-space: nowrap; }
   .entry__description { margin: 1mm 0 0; white-space: pre-line; font-weight: 400; color: #333; }
   .entry__link { font-size: 9pt; color: #666; }
 
@@ -145,8 +147,9 @@
         {% set exp_sample = not experiences %}
         {% for exp in exp_list %}
         <div class="entry{% if exp_sample %} ph{% endif %}">
+          <div class="entry__role">{{ exp.role }}</div>
           <div class="entry__title-row">
-            <span>{{ exp.role }}, {{ exp.company }}</span>
+            <span class="entry__company">{{ exp.company }}</span>
             <span class="entry__date">{{ exp.date_range }}</span>
           </div>
           {% if exp.description %}<p class="entry__description">{{ exp.description }}</p>
@@ -165,8 +168,9 @@
         {% set edu_sample = not education %}
         {% for edu in edu_list %}
         <div class="entry{% if edu_sample %} ph{% endif %}">
+          <div class="entry__role">{{ edu.degree }}{% if edu.field_of_study %} &middot; {{ edu.field_of_study }}{% endif %}</div>
           <div class="entry__title-row">
-            <span>{{ edu.degree }}{% if edu.field_of_study %} &middot; {{ edu.field_of_study }}{% endif %}, {{ edu.institution }}</span>
+            <span class="entry__company">{{ edu.institution }}</span>
             <span class="entry__date">{{ edu.date_range }}</span>
           </div>
           {% if edu.description %}<p class="entry__description">{{ edu.description }}</p>
