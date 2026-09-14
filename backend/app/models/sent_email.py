@@ -12,12 +12,15 @@ bleibt der Log-Eintrag trotzdem lesbar - das durable Protokoll darf nicht
 durch eine spätere Löschung verschwinden.
 """
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, func
-from sqlalchemy.orm import Mapped, mapped_column
-
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
+
+if TYPE_CHECKING:
+    from app.models.application import Application
 
 
 class SentEmail(Base):
@@ -50,6 +53,20 @@ class SentEmail(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+    # `viewonly`: reines Lesen für den Link-through zur Application (R5) -
+    # kein `back_populates` auf `Application`, da diese Beziehung dort nicht
+    # gebraucht wird. Eager-geladen per `joinedload` in `app.api.sent_emails`,
+    # damit `job_offer_id` unten ohne N+1-Query pro Zeile auskommt.
+    application: Mapped["Application | None"] = relationship(viewonly=True)
+
+    @property
+    def job_offer_id(self) -> int | None:
+        """Für den Link-through zum Editor (`/editor/:jobOfferId`, R5) - kein
+        Snapshot wie `company`/`job_title`: wird `None`, sobald die
+        Application (und damit die Verlinkung) nicht mehr existiert, statt
+        auf eine dann ohnehin nicht mehr erreichbare Seite zu verweisen."""
+        return self.application.job_offer_id if self.application is not None else None
 
     def __repr__(self) -> str:  # pragma: no cover - Debug-Hilfe
         return (

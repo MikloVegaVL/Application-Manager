@@ -8,7 +8,7 @@ import io
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func
-from sqlalchemy.orm import Query, Session
+from sqlalchemy.orm import Query, Session, joinedload
 
 from app.db.database import get_db
 from app.models.sent_email import SentEmail
@@ -33,7 +33,14 @@ def _apply_filters(query: Query, filters: SentEmailFilter) -> Query:
 
 
 def _query_entries(db: Session, filters: SentEmailFilter) -> list[SentEmail]:
-    query = db.query(SentEmail).order_by(SentEmail.sent_at.desc())
+    # `joinedload`: `SentEmailRead.job_offer_id` liest `entry.application.
+    # job_offer_id` (siehe `SentEmail.job_offer_id`-Property) - ohne Eager-
+    # Load würde das pro Zeile eine eigene Nachlade-Query auslösen (N+1).
+    query = (
+        db.query(SentEmail)
+        .options(joinedload(SentEmail.application))
+        .order_by(SentEmail.sent_at.desc())
+    )
     return _apply_filters(query, filters).all()
 
 

@@ -17,6 +17,8 @@ from sqlalchemy.pool import StaticPool
 from app import models  # noqa: F401 - registriert Modelle in Base.metadata
 from app.db.database import Base, get_db
 from app.main import app
+from app.models.application import Application, ApplicationStatus
+from app.models.job_offer import JobOffer
 from app.models.sent_email import SentEmail
 
 
@@ -205,6 +207,37 @@ def test_entry_with_deleted_application_is_still_returned_with_snapshot_intact(
     assert entry["application_id"] is None
     assert entry["company"] == "Acme GmbH"
     assert entry["job_title"] == "Backend Engineer"
+
+
+def test_entry_with_existing_application_exposes_job_offer_id_for_link_through(
+    client, db_session_local
+) -> None:
+    """R5: the frontend needs job_offer_id to link to /editor/:jobOfferId."""
+    session = db_session_local()
+    try:
+        job_offer = JobOffer(
+            title="Backend Engineer", company="Acme GmbH",
+            source_url="https://example.com/job/x", source_platform="test",
+        )
+        session.add(job_offer)
+        session.commit()
+        session.refresh(job_offer)
+        job_offer_id = job_offer.id
+
+        application = Application(job_offer_id=job_offer_id, status=ApplicationStatus.SENT)
+        session.add(application)
+        session.commit()
+        session.refresh(application)
+
+        _insert_sent_email(session, application_id=application.id)
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails")
+
+    assert response.status_code == 200
+    entry = response.json()[0]
+    assert entry["job_offer_id"] == job_offer_id
 
 
 # --- PDF export endpoints (U4) ----------------------------------------
