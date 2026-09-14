@@ -105,6 +105,21 @@ def test_filter_by_company_returns_only_matching_entries(client, db_session_loca
     assert body[0]["company"] == "Globex"
 
 
+def test_filter_by_company_matches_case_insensitive_substring(client, db_session_local) -> None:
+    session = db_session_local()
+    try:
+        _insert_sent_email(session, application_id=1, company="Acme GmbH")
+        _insert_sent_email(session, application_id=2, company="Globex")
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails", params={"company": "acme"})
+
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["company"] == "Acme GmbH"
+
+
 def test_filter_by_sender_email_returns_only_matching_entries(client, db_session_local) -> None:
     session = db_session_local()
     try:

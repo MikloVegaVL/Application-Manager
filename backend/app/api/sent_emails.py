@@ -20,9 +20,13 @@ router = APIRouter(prefix="/sent-emails", tags=["Sent Emails"])
 
 def _apply_filters(query: Query, filters: SentEmailFilter) -> Query:
     """Wendet den gemeinsamen Filter-Vertrag von Liste und Export an (KTD4) -
-    alle gesetzten Filter kombinieren sich mit UND."""
+    alle gesetzten Filter kombinieren sich mit UND. `company` ist ein
+    case-insensitiver Teilstring-Treffer (nicht exakt) - Firmennamen kommen
+    aus gescrapten Stellenangeboten (`JobOffer.company`) mit uneinheitlicher
+    Schreibweise, ein exakter Treffer würde ein Freitextfeld zur
+    Ratespiel-Falle machen."""
     if filters.company:
-        query = query.filter(SentEmail.company == filters.company)
+        query = query.filter(SentEmail.company.ilike(f"%{filters.company}%"))
     if filters.sender_email:
         query = query.filter(SentEmail.sender_email == filters.sender_email)
     if filters.date_from:
