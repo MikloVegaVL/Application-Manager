@@ -52,6 +52,12 @@ export const routes: Routes = [
     title: 'Editor',
   },
   {
+    path: 'sent-emails',
+    loadComponent: () =>
+      import('./pages/sent-emails/sent-emails.component').then((m) => m.SentEmailsComponent),
+    title: 'Sent Emails',
+  },
+  {
     path: '**',
     redirectTo: 'job-search',
   },
