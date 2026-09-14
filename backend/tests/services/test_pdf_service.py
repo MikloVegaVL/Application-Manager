@@ -1084,3 +1084,13 @@ class TestRenderSentEmailsPdf:
 
         assert pdf_bytes.startswith(b"%PDF")
         assert "No entries" in self._extract_text(pdf_bytes)
+
+    def test_filtered_true_shows_filtered_view_in_heading(self):
+        pdf_bytes = pdf_service.render_sent_emails_pdf([self._entry()], filtered=True)
+
+        assert "filtered view" in self._extract_text(pdf_bytes)
+
+    def test_filtered_false_omits_filtered_view_from_heading(self):
+        pdf_bytes = pdf_service.render_sent_emails_pdf([self._entry()], filtered=False)
+
+        assert "filtered view" not in self._extract_text(pdf_bytes)

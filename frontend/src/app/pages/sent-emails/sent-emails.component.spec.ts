@@ -151,6 +151,17 @@ describe('SentEmailsComponent', () => {
     expect(component['exportingCurrent']()).toBeFalse();
   });
 
+  it('ignores a second export click while the first request is still in flight', () => {
+    flushList([sampleEntry]);
+
+    component['exportCurrent']();
+    component['exportCurrent']();
+
+    httpMock.expectOne((request) => request.url === `${baseUrl}/export` && request.method === 'GET').flush(
+      new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+    );
+  });
+
   it('exports the full log regardless of the active filter', () => {
     flushList([sampleEntry]);
     component['companyFilter'].set('Acme');

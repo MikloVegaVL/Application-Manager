@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import io
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Query, Session, joinedload
@@ -13,7 +13,7 @@ from sqlalchemy.orm import Query, Session, joinedload
 from app.db.database import get_db
 from app.models.sent_email import SentEmail
 from app.schemas.sent_email import SentEmailFilter, SentEmailRead
-from app.services.pdf_service import render_sent_emails_pdf
+from app.services.pdf_service import PdfRenderError, render_sent_emails_pdf
 
 router = APIRouter(prefix="/sent-emails", tags=["Sent Emails"])
 
@@ -64,7 +64,17 @@ def list_sent_emails(
 
 
 def _pdf_response(entries: list[SentEmail], *, filtered: bool, filename: str) -> StreamingResponse:
-    pdf_bytes = render_sent_emails_pdf(entries, filtered=filtered)
+    # Gleiche Fehlerbehandlung wie `cv_builder.py`s Export-Endpunkte (Review-
+    # Fund) - ohne diesen Catch hätte ein WeasyPrint-Fehler hier eine andere
+    # Fehlerform (500 mit Traceback statt konsistentem JSON-`detail`) geliefert
+    # als der Rest der API.
+    try:
+        pdf_bytes = render_sent_emails_pdf(entries, filtered=filtered)
+    except PdfRenderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not generate the sent-emails PDF: {exc}",
+        ) from exc
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",

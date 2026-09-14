@@ -21,7 +21,7 @@ URL-Schemas, welche Connect-Optionen sinnvoll sind.
 """
 from collections.abc import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import settings
@@ -66,6 +66,22 @@ engine = create_engine(
     # aber unschädlich.
     pool_pre_ping=True,
 )
+
+if _is_sqlite:
+    # SQLite ignoriert Foreign-Key-Constraints (inkl. `ondelete=...`) per
+    # Default - anders als PostgreSQL, das sie immer erzwingt. Ohne dieses
+    # PRAGMA würde z. B. `SentEmail.application_id`s `ondelete="SET NULL"`
+    # unter SQLite nie auslösen: eine gelöschte Application ließe eine
+    # verwaiste `application_id` in `sent_emails` zurück, statt sie auf
+    # `NULL` zu setzen (Review-Fund, docs/plans/2026-09-14-001-feat-
+    # application-email-log-plan.md) - `connect`-Event, da `PRAGMA` pro
+    # Connection gilt, nicht global fürs Pool.
+    @event.listens_for(engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

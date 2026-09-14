@@ -50,10 +50,22 @@ def upgrade() -> None:
 
 def _backfill_already_sent_applications(bind: sa.engine.Connection) -> None:
     """Ein `SentEmail`-Log-Eintrag pro bereits vor diesem Feature versendeter
-    `Application` (`status='sent'`), aus deren `sent_at`/`sent_to_email`;
-    `subject`/`sender_email`/`attachment_filename` bleiben `NULL` ("unknown"
-    in UI/PDF), da für Altbestand nie erfasst (siehe R10,
-    `docs/plans/2026-09-14-001-feat-application-email-log-plan.md`).
+    `Application`, aus deren `sent_at`/`sent_to_email`; `subject`/
+    `sender_email`/`attachment_filename` bleiben `NULL` ("unknown" in UI/PDF),
+    da für Altbestand nie erfasst (siehe R10, docs/plans/2026-09-14-001-feat-
+    application-email-log-plan.md).
+
+    Filtert auf `sent_at IS NOT NULL` statt `status = 'sent'` (Review-Fund):
+    `PUT /applications/{id}` lässt den Status danach frei auf
+    `accepted`/`rejected`/`interview` weiterschalten, ohne `sent_at`/
+    `sent_to_email` zu löschen - eine Filterung auf den *aktuellen* Status
+    hätte genau die Applications übersprungen, die die Nutzerin über den
+    normalen Workflow (Bewerbung -> Ergebnis) längst weitergeschaltet hat,
+    obwohl sie tatsächlich versendet wurden. Die zusätzliche
+    `sent_to_email IS NOT NULL`-Bedingung schützt vor einem `NOT NULL`-
+    Constraint-Fehler, falls (z. B. über dasselbe PUT) `sent_at` gesetzt,
+    `sent_to_email` aber nie gepflegt wurde - eine solche Zeile wird beim
+    Backfill übersprungen statt die ganze Migration abzubrechen.
 
     Der `already_logged`-Guard verhindert Duplikate bei erneutem `upgrade`
     (z. B. nach einem zuvor abgebrochenen Lauf) - ohne ihn würde ein zweiter
@@ -81,7 +93,10 @@ def _backfill_already_sent_applications(bind: sa.engine.Connection) -> None:
         .select_from(
             applications.join(job_offers, applications.c.job_offer_id == job_offers.c.id)
         )
-        .where(applications.c.status == 'sent')
+        .where(
+            applications.c.sent_at.is_not(None),
+            applications.c.sent_to_email.is_not(None),
+        )
     )
 
     rows_to_insert = [
