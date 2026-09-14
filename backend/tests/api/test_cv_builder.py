@@ -110,7 +110,7 @@ def test_parse_cv_with_full_data_returns_no_warnings(client, mocker):
             {"company": "Acme GmbH", "role": "Entwickler", "start_date": "2020", "end_date": None}
         ],
         education=[{"institution": "TU Berlin", "degree": "B.Sc. Informatik"}],
-        skills=["Python"],
+        skills=[{"name": "Python"}],
         projects=[{"title": "Portfolio-Website", "description": "Persönliche Portfolio-Seite."}],
     )
 
@@ -127,6 +127,9 @@ def test_parse_cv_with_full_data_returns_no_warnings(client, mocker):
     assert len(body["parsed"]["experiences"]) == 1
     assert len(body["parsed"]["projects"]) == 1
     assert body["parsed"]["projects"][0]["title"] == "Portfolio-Website"
+    # Skills kommen als Objekte zurück (R9-Folge), nicht mehr als reine
+    # Strings; keine Kategorie mehr (R8).
+    assert body["parsed"]["skills"] == [{"name": "Python"}]
 
 
 def test_parse_cv_with_no_identifiable_project_returns_empty_list_and_warning(client, mocker):
@@ -136,7 +139,7 @@ def test_parse_cv_with_no_identifiable_project_returns_empty_list_and_warning(cl
         experiences=[{"company": "Acme GmbH", "role": "Entwickler"}],
         education=[{"institution": "TU Berlin", "degree": "B.Sc. Informatik"}],
         summary="Erfahrener Entwickler.",
-        skills=["Python"],
+        skills=[{"name": "Python"}],
         projects=[],
     )
 
@@ -145,7 +148,7 @@ def test_parse_cv_with_no_identifiable_project_returns_empty_list_and_warning(cl
     assert response.status_code == 200
     body = response.json()
     assert body["parsed"]["projects"] == []
-    assert "Keine Projekte gefunden." in body["warnings"]
+    assert "No projects found." in body["warnings"]
 
 
 def test_parse_cv_with_missing_experience_and_education_reports_warnings(client, mocker):
@@ -154,7 +157,7 @@ def test_parse_cv_with_missing_experience_and_education_reports_warnings(client,
         email="max@example.com",
         experiences=[],
         education=[],
-        skills=["Python"],
+        skills=[{"name": "Python"}],
         projects=[],
     )
 
@@ -162,12 +165,12 @@ def test_parse_cv_with_missing_experience_and_education_reports_warnings(client,
 
     assert response.status_code == 200
     body = response.json()
-    assert "Keine Berufserfahrung gefunden." in body["warnings"]
-    assert "Keine Ausbildung gefunden." in body["warnings"]
-    assert "Kein Kurzprofil/Zusammenfassung gefunden." in body["warnings"]
-    assert "Keine Projekte gefunden." in body["warnings"]
+    assert "No work experience found." in body["warnings"]
+    assert "No education found." in body["warnings"]
+    assert "No summary found." in body["warnings"]
+    assert "No projects found." in body["warnings"]
     # Skills wurden gefunden - dafür keine Warnung.
-    assert "Keine Skills gefunden." not in body["warnings"]
+    assert "No skills found." not in body["warnings"]
 
 
 def test_parse_cv_does_not_write_to_the_database(client, mocker):
@@ -215,8 +218,16 @@ def test_list_templates_returns_the_configured_template_ids(client):
     assert response.status_code == 200
     body = response.json()
     ids = {template["id"] for template in body}
-    assert ids == {"classic", "modern"}
+    assert ids == {"classic", "template-1", "template-2", "template-3", "template-4"}
+    # AE1: die vollständige Menge aus fünf Vorlagen mit eindeutigen Labels.
+    assert len(body) == 5
+    labels = [template["label"] for template in body]
+    assert len(labels) == len(set(labels))
     assert all("label" in template for template in body)
+    labels_by_id = {template["id"]: template["label"] for template in body}
+    assert labels_by_id["template-2"] == "Template 2"
+    assert labels_by_id["template-3"] == "Template 3"
+    assert labels_by_id["template-4"] == "Template 4"
 
 
 # --- POST /cv-builder/preview & /export -----------------------------------
@@ -228,6 +239,7 @@ def test_list_templates_returns_the_configured_template_ids(client):
 _RENDER_PAYLOAD = {
     "template_id": "classic",
     "summary": "Erfahrener Entwickler.",
+    "berufsbezeichnung": "Frontend Developer",
     "experiences_json": [
         {"company": "Acme GmbH", "role": "Entwickler", "start_date": "2020", "end_date": None}
     ],
@@ -278,6 +290,7 @@ def test_preview_returns_inline_pdf_with_merged_identity(client_with_session, mo
     assert render_spy.call_args.kwargs["email"] == "max@example.com"
     assert render_spy.call_args.kwargs["phone"] == "0176 123456"
     assert render_spy.call_args.kwargs["address"] == "Musterstraße 1, Berlin"
+    assert render_spy.call_args.kwargs["berufsbezeichnung"] == "Frontend Developer"
 
 
 def test_export_returns_attachment_disposition_with_sanitized_filename(client_with_session):
@@ -294,17 +307,95 @@ def test_export_returns_attachment_disposition_with_sanitized_filename(client_wi
     assert response.content.startswith(b"%PDF")
 
 
-def test_preview_and_export_use_the_same_rendering_pipeline(client_with_session, mocker):
-    """KTD7: Preview liefert dieselben PDF-Bytes, die der Export für denselben
-    Inhalt erzeugen würde (eine WeasyPrint-Pipeline für beide)."""
+def test_preview_and_export_use_the_same_renderer_with_different_modes(client_with_session, mocker):
+    """KTD1 (revised KTD7): beide Endpunkte nutzen dieselbe Render-Pipeline,
+    aber die Vorschau rendert im `preview`-Modus und der Export nicht."""
     test_client, session_local = client_with_session
     _create_profile(session_local)
-    mocker.patch.object(pdf_service, "HTML").return_value.write_pdf.return_value = b"%PDF-1.4 identical bytes"
+    render_spy = mocker.spy(cv_builder_module, "render_cv_pdf")
 
     preview_response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD)
-    export_response = test_client.post("/api/cv-builder/export", json=_RENDER_PAYLOAD)
+    assert preview_response.status_code == 200
+    assert render_spy.call_args.kwargs["preview"] is True
 
-    assert preview_response.content == export_response.content == b"%PDF-1.4 identical bytes"
+    export_response = test_client.post("/api/cv-builder/export", json=_RENDER_PAYLOAD)
+    assert export_response.status_code == 200
+    assert render_spy.call_args.kwargs["preview"] is False
+
+
+def test_render_no_longer_accepts_a_document_language_kwarg(client_with_session, mocker):
+    """R4 (Global Language Unification, 2026-09-13): es gibt keine
+    Dokumentsprache mehr zu wählen - `render_cv_pdf` wird ohne
+    `document_language` aufgerufen und liefert fest Englisch."""
+    test_client, session_local = client_with_session
+    _create_profile(session_local)
+    render_spy = mocker.spy(cv_builder_module, "render_cv_pdf")
+
+    response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD)
+
+    assert response.status_code == 200
+    assert "document_language" not in render_spy.call_args.kwargs
+
+
+def test_preview_and_export_render_successfully_with_template_2(client_with_session):
+    """R1/R2: `template-2` ist eine vollwertige, wählbare Vorlage wie
+    `classic`/`template-1` - Vorschau und Export müssen mit ihr genauso
+    durchlaufen."""
+    test_client, session_local = client_with_session
+    _create_profile(session_local)
+    payload = {**_RENDER_PAYLOAD, "template_id": "template-2"}
+
+    preview_response = test_client.post("/api/cv-builder/preview", json=payload)
+    export_response = test_client.post("/api/cv-builder/export", json=payload)
+
+    assert preview_response.status_code == 200
+    assert preview_response.content.startswith(b"%PDF")
+    assert export_response.status_code == 200
+    assert export_response.content.startswith(b"%PDF")
+
+
+def test_preview_and_export_render_successfully_with_template_3(client_with_session):
+    """R1/R2: `template-3` ist eine vollwertige, wählbare Vorlage wie
+    `classic`/`template-1`/`template-2` - Vorschau und Export müssen mit ihr
+    genauso durchlaufen."""
+    test_client, session_local = client_with_session
+    _create_profile(session_local)
+    payload = {**_RENDER_PAYLOAD, "template_id": "template-3"}
+
+    preview_response = test_client.post("/api/cv-builder/preview", json=payload)
+    export_response = test_client.post("/api/cv-builder/export", json=payload)
+
+    assert preview_response.status_code == 200
+    assert preview_response.content.startswith(b"%PDF")
+    assert export_response.status_code == 200
+    assert export_response.content.startswith(b"%PDF")
+
+
+def test_preview_and_export_render_successfully_with_template_4(client_with_session):
+    """R1/R2: `template-4` ist eine vollwertige, wählbare Vorlage wie
+    `classic`/`template-1`/`template-2`/`template-3` - Vorschau und Export
+    müssen mit ihr genauso durchlaufen."""
+    test_client, session_local = client_with_session
+    _create_profile(session_local)
+    payload = {**_RENDER_PAYLOAD, "template_id": "template-4"}
+
+    preview_response = test_client.post("/api/cv-builder/preview", json=payload)
+    export_response = test_client.post("/api/cv-builder/export", json=payload)
+
+    assert preview_response.status_code == 200
+    assert preview_response.content.startswith(b"%PDF")
+    assert export_response.status_code == 200
+    assert export_response.content.startswith(b"%PDF")
+
+
+def test_render_rejects_legacy_modern_template_id(client_with_session):
+    test_client, session_local = client_with_session
+    _create_profile(session_local)
+    payload = {**_RENDER_PAYLOAD, "template_id": "modern"}
+
+    response = test_client.post("/api/cv-builder/preview", json=payload)
+
+    assert response.status_code == 422
 
 
 def test_render_rejects_unknown_template_id(client_with_session):
@@ -327,3 +418,38 @@ def test_render_surfaces_pdf_render_error_as_http_error(client_with_session, moc
     response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD)
 
     assert response.status_code == 500
+
+
+# --- POST /cv-builder/parse: fixed English import (Global Language
+# Unification, 2026-09-13) ---------------------------------------------
+
+
+def test_parse_calls_the_parser_without_a_language_argument(client, mocker):
+    """Es gibt kein `language`-Form-Feld mehr - der Import ist fest
+    Englisch, gesteuert allein durch `parse_cv_pdf`s eigenen Default."""
+    parsed = ParsedCvProfile(full_name="Max Mustermann", email="max@example.com")
+    mock_parse = mocker.patch("app.api.cv_builder.parse_cv_pdf", return_value=parsed)
+
+    response = client.post(
+        "/api/cv-builder/parse",
+        files={"file": ("cv.pdf", b"%PDF-1.4 fake content", "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    mock_parse.assert_called_once_with(b"%PDF-1.4 fake content")
+
+
+# --- POST /cv-builder/translate: removed (U2, R2) --------------------------
+#
+# The per-field content-translation endpoint and its backing service
+# (`translation_service.py`) were removed together with the CV Builder's
+# content-translation state machine. The route must no longer be registered.
+
+
+def test_translate_route_no_longer_exists(client):
+    response = client.post(
+        "/api/cv-builder/translate",
+        json={"source_language": "de", "target_language": "en", "fields": {}},
+    )
+
+    assert response.status_code == 404

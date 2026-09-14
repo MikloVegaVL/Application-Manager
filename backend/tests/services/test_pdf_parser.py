@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.core.config import settings
-from app.schemas.master_profile import ParsedCvProfile
+from app.schemas.master_profile import ParsedCvProfile, ParsedSkill
 from app.services import pdf_parser
 from app.services.llm_client import LlmUnavailableError, LlmValidationError
 from app.services.pdf_parser import CvAnalysisError, PdfParsingError
@@ -24,7 +24,7 @@ VALID_PROFILE = ParsedCvProfile(
     summary="Erfahrener Entwickler.",
     experiences=[],
     education=[],
-    skills=["Python"],
+    skills=[ParsedSkill(name="Python")],
     projects=[],
 )
 
@@ -66,6 +66,20 @@ class TestAnalyzeCvTextHappyPath:
         pdf_parser.analyze_cv_text("Lebenslauf-Text von Max Mustermann.")
 
         assert mock_generate.call_args.kwargs["model"] == settings.OLLAMA_MODEL_CV_PARSING
+
+
+    def test_system_prompt_requests_english_output(self):
+        """Die App ist fest englischsprachig (Global Language Unification,
+        2026-09-13): der Prompt fordert immer Englisch, unabhängig von der
+        Quellsprache des CVs."""
+        assert "ENGLISH" in pdf_parser._SYSTEM_PROMPT
+        assert "GERMAN" not in pdf_parser._SYSTEM_PROMPT
+
+    def test_system_prompt_no_longer_mentions_skill_category(self):
+        """Skill-Kategorien wurden aus dem Produkt entfernt (R8, Session-
+        Entscheidung CV-Template-Erweiterungs-Plan 2026-09-13): die KI soll
+        weder eine Kategorie zuordnen noch danach gefragt werden."""
+        assert "category" not in pdf_parser._SYSTEM_PROMPT
 
 
 class TestAnalyzeCvTextValidationFailure:
@@ -151,7 +165,7 @@ class TestMissingFieldWarnings:
             summary="Erfahrener Entwickler.",
             experiences=[{"company": "Acme GmbH", "role": "Entwickler"}],
             education=[{"institution": "TU Berlin", "degree": "B.Sc. Informatik"}],
-            skills=["Python"],
+            skills=[ParsedSkill(name="Python")],
             projects=[{"title": "Portfolio-Website", "description": "Persönliche Portfolio-Seite."}],
         )
 
@@ -162,11 +176,11 @@ class TestMissingFieldWarnings:
 
         warnings = pdf_parser.missing_field_warnings(empty)
 
-        assert "Kein Kurzprofil/Zusammenfassung gefunden." in warnings
-        assert "Keine Berufserfahrung gefunden." in warnings
-        assert "Keine Ausbildung gefunden." in warnings
-        assert "Keine Skills gefunden." in warnings
-        assert "Keine Projekte gefunden." in warnings
+        assert "No summary found." in warnings
+        assert "No work experience found." in warnings
+        assert "No education found." in warnings
+        assert "No skills found." in warnings
+        assert "No projects found." in warnings
 
     def test_present_projects_suppress_only_the_projects_warning(self):
         parsed = ParsedCvProfile(
@@ -177,9 +191,9 @@ class TestMissingFieldWarnings:
 
         warnings = pdf_parser.missing_field_warnings(parsed)
 
-        assert "Keine Projekte gefunden." not in warnings
+        assert "No projects found." not in warnings
         # Andere leere Felder bleiben weiterhin gemeldet.
-        assert "Keine Berufserfahrung gefunden." in warnings
+        assert "No work experience found." in warnings
 
 
 class TestAnalyzeCvTextProjectsStructuralFailureFallback:
@@ -231,7 +245,7 @@ class TestAnalyzeCvTextProjectsStructuralFailureFallback:
             "summary": None,
             "experiences": json.dumps([]),
             "education": json.dumps([]),
-            "skills": [],
+            "skills": json.dumps([]),
             "projects": json.dumps(
                 [
                     {

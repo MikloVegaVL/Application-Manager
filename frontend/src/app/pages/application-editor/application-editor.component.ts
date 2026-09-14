@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
 import { catchError, filter, of, switchMap, take, takeUntil, timer } from 'rxjs';
 
 import { TextFieldModule } from '@angular/cdk/text-field';
@@ -65,6 +66,7 @@ export class ApplicationEditorComponent implements OnInit {
   private readonly snackBar = inject(MatSnackBar);
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
 
   /** Abstand zwischen zwei Status-Abfragen, während auf eine bereits
    * laufende Generierung gewartet wird (siehe `pollForRunningGeneration`). */
@@ -105,7 +107,7 @@ export class ApplicationEditorComponent implements OnInit {
   private loadOrGenerateApplication(): void {
     const jobOfferIdParam = this.jobOfferId();
     if (!jobOfferIdParam) {
-      this.errorMessage.set('Es wurde keine Job-ID übergeben.');
+      this.errorMessage.set('No job ID was provided.');
       this.loading.set(false);
       return;
     }
@@ -150,7 +152,9 @@ export class ApplicationEditorComponent implements OnInit {
       next: (application) => {
         this.isFirstGeneration.set(false);
         this.applyApplication(application);
-        this.snackBar.open('Anschreiben wurde erstmalig generiert.', 'OK', { duration: 3000 });
+        this.snackBar.open('Cover letter was generated for the first time.', 'OK', {
+          duration: 3000,
+        });
       },
       error: (error: HttpErrorResponse) => {
         if (error.status === 409) {
@@ -218,7 +222,7 @@ export class ApplicationEditorComponent implements OnInit {
             this.isFirstGeneration.set(false);
             this.loading.set(false);
             this.errorMessage.set(
-              'Die Generierung dauert ungewöhnlich lange oder ist fehlgeschlagen. Bitte lade die Seite neu, um es erneut zu versuchen.',
+              'The generation is taking unusually long or has failed. Please reload the page to try again.',
             );
           }
         },
@@ -236,7 +240,7 @@ export class ApplicationEditorComponent implements OnInit {
   private handleLoadError(error: HttpErrorResponse): void {
     this.loading.set(false);
     this.errorMessage.set(
-      (error.error?.detail as string | undefined) ?? 'Bewerbung konnte nicht geladen werden.',
+      (error.error?.detail as string | undefined) ?? 'The application could not be loaded.',
     );
   }
 
@@ -255,7 +259,7 @@ export class ApplicationEditorComponent implements OnInit {
     }
     if (this.coverLetterForm.invalid) {
       this.coverLetterForm.markAllAsTouched();
-      this.snackBar.open('Bitte gib einen Anschreiben-Text ein.', 'OK', { duration: 3000 });
+      this.snackBar.open('Please enter a cover letter text.', 'OK', { duration: 3000 });
       return;
     }
 
@@ -268,12 +272,12 @@ export class ApplicationEditorComponent implements OnInit {
         next: (updated) => {
           this.saving.set(false);
           this.applyApplication(updated);
-          this.snackBar.open('Anschreiben wurde gespeichert.', 'OK', { duration: 3000 });
+          this.snackBar.open('Cover letter was saved.', 'OK', { duration: 3000 });
         },
         error: (error: HttpErrorResponse) => {
           this.saving.set(false);
           const message =
-            (error.error?.detail as string | undefined) ?? 'Anschreiben konnte nicht gespeichert werden.';
+            (error.error?.detail as string | undefined) ?? 'The cover letter could not be saved.';
           this.snackBar.open(message, 'OK', { duration: 4000 });
         },
       });
@@ -293,7 +297,9 @@ export class ApplicationEditorComponent implements OnInit {
     const { subject: derivedSubject, message: derivedMessage } = parseBetreff(
       application.cover_letter_text ?? null,
     );
-    const fallbackSubject = jobOffer?.title ? `Bewerbung als ${jobOffer.title}` : 'Bewerbung';
+    const fallbackSubject = jobOffer?.title
+      ? `Application as ${jobOffer.title}`
+      : 'Application';
 
     const dialogRef = this.dialog.open(SendApplicationDialogComponent, {
       width: '520px',
@@ -326,12 +332,15 @@ export class ApplicationEditorComponent implements OnInit {
         next: (updated) => {
           this.sending.set(false);
           this.application.set(updated);
-          this.snackBar.open('Bewerbung wurde erfolgreich versendet.', 'OK', { duration: 4000 });
+          this.snackBar.open('Application was sent successfully.', 'OK', { duration: 4000 });
+          // Nach erfolgreichem Versand zurück zur Übersicht, damit der neue
+          // Status (Versendet + Empfängeradresse) direkt sichtbar ist.
+          void this.router.navigate(['/applications']);
         },
         error: (error: HttpErrorResponse) => {
           this.sending.set(false);
           const message =
-            (error.error?.detail as string | undefined) ?? 'Bewerbung konnte nicht versendet werden.';
+            (error.error?.detail as string | undefined) ?? 'The application could not be sent.';
           this.snackBar.open(message, 'OK', { duration: 5000 });
         },
       });

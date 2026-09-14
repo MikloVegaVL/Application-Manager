@@ -45,6 +45,20 @@ def test_skill_entry_accepts_each_valid_level() -> None:
         assert entry.level == level
 
 
+def test_skill_entry_silently_ignores_a_legacy_category_key() -> None:
+    """R9/AE6: Skill-Kategorie wurde aus dem Produkt entfernt (Session-
+    Entscheidung, CV-Template-Erweiterungs-Plan 2026-09-13). Bereits
+    gespeicherte Zeilen mit einem `category`-Schlüssel (Altdaten von vor der
+    Entfernung) müssen weiterhin klaglos laden - Pydantics Default-Verhalten
+    (`extra` nicht gesetzt = ignorieren) verwirft das unbekannte Feld, statt
+    einen Validierungsfehler auszulösen oder es aufzubewahren."""
+    entry = SkillEntry.model_validate({"name": "Python", "level": "Experte", "category": "Frontend"})
+
+    assert entry.name == "Python"
+    assert entry.level == "Experte"
+    assert not hasattr(entry, "category")
+
+
 def test_language_entry_rejects_out_of_range_level() -> None:
     with pytest.raises(ValidationError):
         LanguageEntry(name="Deutsch", level="Muttersprache")
@@ -86,6 +100,13 @@ def test_master_profile_base_rejects_plain_string_skills_json() -> None:
     round-trip."""
     with pytest.raises(ValidationError):
         MasterProfileBase(full_name="Max Mustermann", email="max@example.com", skills_json=["Python"])
+
+
+def test_master_profile_base_no_longer_has_document_language() -> None:
+    """U2/KTD3: das per-Profil-Feld `document_language` ist entfernt."""
+    profile = MasterProfileBase(full_name="Max Mustermann", email="max@example.com")
+
+    assert not hasattr(profile, "document_language")
 
 
 # --- Migration 17c15ce91b4e: skills_json backfill ---------------------------
@@ -177,7 +198,9 @@ def test_migration_upgrade_downgrade_upgrade_round_trips(migration_db) -> None:
     _insert_master_profile(engine, email="roundtrip@example.com", skills_json='["Python"]')
 
     upgrade(alembic_cfg, "head")
-    downgrade(alembic_cfg, "-1")
+    # Explizites Ziel statt `downgrade(cfg, "-1")`: "head" ist ein Merge-Punkt
+    # (siehe `d98463c22408`), von dort ist "ein Schritt zurück" mehrdeutig.
+    downgrade(alembic_cfg, "3cf25349329e")
     upgrade(alembic_cfg, "head")
 
     with engine.connect() as conn:
@@ -189,3 +212,259 @@ def test_migration_upgrade_downgrade_upgrade_round_trips(migration_db) -> None:
     import json
 
     assert json.loads(row.skills_json) == [{"name": "Python", "level": "Grundkenntnisse"}]
+
+
+def test_migration_adds_content_language_and_drops_document_language(migration_db) -> None:
+    """U1/U2 (Global Language Unification): revision `9a7b6c5d4e3f` fügt
+    `content_language`/`content_translations_json` hinzu und entfernt das
+    per-Profil-`document_language`. Bestehende Zeilen gelten als deutsch
+    (`content_language='de'`, leerer Snapshot); der Downgrade stellt
+    `document_language` wieder her und entfernt die neuen Spalten. Zielt
+    bewusst auf `9a7b6c5d4e3f` statt `head`: die spätere Revision
+    `581736b96da4` (Remove Translation Functionality, U4) entfernt
+    `content_language`/`content_translations_json` wieder - siehe
+    `test_migration_drops_content_language_columns` unten."""
+    alembic_cfg, engine = migration_db
+    _insert_master_profile(engine, email="language@example.com", skills_json="[]")
+
+    upgrade(alembic_cfg, "9a7b6c5d4e3f")
+
+    with engine.connect() as conn:
+        columns_after_upgrade = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
+        row = conn.execute(
+            sa.text(
+                "SELECT content_language, content_translations_json FROM master_profiles "
+                "WHERE email = :email"
+            ),
+            {"email": "language@example.com"},
+        ).fetchone()
+
+    assert "content_language" in columns_after_upgrade
+    assert "content_translations_json" in columns_after_upgrade
+    assert "document_language" not in columns_after_upgrade
+    assert row.content_language == "de"
+    import json
+
+    assert json.loads(row.content_translations_json) == {}
+
+    # Nur die neue Revision zurückrollen: content-Spalten weg,
+    # document_language wieder da (nullable, ohne Wert).
+    downgrade(alembic_cfg, "e2b7c9a41f60")
+
+    with engine.connect() as conn:
+        columns_after_downgrade = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
+        row_after_downgrade = conn.execute(
+            sa.text("SELECT document_language FROM master_profiles WHERE email = :email"),
+            {"email": "language@example.com"},
+        ).fetchone()
+
+    assert "content_language" not in columns_after_downgrade
+    assert "content_translations_json" not in columns_after_downgrade
+    assert "document_language" in columns_after_downgrade
+    assert row_after_downgrade.document_language is None
+
+
+def test_migration_content_language_upgrade_downgrade_upgrade_round_trips(migration_db) -> None:
+    """U1: der vollständige Round-Trip 9a7b6c5d4e3f -> e2b7c9a41f60 ->
+    9a7b6c5d4e3f ist idempotent (Guards in `upgrade`/`downgrade`), ohne Daten
+    zu verlieren."""
+    alembic_cfg, engine = migration_db
+    _insert_master_profile(engine, email="roundtrip-content@example.com", skills_json="[]")
+
+    upgrade(alembic_cfg, "9a7b6c5d4e3f")
+    downgrade(alembic_cfg, "e2b7c9a41f60")
+    upgrade(alembic_cfg, "9a7b6c5d4e3f")
+
+    with engine.connect() as conn:
+        columns = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
+        row = conn.execute(
+            sa.text("SELECT content_language FROM master_profiles WHERE email = :email"),
+            {"email": "roundtrip-content@example.com"},
+        ).fetchone()
+
+    assert "content_language" in columns
+    assert "content_translations_json" in columns
+    assert "document_language" not in columns
+    assert row.content_language == "de"
+
+
+# --- Revision 581736b96da4: drops content_language/content_translations_json
+# (U4, Remove Translation Functionality plan, 2026-09-13) -------------------
+
+
+def test_migration_drops_content_language_columns(migration_db) -> None:
+    """U4/R5/AE4: `head` no longer has `content_language`/
+    `content_translations_json` - the app runs English-only now, there's no
+    per-language content left to store. Downgrading back to `581736b96da4`
+    (the revision that dropped them) re-adds both columns with their
+    original shape - targeted explicitly rather than via `-1`, so this stays
+    correct as later migrations (e.g. `f47e23403358`) move `head` further."""
+    alembic_cfg, engine = migration_db
+    _insert_master_profile(engine, email="drop-content-language@example.com", skills_json="[]")
+
+    upgrade(alembic_cfg, "head")
+
+    with engine.connect() as conn:
+        columns_after_upgrade = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
+
+    assert "content_language" not in columns_after_upgrade
+    assert "content_translations_json" not in columns_after_upgrade
+
+    downgrade(alembic_cfg, "9a7b6c5d4e3f")
+
+    with engine.connect() as conn:
+        columns_after_downgrade = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
+        row = conn.execute(
+            sa.text(
+                "SELECT content_language, content_translations_json FROM master_profiles "
+                "WHERE email = :email"
+            ),
+            {"email": "drop-content-language@example.com"},
+        ).fetchone()
+
+    assert "content_language" in columns_after_downgrade
+    assert "content_translations_json" in columns_after_downgrade
+    assert row.content_language == "de"
+
+    import json
+
+    assert json.loads(row.content_translations_json) == {}
+
+    upgrade(alembic_cfg, "head")
+
+    with engine.connect() as conn:
+        columns_after_reupgrade = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
+
+    assert "content_language" not in columns_after_reupgrade
+    assert "content_translations_json" not in columns_after_reupgrade
+
+
+# --- Merge revision d98463c22408: heals a database stuck on one sibling ----
+#
+# ce-debug, 2026-09-12: `17c15ce91b4e` (add cv builder fields) and
+# `7b2f5c9d1a34` (add sent_to_email to applications) both branch
+# independently off `3cf25349329e`. A database that ran `alembic upgrade
+# head` while only `7b2f5c9d1a34` existed as a head - i.e. it walked that
+# branch and stopped, never seeing `17c15ce91b4e` - must still receive
+# `17c15ce91b4e`'s DDL once the merge revision `d98463c22408` joins both
+# branches. This was previously broken by rebasing `7b2f5c9d1a34` onto
+# `17c15ce91b4e` instead of using a real merge revision: `alembic upgrade
+# head` then saw the stamped `7b2f5c9d1a34` as already being the head and
+# silently skipped `17c15ce91b4e` entirely (reproduced live against a
+# docker-compose Postgres database). Only manually verified until now -
+# this pins it as an automated regression.
+
+
+def test_merge_revision_heals_a_database_stuck_on_only_the_sent_to_email_branch(migration_db) -> None:
+    alembic_cfg, engine = migration_db
+
+    # Walks ONLY the sent_to_email branch, mirroring a database that ran
+    # `alembic upgrade head` back when that revision was itself a head -
+    # never touching the sibling `17c15ce91b4e` branch at all.
+    upgrade(alembic_cfg, "7b2f5c9d1a34")
+
+    with engine.connect() as conn:
+        columns_before = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
+    assert "languages_json" not in columns_before, "test setup must reproduce the pre-merge, single-branch state"
+
+    upgrade(alembic_cfg, "head")
+
+    with engine.connect() as conn:
+        master_profile_columns = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}
+        application_columns = {col["name"] for col in sa.inspect(conn).get_columns("applications")}
+
+    # The previously-missing sibling branch's DDL is now present ...
+    for column in ("photo_path", "photo_filename", "languages_json", "projects_json", "template_id"):
+        assert column in master_profile_columns
+    # ... without losing the already-applied branch's DDL.
+    assert "sent_to_email" in application_columns
+
+
+# --- Migration c3d5e7f9a1b2: modern -> template-1 remap ---------------------
+#
+# Anders als `test_migrations.py` (nur Schema-Vergleich auf einer leeren DB)
+# prüfen diese Tests den Daten-Remap auf einer bereits migrierten Datenbank,
+# wie sie in Produktion existiert (Zeile mit `template_id='modern'`).
+
+
+def _fresh_db_at(tmp_path: Path, revision: str) -> tuple[Config, sa.Engine]:
+    database_url = f"sqlite:///{tmp_path / 'remap-check.db'}"
+    alembic_cfg = Config(str(_ALEMBIC_INI_PATH))
+    alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+    upgrade(alembic_cfg, revision)
+    return alembic_cfg, sa.create_engine(database_url)
+
+
+def test_migration_remaps_legacy_modern_template_id(tmp_path) -> None:
+    alembic_cfg, engine = _fresh_db_at(tmp_path, "d98463c22408")
+    try:
+        _insert_master_profile(
+            engine,
+            email="modern@example.com",
+            template_id="modern",
+            languages_json="[]",
+            projects_json="[]",
+        )
+        _insert_master_profile(
+            engine,
+            email="unset@example.com",
+            template_id=None,
+            languages_json="[]",
+            projects_json="[]",
+        )
+        _insert_master_profile(
+            engine,
+            email="classic@example.com",
+            template_id="classic",
+            languages_json="[]",
+            projects_json="[]",
+        )
+
+        upgrade(alembic_cfg, "head")
+
+        with engine.connect() as conn:
+            modern_row = conn.execute(
+                sa.text("SELECT template_id FROM master_profiles WHERE email = :email"),
+                {"email": "modern@example.com"},
+            ).fetchone()
+            unset_row = conn.execute(
+                sa.text("SELECT template_id FROM master_profiles WHERE email = :email"),
+                {"email": "unset@example.com"},
+            ).fetchone()
+            classic_row = conn.execute(
+                sa.text("SELECT template_id FROM master_profiles WHERE email = :email"),
+                {"email": "classic@example.com"},
+            ).fetchone()
+
+        assert modern_row.template_id == "template-1"
+        assert unset_row.template_id is None
+        # Ein echter, bereits gültiger Wert darf nicht mit-remappt werden.
+        assert classic_row.template_id == "classic"
+    finally:
+        engine.dispose()
+
+
+def test_remap_downgrade_does_not_revert_a_genuine_template_1(tmp_path) -> None:
+    alembic_cfg, engine = _fresh_db_at(tmp_path, "d98463c22408")
+    try:
+        _insert_master_profile(
+            engine,
+            email="genuine@example.com",
+            template_id="template-1",
+            languages_json="[]",
+            projects_json="[]",
+        )
+        upgrade(alembic_cfg, "head")
+
+        # No-op-Downgrade der Remap-Migration: eine echte Auswahl bleibt erhalten.
+        downgrade(alembic_cfg, "b8f2a4c6d9e1")
+
+        with engine.connect() as conn:
+            row = conn.execute(
+                sa.text("SELECT template_id FROM master_profiles WHERE email = :email"),
+                {"email": "genuine@example.com"},
+            ).fetchone()
+
+        assert row.template_id == "template-1"
+    finally:
+        engine.dispose()

@@ -39,26 +39,26 @@ const LANGUAGE_LEVELS: LanguageLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
   template: `
     <section class="form-array-section">
       <div class="form-array-section__header">
-        <h3>Sprachen</h3>
+        <h3>Languages</h3>
         <button mat-stroked-button type="button" (click)="add()">
           <mat-icon>add</mat-icon>
-          Sprache hinzufügen
+          Add language
         </button>
       </div>
 
       @if (formArray.length === 0) {
-        <p class="form-array-section__empty">Noch keine Sprachen erfasst.</p>
+        <p class="form-array-section__empty">No languages added yet.</p>
       }
 
       @for (group of formArray.controls; track $index) {
         <div class="language-row" [formGroup]="group">
           <mat-form-field appearance="outline" class="language-row__name">
-            <mat-label>Sprache</mat-label>
+            <mat-label>Language</mat-label>
             <input matInput formControlName="name" />
           </mat-form-field>
 
           <mat-form-field appearance="outline" class="language-row__level">
-            <mat-label>Niveau</mat-label>
+            <mat-label>Level</mat-label>
             <mat-select formControlName="level">
               @for (level of languageLevels; track level) {
                 <mat-option [value]="level">{{ level }}</mat-option>
@@ -71,7 +71,7 @@ const LANGUAGE_LEVELS: LanguageLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
             color="warn"
             type="button"
             class="language-row__remove"
-            [attr.aria-label]="'Sprache entfernen'"
+            aria-label="Remove language"
             (click)="remove($index)"
           >
             <mat-icon>delete</mat-icon>

@@ -29,58 +29,64 @@ logger = logging.getLogger(__name__)
 _MAX_INPUT_CHARS = 15_000
 
 _SYSTEM_PROMPT = """\
-Du bist ein präziser Assistent, der Lebensläufe (CVs) analysiert und deren \
-Inhalt in strukturiertes JSON überführt.
+You are a precise assistant that analyses résumés (CVs) and turns their \
+content into structured JSON.
 
-Antworte AUSSCHLIESSLICH mit einem JSON-Objekt exakt in folgender Form \
-(keine Erklärtexte, kein Markdown, keine Code-Fences):
+Answer EXCLUSIVELY with a JSON object in exactly the following shape \
+(no prose, no markdown, no code fences):
 
 {
-  "full_name": "Vollständiger Name oder null",
-  "email": "E-Mail-Adresse oder null",
-  "phone": "Telefonnummer oder null",
-  "address": "Postanschrift oder null",
-  "summary": "Kurzes berufliches Profil/Zusammenfassung (2-4 Sätze) oder null",
+  "full_name": "Full name or null",
+  "email": "Email address or null",
+  "phone": "Phone number or null",
+  "address": "Postal address or null",
+  "summary": "Short professional profile/summary (2-4 sentences) or null",
   "experiences": [
     {
-      "company": "Firmenname",
-      "role": "Positions-/Jobtitel",
-      "start_date": "z. B. 2020-01 oder 2020, oder null",
-      "end_date": "z. B. 2023-06, oder null falls aktuelle Position",
-      "description": "Kurzbeschreibung der Tätigkeiten/Erfolge, oder null"
+      "company": "Company name",
+      "role": "Position/job title",
+      "start_date": "e.g. 2020-01 or 2020, or null",
+      "end_date": "e.g. 2023-06, or null for a current position",
+      "description": "Short description of responsibilities/achievements, or null"
     }
   ],
   "education": [
     {
-      "institution": "Name der Bildungseinrichtung",
-      "degree": "Abschluss, z. B. 'B.Sc. Informatik'",
-      "field_of_study": "Studienfach/Schwerpunkt, oder null",
-      "start_date": "oder null",
-      "end_date": "oder null"
+      "institution": "Name of the educational institution",
+      "degree": "Degree, e.g. 'B.Sc. Computer Science'",
+      "field_of_study": "Field of study/specialisation, or null",
+      "start_date": "or null",
+      "end_date": "or null"
     }
   ],
-  "skills": ["Skill 1", "Skill 2"],
+  "skills": [
+    {
+      "name": "Skill name"
+    }
+  ],
   "projects": [
     {
-      "title": "Projektname",
-      "description": "Kurzbeschreibung des Projekts",
-      "start_date": "z. B. 2020-01 oder 2020, oder null",
-      "end_date": "z. B. 2023-06, oder null falls laufend",
-      "link": "URL zum Projekt (z. B. GitHub, Portfolio), oder null"
+      "title": "Project name",
+      "role": "Your role in the project, or null",
+      "description": "Short project description",
+      "start_date": "e.g. 2020-01 or 2020, or null",
+      "end_date": "e.g. 2023-06, or null if ongoing",
+      "link": "URL to the project (e.g. GitHub, portfolio), or null"
     }
   ]
 }
 
-Regeln:
-- Erfinde keine Informationen, die nicht im Text stehen.
-- Fehlende Felder werden als null (bzw. leere Liste für Arrays) gesetzt.
-- "skills" enthält sowohl fachliche (z. B. Programmiersprachen, Tools) als \
-auch Sprachkenntnisse/Zertifikate als einzelne kurze Strings.
-- "projects" enthält eigenständige Projekte (z. B. Open-Source-, Studien-, \
-Portfolio- oder Nebenprojekte), NICHT die regulären Stationen aus \
-"experiences".
-- Antworte auf Deutsch, außer der Lebenslauf ist eindeutig auf Englisch \
-verfasst - dann bleibe bei den Originalbegriffen.
+Rules:
+- Do not invent information that is not in the text.
+- Missing fields are set to null (or an empty list for arrays).
+- ALWAYS write all generated text values (summary, descriptions, roles, \
+degrees, skill names, project titles) in ENGLISH, even if the source CV is \
+written in another language. Translate as needed; keep proper nouns \
+(company/institution names, product names, URLs) unchanged.
+- "skills" contains both technical skills (e.g. programming languages, tools) \
+and language skills/certificates as individual short strings.
+- "projects" contains standalone projects (e.g. open-source, study, \
+portfolio or side projects), NOT the regular positions from "experiences".
 """
 
 
@@ -92,11 +98,11 @@ verfasst - dann bleibe bei den Originalbegriffen.
 # Auto-Merge-Endpunkts) - `missing_field_warnings` ist jetzt reine
 # Parse-Diagnostik ohne jeden Merge-/Speicher-Bezug.
 _WARNING_LABELS: dict[str, str] = {
-    "summary": "Kein Kurzprofil/Zusammenfassung gefunden.",
-    "experiences": "Keine Berufserfahrung gefunden.",
-    "education": "Keine Ausbildung gefunden.",
-    "skills": "Keine Skills gefunden.",
-    "projects": "Keine Projekte gefunden.",
+    "summary": "No summary found.",
+    "experiences": "No work experience found.",
+    "education": "No education found.",
+    "skills": "No skills found.",
+    "projects": "No projects found.",
 }
 
 
@@ -129,27 +135,27 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
     try:
         reader = PdfReader(BytesIO(file_bytes))
     except Exception as exc:  # noqa: BLE001 - jede Art von Lesefehler abfangen
-        raise PdfParsingError(f"PDF konnte nicht gelesen werden: {exc}") from exc
+        raise PdfParsingError(f"Could not read the PDF: {exc}") from exc
 
     if reader.is_encrypted:
         try:
             reader.decrypt("")  # Versuch mit leerem Passwort (häufig bei Export-PDFs)
         except Exception as exc:  # noqa: BLE001
             raise PdfParsingError(
-                "Die PDF ist passwortgeschützt und konnte nicht entschlüsselt werden."
+                "The PDF is password-protected and could not be decrypted."
             ) from exc
 
     try:
         pages_text = [page.extract_text() or "" for page in reader.pages]
     except Exception as exc:  # noqa: BLE001
-        raise PdfParsingError(f"Text konnte nicht aus der PDF extrahiert werden: {exc}") from exc
+        raise PdfParsingError(f"Could not extract text from the PDF: {exc}") from exc
 
     text = "\n\n".join(page.strip() for page in pages_text if page.strip())
 
     if not text.strip():
         raise PdfParsingError(
-            "Aus der PDF konnte kein Text extrahiert werden. "
-            "Enthält die Datei nur gescannte Bilder ohne Texterkennung (OCR)?"
+            "No text could be extracted from the PDF. "
+            "Does the file contain only scanned images without OCR?"
         )
 
     return text
@@ -157,7 +163,8 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
 
 def analyze_cv_text(raw_text: str) -> ParsedCvProfile:
     """Lässt Ollama den Rohtext eines Lebenslaufs in ein strukturiertes
-    `ParsedCvProfile` überführen."""
+    `ParsedCvProfile` überführen. Die extrahierten Textwerte werden immer auf
+    Englisch ausgegeben (die App ist fest englischsprachig)."""
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {"role": "user", "content": raw_text[:_MAX_INPUT_CHARS]},
@@ -173,16 +180,17 @@ def analyze_cv_text(raw_text: str) -> ParsedCvProfile:
     except LlmValidationError as exc:
         logger.warning("KI-Antwort entsprach nicht dem erwarteten Profil-Schema: %s", exc)
         raise CvAnalysisError(
-            "Die KI-Antwort entsprach nicht dem erwarteten Profil-Schema."
+            "The AI response did not match the expected profile schema."
         ) from exc
     except LlmUnavailableError as exc:
         logger.exception("Ollama-Aufruf zur CV-Analyse fehlgeschlagen.")
-        raise CvAnalysisError(f"KI-Analyse des Lebenslaufs fehlgeschlagen: {exc}") from exc
+        raise CvAnalysisError(f"AI analysis of the CV failed: {exc}") from exc
 
     return result
 
 
 def parse_cv_pdf(file_bytes: bytes) -> ParsedCvProfile:
-    """End-to-End: PDF-Bytes -> Rohtext (pypdf) -> strukturiertes Profil (Ollama)."""
+    """End-to-End: PDF-Bytes -> Rohtext (pypdf) -> strukturiertes Profil
+    (Ollama)."""
     raw_text = extract_text_from_pdf(file_bytes)
     return analyze_cv_text(raw_text)

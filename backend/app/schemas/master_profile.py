@@ -15,7 +15,15 @@ LanguageLevel = Literal["A1", "A2", "B1", "B2", "C1", "C2"]
 
 
 class SkillEntry(BaseModel):
-    """Ein Skill mit Kompetenzgrad (siehe KTD3)."""
+    """Ein Skill mit Kompetenzgrad (siehe KTD3).
+
+    Trägt bewusst keine Kategorie mehr (Session-Entscheidung, CV-Template-
+    Erweiterungs-Plan 2026-09-13): Skills werden nicht mehr gruppiert
+    dargestellt, sondern als individuelle Balken gerendert, daher hätte eine
+    Kategorie keinen Verwendungszweck mehr. Ein legacy gespeicherter
+    `category`-Schlüssel wird dank Pydantics Default-Verhalten (`extra`
+    nicht gesetzt = ignorieren) beim Laden stillschweigend verworfen, statt
+    einen Validierungsfehler auszulösen (R9)."""
 
     name: str = Field(..., max_length=255)
     level: SkillLevel
@@ -32,6 +40,7 @@ class ProjectEntry(BaseModel):
     """Ein Projekt im CV-Builder - mindestens Titel und Beschreibung (R3)."""
 
     title: str = Field(..., max_length=255)
+    role: str | None = Field(default=None, max_length=255, description="eigene Rolle im Projekt, optional")
     description: str
     start_date: str | None = Field(default=None, description="z. B. '2020-01' oder '2020'")
     end_date: str | None = Field(default=None, description="leer/None = laufend")
@@ -56,6 +65,7 @@ class EducationEntry(BaseModel):
     field_of_study: str | None = Field(default=None, max_length=255)
     start_date: str | None = None
     end_date: str | None = None
+    description: str | None = None
 
 
 class MasterProfileBase(BaseModel):
@@ -65,7 +75,11 @@ class MasterProfileBase(BaseModel):
     email: EmailStr
     phone: str | None = Field(default=None, max_length=50)
     address: str | None = Field(default=None, max_length=255)
+    linkedin: str | None = Field(default=None, max_length=255)
+    website: str | None = Field(default=None, max_length=255)
+    sender_email: str | None = Field(default=None, max_length=255)
     summary: str | None = None
+    berufsbezeichnung: str | None = Field(default=None, max_length=255)
     experiences_json: list[ExperienceEntry] = Field(default_factory=list)
     education_json: list[EducationEntry] = Field(default_factory=list)
     skills_json: list[SkillEntry] = Field(default_factory=list)
@@ -95,7 +109,10 @@ class MasterProfileUpdate(BaseModel):
     email: EmailStr | None = None
     phone: str | None = Field(default=None, max_length=50)
     address: str | None = Field(default=None, max_length=255)
+    linkedin: str | None = Field(default=None, max_length=255)
+    website: str | None = Field(default=None, max_length=255)
     summary: str | None = None
+    berufsbezeichnung: str | None = Field(default=None, max_length=255)
     experiences_json: list[ExperienceEntry] | None = None
     education_json: list[EducationEntry] | None = None
     skills_json: list[SkillEntry] | None = None
@@ -136,6 +153,18 @@ class MasterProfileRead(MasterProfileBase):
     updated_at: datetime
 
 
+class ParsedSkill(BaseModel):
+    """Ein per KI aus dem CV extrahierter Skill (siehe `ParsedCvProfile`).
+
+    Anders als das gespeicherte `SkillEntry` trägt ein geparster Skill noch
+    keinen Kompetenzgrad - den leitet die KI bewusst nicht ab (R7), das
+    Frontend ergänzt beim Übernehmen einen Default. Keine Kategorie mehr
+    (R8): das Konzept wurde aus dem Produkt entfernt, siehe `SkillEntry`.
+    """
+
+    name: str = Field(..., max_length=255)
+
+
 class ParsedCvProfile(BaseModel):
     """Ergebnis der KI-gestützten CV-Analyse (siehe `app.services.pdf_parser`).
 
@@ -157,7 +186,7 @@ class ParsedCvProfile(BaseModel):
     summary: str | None = None
     experiences: list[ExperienceEntry] = Field(default_factory=list)
     education: list[EducationEntry] = Field(default_factory=list)
-    skills: list[str] = Field(default_factory=list)
+    skills: list[ParsedSkill] = Field(default_factory=list)
     projects: list[ProjectEntry] = Field(default_factory=list)
 
 

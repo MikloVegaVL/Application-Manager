@@ -17,6 +17,18 @@ import { createSkillGroup } from '../cv-section-forms.util';
 const SKILL_LEVELS: SkillLevel[] = ['Grundkenntnisse', 'Gut', 'Sehr gut', 'Experte'];
 
 /**
+ * KTD5: ordnet die gespeicherten deutschen Enum-Werte den englischen
+ * Anzeige-Labels zu - der `[value]` der Option bleibt der Enum-Wert, nur der
+ * sichtbare Text ist fixes Englisch.
+ */
+const SKILL_LEVEL_LABELS: Record<SkillLevel, string> = {
+  Grundkenntnisse: 'Basic knowledge',
+  Gut: 'Good',
+  'Sehr gut': 'Very good',
+  Experte: 'Expert',
+};
+
+/**
  * Der Default-Wert, den die Skills-Migration (U1) jedem bestehenden Skill
  * zuweist, weil aus rohen Skill-Strings kein Kompetenzgrad ableitbar ist
  * (KTD5). Skills mit diesem Level zeigen einen Hinweis, dass der Wert vor
@@ -45,15 +57,15 @@ const MIGRATION_DEFAULT_LEVEL: SkillLevel = 'Grundkenntnisse';
   template: `
     <section class="form-array-section">
       <div class="form-array-section__header">
-        <h3>Skills & Zertifikate</h3>
+        <h3>Skills & certificates</h3>
         <button mat-stroked-button type="button" (click)="add()">
           <mat-icon>add</mat-icon>
-          Skill hinzufügen
+          Add skill
         </button>
       </div>
 
       @if (formArray.length === 0) {
-        <p class="form-array-section__empty">Noch keine Skills erfasst.</p>
+        <p class="form-array-section__empty">No skills added yet.</p>
       }
 
       @for (group of formArray.controls; track $index) {
@@ -64,10 +76,10 @@ const MIGRATION_DEFAULT_LEVEL: SkillLevel = 'Grundkenntnisse';
           </mat-form-field>
 
           <mat-form-field appearance="outline" class="skill-row__level">
-            <mat-label>Niveau</mat-label>
+            <mat-label>Level</mat-label>
             <mat-select formControlName="level">
               @for (level of skillLevels; track level) {
-                <mat-option [value]="level">{{ level }}</mat-option>
+                <mat-option [value]="level">{{ skillLevelLabel(level) }}</mat-option>
               }
             </mat-select>
           </mat-form-field>
@@ -77,14 +89,16 @@ const MIGRATION_DEFAULT_LEVEL: SkillLevel = 'Grundkenntnisse';
             color="warn"
             type="button"
             class="skill-row__remove"
-            [attr.aria-label]="'Skill entfernen'"
+            aria-label="Remove skill"
             (click)="remove($index)"
           >
             <mat-icon>delete</mat-icon>
           </button>
 
           @if (group.get('level')?.value === migrationDefaultLevel) {
-            <p class="skill-row__hint">Auto-migriert auf niedrigstem Niveau - vor dem Export prüfen.</p>
+            <p class="skill-row__hint">
+              Auto-migrated to the lowest level - review before exporting.
+            </p>
           }
         </div>
       }
@@ -153,6 +167,11 @@ export class SkillsSectionComponent {
 
   protected readonly skillLevels = SKILL_LEVELS;
   protected readonly migrationDefaultLevel = MIGRATION_DEFAULT_LEVEL;
+
+  /** KTD5: Anzeige-Label für den gespeicherten Enum-Wert. */
+  protected skillLevelLabel(level: SkillLevel): string {
+    return SKILL_LEVEL_LABELS[level];
+  }
 
   /** FormArray von Skill-FormGroups (`{ name, level }`), verwaltet von der Elternform. */
   @Input({ required: true }) formArray!: FormArray<FormGroup>;

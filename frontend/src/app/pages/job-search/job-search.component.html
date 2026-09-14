@@ -1,30 +1,30 @@
 <div class="job-search">
   <header class="job-search__intro">
-    <h1>Jobsuche</h1>
-    <p>Durchsuche offene Stellen und speichere passende Angebote für deine Bewerbung.</p>
+    <h1>Job search</h1>
+    <p>Search open positions and save matching offers for your application.</p>
   </header>
 
   <form class="job-search__form" [formGroup]="searchForm" (ngSubmit)="onSearch()">
     <mat-form-field appearance="outline" class="job-search__field">
-      <mat-label>Suchbegriff</mat-label>
+      <mat-label>Keywords</mat-label>
       <mat-icon matPrefix>search</mat-icon>
-      <input matInput formControlName="keywords" placeholder="z. B. Backend Engineer" />
+      <input matInput formControlName="keywords" placeholder="e.g. Backend Engineer" />
       @if (searchForm.controls.keywords.hasError('required') && searchForm.controls.keywords.touched) {
-        <mat-error>Bitte gib einen Suchbegriff ein.</mat-error>
+        <mat-error>Please enter a search term.</mat-error>
       } @else if (searchForm.controls.keywords.hasError('minlength') && searchForm.controls.keywords.touched) {
-        <mat-error>Der Suchbegriff muss mindestens 2 Zeichen lang sein.</mat-error>
+        <mat-error>The search term must be at least 2 characters long.</mat-error>
       }
     </mat-form-field>
 
     <mat-form-field appearance="outline" class="job-search__field">
-      <mat-label>Ort</mat-label>
+      <mat-label>Location</mat-label>
       <mat-icon matPrefix>place</mat-icon>
-      <input matInput formControlName="location" placeholder="z. B. Berlin" />
+      <input matInput formControlName="location" placeholder="e.g. Berlin" />
     </mat-form-field>
 
     <button mat-raised-button color="primary" type="submit" class="job-search__submit" [disabled]="loading()">
       <mat-icon>search</mat-icon>
-      Suchen
+      Search
     </button>
 
     <button
@@ -35,14 +35,14 @@
       (click)="onClearResults()"
     >
       <mat-icon>clear</mat-icon>
-      Ergebnisse löschen
+      Clear results
     </button>
   </form>
 
   @if (loading()) {
     <div class="job-search__loading">
       <mat-progress-spinner mode="indeterminate" diameter="48" />
-      <p>Stellenangebote werden geladen ...</p>
+      <p>Loading job offers ...</p>
     </div>
   }
 
@@ -52,33 +52,58 @@
 
   @if (!loading() && hasSearched() && !errorMessage() && sourceStatuses().length > 0) {
     <div class="job-search__source-status">
-      <mat-chip-set>
+      <span class="job-search__source-filter-title"> Filter by source </span>
+      <mat-chip-listbox
+        multiple
+        [value]="selectedSources()"
+        (change)="onSourceFilterChange($event.value)"
+        aria-label="Filter by source"
+      >
         @for (source of sourceStatuses(); track source.platform) {
-          <mat-chip [class.job-search__source-chip--unavailable]="source.status === 'unavailable'">
+          <mat-chip-option
+            [value]="source.platform"
+            [disabled]="source.status === 'unavailable'"
+            [class.job-search__source-chip--unavailable]="source.status === 'unavailable'"
+          >
             <mat-icon matChipAvatar>{{ source.status === 'ok' ? 'check_circle' : 'error_outline' }}</mat-icon>
             {{ sourceLabel(source.platform) }}
             @if (source.status === 'unavailable') {
-              · nicht verfügbar
+              · {{ source.reason === 'not-configured' ? 'not configured' : 'unavailable' }}
             }
-          </mat-chip>
+          </mat-chip-option>
         }
-      </mat-chip-set>
+      </mat-chip-listbox>
+      @if (hasActiveSourceFilter()) {
+        <button
+          mat-button
+          type="button"
+          class="job-search__source-filter-reset"
+          (click)="clearSourceFilter()"
+        >
+          <mat-icon>filter_alt_off</mat-icon>
+          Clear filter
+        </button>
+      }
     </div>
   }
 
   @if (!loading() && hasSearched() && !errorMessage() && results().length === 0) {
     @if (allSourcesUnavailable()) {
       <p class="job-search__empty">
-        Alle Quellen waren gerade nicht erreichbar. Bitte versuche es in ein paar Minuten erneut.
+        All sources were unreachable just now. Please try again in a few minutes.
       </p>
     } @else {
-      <p class="job-search__empty">Keine Stellenangebote gefunden. Versuche einen anderen Suchbegriff oder Ort.</p>
+      <p class="job-search__empty">No job offers found. Try a different search term or location.</p>
     }
   }
 
-  @if (!loading() && results().length > 0) {
+  @if (!loading() && hasSearched() && !errorMessage() && results().length > 0 && filteredResults().length === 0) {
+    <p class="job-search__empty">No results for the selected sources.</p>
+  }
+
+  @if (!loading() && filteredResults().length > 0) {
     <div class="job-search__results">
-      @for (job of results(); track job.source_url) {
+      @for (job of filteredResults(); track job.source_url) {
         <mat-card class="job-card" appearance="outlined">
           <mat-card-header>
             <mat-card-title>{{ job.title }}</mat-card-title>
@@ -92,7 +117,7 @@
 
           <mat-card-content>
             <p class="job-card__description">
-              {{ job.description_text || 'Keine Beschreibung verfügbar.' }}
+              {{ job.description_text || 'No description available.' }}
             </p>
             <mat-chip-set>
               <mat-chip>{{ job.source_platform }}</mat-chip>
@@ -102,7 +127,7 @@
           <mat-card-actions align="end">
             <a mat-button [href]="job.source_url" target="_blank" rel="noopener noreferrer">
               <mat-icon>open_in_new</mat-icon>
-              Anzeige öffnen
+              Open ad
             </a>
 
             <button
@@ -116,7 +141,7 @@
               } @else {
                 <mat-icon>{{ isSaved(job) ? 'bookmark_added' : 'bookmark_add' }}</mat-icon>
               }
-              {{ isSaved(job) ? 'Gespeichert' : 'Job speichern' }}
+              {{ isSaved(job) ? 'Saved' : 'Save job' }}
             </button>
 
             <button
@@ -132,7 +157,7 @@
               } @else {
                 <span aria-hidden="true">⚡</span>
               }
-              Bewerbung generieren
+              Generate application
             </button>
           </mat-card-actions>
         </mat-card>

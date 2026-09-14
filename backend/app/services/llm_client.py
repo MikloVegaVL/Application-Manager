@@ -91,6 +91,7 @@ def _call_chat(
     model: str,
     messages: list[Message],
     format_schema: dict[str, Any],
+    options: dict[str, Any] | None = None,
 ) -> str:
     """Führt den eigentlichen Ollama-Chat-Aufruf aus und liefert den rohen
     Antwort-Text.
@@ -112,11 +113,19 @@ def _call_chat(
     geladen werden statt warm zu bleiben - das ist der Trade-off für die
     Speichersicherheit und betrifft nur den seltenen Retry-Pfad.
     """
+    chat_kwargs: dict[str, Any] = {
+        "model": model,
+        "format": format_schema,
+        "messages": messages,
+        "keep_alive": 0,
+    }
+    # `options` (z. B. num_ctx/num_predict) wird nur gesetzt, wenn der Aufrufer
+    # ein Budget vorgibt - sonst bleibt Ollamas Standardverhalten unverändert.
+    if options is not None:
+        chat_kwargs["options"] = options
     try:
         with _ollama_lock:
-            response = client.chat(
-                model=model, format=format_schema, messages=messages, keep_alive=0
-            )
+            response = client.chat(**chat_kwargs)
     except ollama.ResponseError as exc:
         logger.exception("Ollama-Aufruf fehlgeschlagen (ResponseError).")
         raise LlmUnavailableError(f"Ollama-Anfrage fehlgeschlagen: {exc}") from exc
@@ -291,6 +300,7 @@ def generate_structured(
     messages: list[Message],
     *,
     model: str | None = None,
+    options: dict[str, Any] | None = None,
 ) -> ModelT:
     """Führt einen schema-eingeschränkten Ollama-Chat-Aufruf aus und liefert
     das Ergebnis als validierte Instanz von `model_cls`.
@@ -318,7 +328,7 @@ def generate_structured(
     schema = _schema_for(model_cls)
 
     with _build_client() as client:
-        content = _call_chat(client, resolved_model, messages, schema)
+        content = _call_chat(client, resolved_model, messages, schema, options)
         try:
             return model_cls.model_validate_json(content)
         except ValidationError as exc:
@@ -328,7 +338,7 @@ def generate_structured(
             logger.warning("Ollama-Antwort entsprach nicht dem Schema (Versuch 1): %s", first_exc)
 
         retry_messages = _retry_messages(messages, content, first_exc)
-        content = _call_chat(client, resolved_model, retry_messages, schema)
+        content = _call_chat(client, resolved_model, retry_messages, schema, options)
         try:
             return model_cls.model_validate_json(content)
         except ValidationError as exc:
@@ -347,7 +357,7 @@ def generate_structured(
         flat_cls, list_fields, submodels = _build_flat_variant(model_cls)
         flat_schema = _schema_for(flat_cls)
         fallback_messages = _fallback_messages(messages)
-        content = _call_chat(client, resolved_model, fallback_messages, flat_schema)
+        content = _call_chat(client, resolved_model, fallback_messages, flat_schema, options)
         try:
             flat_instance = flat_cls.model_validate_json(content)
         except ValidationError as fallback_exc:

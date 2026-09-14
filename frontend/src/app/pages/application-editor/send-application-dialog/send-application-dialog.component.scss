@@ -1,6 +1,6 @@
 .dialog-hint {
   margin: 0 0 16px;
-  color: rgba(0, 0, 0, 0.6);
+  color: var(--app-muted-text);
 }
 
 .dialog-form {
@@ -13,8 +13,3 @@
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  .dialog-hint {
-    color: rgba(255, 255, 255, 0.6);
-  }
-}

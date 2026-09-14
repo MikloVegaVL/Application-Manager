@@ -1,68 +1,67 @@
 # 🚀 Application-Manager (Personal AI Application Assistant)
 
-Persönliche, KI-gestützte Web-Anwendung zur Jobsuche sowie zur Erstellung
-und zum automatischen Befüllen von Bewerbungen (Anschreiben & Lebenslauf).
-Sie sucht Stellenangebote, gleicht sie mit deinem Master-Profil ab und
-generiert maßgeschneiderte Bewerbungsunterlagen inkl. PDF-Erzeugung und
-E-Mail-Versand.
+Personal, AI-powered web application for job searching and for creating and
+automatically filling in job applications (cover letter & CV). It searches job
+offers, matches them against your master profile and generates tailored
+application documents including PDF generation and email delivery.
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Frontend:** Angular 17+ (Standalone Components, Signals), Angular Material, Nginx
+- **Frontend:** Angular 17+ (standalone components, signals), Angular Material, Nginx
 - **Backend:** Python 3.11+, FastAPI, SQLAlchemy v2, Pydantic v2
-- **Datenbank:** PostgreSQL (Docker/Produktion), SQLite (lokaler Dev-Fallback ohne Docker)
-- **KI & Dokumente:** Ollama (lokal betriebenes LLM), Playwright, WeasyPrint, pypdf
-- **Containerisierung:** Docker & Docker Compose
+- **Database:** PostgreSQL (Docker/production), SQLite (local dev fallback without Docker)
+- **AI & documents:** Ollama (locally hosted LLM), Playwright, WeasyPrint, pypdf
+- **Containerization:** Docker & Docker Compose
 
-- `/backend` - FastAPI-Anwendung
-- `/frontend` - Angular-Anwendung
+- `/backend` - FastAPI application
+- `/frontend` - Angular application
 
 ---
 
-## ⚡ Schnellstart mit Docker Compose (empfohlen)
+## ⚡ Quick start with Docker Compose (recommended)
 
-Startet Frontend, Backend und PostgreSQL mit einem Befehl.
+Starts the frontend, backend and PostgreSQL with a single command.
 
-**Voraussetzung:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) (inkl. Docker Compose).
+**Prerequisite:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) (including Docker Compose).
 
 ```bash
-# 1. Backend-Umgebungsvariablen anlegen (für SMTP-Funktionen nötig; die
-#    Ollama-Variablen (OLLAMA_BASE_URL/OLLAMA_MODEL) sind bereits sinnvoll
-#    für Docker Compose vorbelegt - ohne diesen Schritt startet die App
-#    trotzdem, nur Mail-Features liefern dann einen klaren
-#    Konfigurationsfehler statt zu funktionieren)
+# 1. Create the backend environment variables (required for SMTP features; the
+#    Ollama variables (OLLAMA_BASE_URL/OLLAMA_MODEL) already have sensible
+#    defaults for Docker Compose - without this step the app still starts,
+#    only mail features will return a clear configuration error instead of
+#    working)
 cp backend/.env.example backend/.env
-# ... und darin SMTP_* mit echten Werten befüllen (kein API-Key für die KI
-# nötig - Ollama läuft als eigener Docker-Compose-Service)
+# ... and fill in SMTP_* with real values (no API key needed for the AI -
+# Ollama runs as its own Docker Compose service)
 
-# 2. (optional) Postgres-Zugangsdaten überschreiben
+# 2. (optional) Override the Postgres credentials
 cp .env.example .env
 
-# 3. Starten
+# 3. Start
 docker-compose up --build
 ```
 
-Danach erreichbar unter:
+Reachable afterwards at:
 
 | Service  | URL                          |
 | -------- | ----------------------------- |
 | Frontend | http://localhost:8080         |
-| Backend (API + Swagger-Docs) | http://localhost:8000/docs |
-| PostgreSQL | localhost:5432 (nur containerintern als `db` referenziert) |
+| Backend (API + Swagger docs) | http://localhost:8000/docs |
+| PostgreSQL | localhost:5432 (referenced only inside the container as `db`) |
 
-Das Frontend liefert `/api/*`-Anfragen intern über einen Nginx-Reverse-Proxy
-an das Backend aus (siehe `frontend/nginx.conf`) - dadurch treten im
-Container-Betrieb keine CORS-Probleme auf. Generierte Bewerbungs-PDFs werden
-per Volume nach `backend/generated/` persistiert.
+The frontend serves `/api/*` requests internally through an Nginx reverse proxy
+to the backend (see `frontend/nginx.conf`) - this avoids CORS issues in
+container operation. Generated application PDFs are persisted to
+`backend/generated/` via a volume.
 
-Stoppen mit `docker-compose down` (Datenbank-Volume bleibt erhalten), bzw.
-`docker-compose down -v`, um auch die Postgres-Daten zu löschen.
+Stop with `docker-compose down` (the database volume is kept), or
+`docker-compose down -v` to also delete the Postgres data.
 
 ---
 
-## 🧑‍💻 Lokale Entwicklung ohne Docker
+## 🧑‍💻 Local development without Docker
 
 ### Backend
 
@@ -71,26 +70,26 @@ cd backend
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # danach mit echten Werten befüllen
+cp .env.example .env   # then fill in with real values
 uvicorn app.main:app --reload
 ```
 
-Nutzt standardmäßig eine lokale SQLite-Datei (`DATABASE_URL` unkonfiguriert).
+Uses a local SQLite file by default (`DATABASE_URL` unconfigured).
 
-**Systemvoraussetzung (macOS):** Die PDF-Erzeugung nutzt WeasyPrint, das
-native Libraries (Pango, Cairo, GDK-Pixbuf, GLib) benötigt, die nicht über
-pip installiert werden:
+**System requirement (macOS):** PDF generation uses WeasyPrint, which needs
+native libraries (Pango, Cairo, GDK-Pixbuf, GLib) that are not installed via
+pip:
 
 ```bash
 brew install pango
 ```
 
-(Pango zieht Cairo/GDK-Pixbuf/GLib automatisch als Abhängigkeiten mit.)
+(Pango automatically pulls in Cairo/GDK-Pixbuf/GLib as dependencies.)
 
 ### Frontend
 
 ```bash
 cd frontend
 npm install
-npm start   # http://localhost:4200, erwartet Backend auf http://localhost:8000
+npm start   # http://localhost:4200, expects the backend at http://localhost:8000
 ```

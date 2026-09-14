@@ -30,45 +30,49 @@ import { createEducationGroup } from '../cv-section-forms.util';
   template: `
     <section class="form-array-section">
       <div class="form-array-section__header">
-        <h3>Ausbildung</h3>
+        <h3>Education</h3>
         <button mat-stroked-button type="button" (click)="add()">
           <mat-icon>add</mat-icon>
-          Station hinzufügen
+          Add entry
         </button>
       </div>
 
       @if (formArray.length === 0) {
-        <p class="form-array-section__empty">Noch keine Ausbildung erfasst.</p>
+        <p class="form-array-section__empty">No education added yet.</p>
       }
 
       @for (group of formArray.controls; track $index) {
         <mat-card class="entry-card" appearance="outlined" [formGroup]="group">
           <mat-card-content class="entry-card__grid">
             <mat-form-field appearance="outline">
-              <mat-label>Einrichtung</mat-label>
+              <mat-label>Institution</mat-label>
               <input matInput formControlName="institution" />
             </mat-form-field>
             <mat-form-field appearance="outline">
-              <mat-label>Abschluss</mat-label>
+              <mat-label>Degree</mat-label>
               <input matInput formControlName="degree" />
             </mat-form-field>
             <mat-form-field appearance="outline">
-              <mat-label>Studienfach</mat-label>
+              <mat-label>Field of study</mat-label>
               <input matInput formControlName="field_of_study" />
             </mat-form-field>
             <mat-form-field appearance="outline">
               <mat-label>Start</mat-label>
-              <input matInput formControlName="start_date" placeholder="z. B. 2017" />
+              <input matInput formControlName="start_date" placeholder="e.g. 2017" />
             </mat-form-field>
             <mat-form-field appearance="outline">
-              <mat-label>Ende</mat-label>
-              <input matInput formControlName="end_date" placeholder="z. B. 2021" />
+              <mat-label>End</mat-label>
+              <input matInput formControlName="end_date" placeholder="e.g. 2021" />
+            </mat-form-field>
+            <mat-form-field appearance="outline" class="entry-card__description">
+              <mat-label>Description</mat-label>
+              <textarea matInput formControlName="description" rows="2"></textarea>
             </mat-form-field>
           </mat-card-content>
           <mat-card-actions align="end">
             <button mat-button color="warn" type="button" (click)="remove($index)">
               <mat-icon>delete</mat-icon>
-              Entfernen
+              Remove
             </button>
           </mat-card-actions>
         </mat-card>
@@ -104,6 +108,10 @@ import { createEducationGroup } from '../cv-section-forms.util';
         grid-template-columns: repeat(2, minmax(200px, 1fr));
         gap: 8px 16px;
         padding-top: 8px;
+      }
+
+      &__description {
+        grid-column: 1 / -1;
       }
     }
 

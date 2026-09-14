@@ -45,8 +45,8 @@ class CvRenderRequest(BaseModel):
     noch nicht gespeicherter Änderungen (R10/R11), daher bewusst NICHT aus
     der Datenbank gelesen, sondern 1:1 aus dem Request-Body übernommen.
 
-    Identitätsfelder (`full_name`/`email`/`phone`/`address`) sind bewusst
-    NICHT Teil dieses Bodys (KTD11): Preview/Export mergen sie serverseitig
+    Identitätsfelder (`full_name`/`email`/`phone`/`address`/`linkedin`/
+    `website`) sind bewusst NICHT Teil dieses Bodys (KTD11): Preview/Export mergen sie serverseitig
     aus dem gespeicherten `MasterProfile`-Datensatz. Das tatsächliche Foto
     ebenso: `photo_filename` steht hier nur der Payload-Symmetrie mit
     `MasterProfileUpdate` wegen - das Foto wird, anders als Textfelder,
@@ -58,6 +58,7 @@ class CvRenderRequest(BaseModel):
 
     template_id: CvTemplateId
     summary: str | None = None
+    berufsbezeichnung: str | None = Field(default=None, max_length=255)
     experiences_json: list[ExperienceEntry] = Field(default_factory=list)
     education_json: list[EducationEntry] = Field(default_factory=list)
     skills_json: list[SkillEntry] = Field(default_factory=list)
@@ -74,13 +75,17 @@ def _sanitize_filename_component(value: str) -> str:
     unkodiert enthalten (z. B. Umlaute), daher werden auch diese ersetzt statt
     nur klassische Pfadtrenner."""
     sanitized = re.sub(r"[^A-Za-z0-9_-]+", "_", value.strip())
-    return sanitized.strip("_") or "lebenslauf"
+    return sanitized.strip("_") or "resume"
 
 
-def _render_cv_for_current_profile(payload: CvRenderRequest, db: Session) -> tuple[bytes, MasterProfile]:
+def _render_cv_for_current_profile(
+    payload: CvRenderRequest, db: Session, *, preview: bool
+) -> tuple[bytes, MasterProfile]:
     """Gemeinsame Implementierung für `preview`/`export` (KTD11): lädt das
     gespeicherte Profil (404, falls keins existiert - KTD9), mergt dessen
-    Identitätsfelder und Foto mit dem Request-Body und rendert das PDF."""
+    Identitätsfelder und Foto mit dem Request-Body und rendert das PDF. Das
+    keyword-only `preview` steuert den Render-Modus (KTD1): `True` füllt leere
+    Felder mit Beispiel-Inhalt (R8), `False` lässt sie leer (R9)."""
     profile = db.query(MasterProfile).first()
     if profile is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NO_PROFILE_DETAIL)
@@ -92,27 +97,35 @@ def _render_cv_for_current_profile(payload: CvRenderRequest, db: Session) -> tup
             email=profile.email,
             phone=profile.phone,
             address=profile.address,
+            linkedin=profile.linkedin,
+            website=profile.website,
             summary=payload.summary,
+            berufsbezeichnung=payload.berufsbezeichnung,
             experiences=payload.experiences_json,
             education=payload.education_json,
             skills=payload.skills_json,
             languages=payload.languages_json,
             projects=payload.projects_json,
             photo_path=profile.photo_path,
+            preview=preview,
         )
     except PdfRenderError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Lebenslauf konnte nicht als PDF erzeugt werden: {exc}",
+            detail=f"Could not generate the CV PDF: {exc}",
         ) from exc
 
     return pdf_bytes, profile
 
 
 @router.post("/parse", response_model=CvParseResponse)
-def parse_cv(file: UploadFile = File(..., description="Lebenslauf als PDF-Datei")) -> CvParseResponse:
+def parse_cv(
+    file: UploadFile = File(..., description="Lebenslauf als PDF-Datei"),
+) -> CvParseResponse:
     """Analysiert eine Lebenslauf-PDF per KI und liefert das Ergebnis
-    ausschließlich als Vorschlag für das Builder-Formular zurück.
+    ausschließlich als Vorschlag für das Builder-Formular zurück. Die
+    extrahierten Textwerte gibt die KI immer auf Englisch aus (die App ist
+    fest englischsprachig).
 
     Kein Datenbankzugriff: Weder wird ein bestehendes Profil gelesen noch
     geschrieben (R6) - das Ergebnis befüllt im Frontend nur die Formularfelder,
@@ -149,13 +162,13 @@ def list_templates() -> list[dict[str, str]]:
 def preview_cv(payload: CvRenderRequest, db: Session = Depends(get_db)) -> StreamingResponse:
     """Rendert den Lebenslauf aus dem aktuellen (ggf. ungespeicherten)
     Formularinhalt als PDF und liefert es inline zur Anzeige im Browser
-    (R10, KTD7: dieselbe Rendering-Pipeline wie der Export, kein separates
-    Live-HTML/CSS-Preview-Template)."""
-    pdf_bytes, _profile = _render_cv_for_current_profile(payload, db)
+    (R7/R9, KTD1: dieselbe Rendering-Pipeline wie der Export, aber im
+    `preview`-Modus mit Beispiel-Skeleton)."""
+    pdf_bytes, _profile = _render_cv_for_current_profile(payload, db, preview=True)
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": 'inline; filename="lebenslauf-vorschau.pdf"'},
+        headers={"Content-Disposition": 'inline; filename="resume-preview.pdf"'},
     )
 
 
@@ -163,8 +176,8 @@ def preview_cv(payload: CvRenderRequest, db: Session = Depends(get_db)) -> Strea
 def export_cv(payload: CvRenderRequest, db: Session = Depends(get_db)) -> StreamingResponse:
     """Rendert den Lebenslauf aus dem aktuellen Formularinhalt als PDF und
     liefert es als Download (R11)."""
-    pdf_bytes, profile = _render_cv_for_current_profile(payload, db)
-    filename = f"lebenslauf_{_sanitize_filename_component(profile.full_name)}.pdf"
+    pdf_bytes, profile = _render_cv_for_current_profile(payload, db, preview=False)
+    filename = f"resume_{_sanitize_filename_component(profile.full_name)}.pdf"
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",

@@ -21,7 +21,7 @@
     align-items: center;
     gap: 12px;
     padding: 64px 0;
-    color: rgba(0, 0, 0, 0.6);
+    color: var(--app-muted-text);
   }
 
   &__actions {
@@ -70,7 +70,7 @@
   }
 
   &__empty {
-    color: rgba(0, 0, 0, 0.5);
+    color: var(--app-subtle-text);
     font-style: italic;
     margin: 0;
   }
@@ -97,7 +97,7 @@
 .cv-import {
   &__hint {
     margin: 0;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--app-muted-text);
   }
 
   &__submit {
@@ -121,7 +121,7 @@
   margin: 0;
   padding: 8px 12px;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--app-surface-subtle);
   font-weight: 500;
 
   button {
@@ -130,7 +130,7 @@
 
   &--empty {
     font-weight: 400;
-    color: rgba(0, 0, 0, 0.6);
+    color: var(--app-muted-text);
     background: transparent;
     padding-left: 0;
   }
@@ -143,11 +143,11 @@
   justify-content: center;
   gap: 8px;
   padding: 40px 24px;
-  border: 2px dashed rgba(255, 255, 255, 0.6);
+  border: 2px dashed var(--app-border-strong);
   border-radius: 8px;
   cursor: pointer;
   text-align: center;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--app-muted-text);
   transition:
     border-color 150ms ease,
     background-color 150ms ease;
@@ -159,8 +159,8 @@
   }
 
   &--dragover {
-    border-color: rgba(255, 255, 255, 0.6);
-    background-color: rgba(63, 81, 181, 0.06);
+    border-color: var(--app-border-strong);
+    background-color: var(--app-hover-surface);
   }
 
   &__filename {
@@ -168,36 +168,13 @@
     align-items: center;
     gap: 4px;
     font-weight: 500;
-    color: rgba(0, 0, 0, 0.87);
+    color: var(--app-body-text);
   }
 }
 
 button mat-progress-spinner {
   display: inline-block;
   margin-right: 8px;
-}
-
-@media (prefers-color-scheme: dark) {
-  .profile-page__loading,
-  .form-array-section__empty {
-    color: rgba(24, 22, 22, 0.6);
-  }
-
-  .cv-dropzone {
-    border-color: rgba(255, 255, 255, 0.6);
-  }
-
-  .cv-dropzone__filename {
-    color: rgba(33, 30, 30, 0.87);
-  }
-
-  .cv-attachment__current {
-    background: rgba(255, 255, 255, 0.08);
-
-    &--empty {
-      color: rgba(24, 22, 22, 0.6);
-    }
-  }
 }
 
 @media (max-width: 600px) {

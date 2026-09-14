@@ -1,0 +1,160 @@
+<div class="sent-emails">
+  <header class="sent-emails__intro">
+    <h1>Sent Emails</h1>
+    <p>Every application email actually sent - who, when, from which account, and what was attached.</p>
+  </header>
+
+  <div class="sent-emails__toolbar">
+    <div class="sent-emails__filters">
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+        <mat-label>Company</mat-label>
+        <input
+          matInput
+          [value]="companyFilter()"
+          (input)="companyFilter.set($any($event.target).value)"
+          (change)="onFilterChange()"
+          placeholder="Any company"
+        />
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+        <mat-label>Sender account</mat-label>
+        <mat-select
+          [value]="senderEmailFilter()"
+          (selectionChange)="senderEmailFilter.set($event.value); onFilterChange()"
+        >
+          <mat-option [value]="null">All accounts</mat-option>
+          @for (option of senderEmailOptions; track option) {
+            <mat-option [value]="option">{{ option }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+        <mat-label>From</mat-label>
+        <input
+          matInput
+          type="date"
+          [value]="dateFromFilter()"
+          (change)="dateFromFilter.set($any($event.target).value); onFilterChange()"
+        />
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+        <mat-label>To</mat-label>
+        <input
+          matInput
+          type="date"
+          [value]="dateToFilter()"
+          (change)="dateToFilter.set($any($event.target).value); onFilterChange()"
+        />
+      </mat-form-field>
+    </div>
+
+    <div class="sent-emails__exports">
+      <button
+        mat-stroked-button
+        type="button"
+        [disabled]="exportingCurrent()"
+        (click)="exportCurrent()"
+      >
+        @if (exportingCurrent()) {
+          <mat-progress-spinner mode="indeterminate" diameter="18" />
+        } @else {
+          <mat-icon>download</mat-icon>
+        }
+        Export current view
+      </button>
+      <button mat-stroked-button type="button" [disabled]="exportingAll()" (click)="exportAll()">
+        @if (exportingAll()) {
+          <mat-progress-spinner mode="indeterminate" diameter="18" />
+        } @else {
+          <mat-icon>download</mat-icon>
+        }
+        Export full log
+      </button>
+    </div>
+  </div>
+
+  @if (exportError(); as message) {
+    <p class="sent-emails__error">{{ message }}</p>
+  }
+
+  @if (loading()) {
+    <div class="sent-emails__loading">
+      <mat-progress-spinner mode="indeterminate" diameter="48" />
+      <p>Loading sent emails ...</p>
+    </div>
+  }
+
+  @if (!loading() && errorMessage()) {
+    <p class="sent-emails__error">{{ errorMessage() }}</p>
+  }
+
+  @if (!loading() && !errorMessage() && entries().length === 0) {
+    <p class="sent-emails__empty">
+      {{ hasActiveFilter() ? 'No entries match these filters.' : 'No sent emails yet.' }}
+    </p>
+  }
+
+  @if (!loading() && !errorMessage() && entries().length > 0) {
+    <div class="sent-emails__table-wrapper">
+      <table mat-table [dataSource]="entries()" class="sent-emails__table">
+        <ng-container matColumnDef="company">
+          <th mat-header-cell *matHeaderCellDef>Company</th>
+          <td mat-cell *matCellDef="let entry">
+            <ng-template #companyCell>
+              {{ entry.company ?? '—' }}
+              @if (entry.job_title) {
+                <span class="sent-emails__job-title">{{ entry.job_title }}</span>
+              }
+            </ng-template>
+            @if (entry.job_offer_id !== null) {
+              <a [routerLink]="['/editor', entry.job_offer_id]">
+                <ng-container [ngTemplateOutlet]="companyCell" />
+              </a>
+            } @else {
+              <span>
+                <ng-container [ngTemplateOutlet]="companyCell" />
+              </span>
+            }
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="recipient_email">
+          <th mat-header-cell *matHeaderCellDef>Recipient</th>
+          <td mat-cell *matCellDef="let entry">{{ entry.recipient_email }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="sent_at">
+          <th mat-header-cell *matHeaderCellDef>Sent</th>
+          <td mat-cell *matCellDef="let entry">{{ entry.sent_at | date: 'medium' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="sender_email">
+          <th mat-header-cell *matHeaderCellDef>Sender account</th>
+          <td mat-cell *matCellDef="let entry" [class.sent-emails__unknown]="!entry.sender_email">
+            {{ entry.sender_email ?? '—' }}
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="subject">
+          <th mat-header-cell *matHeaderCellDef>Subject</th>
+          <td mat-cell *matCellDef="let entry" [class.sent-emails__unknown]="!entry.subject">
+            {{ entry.subject ?? '—' }}
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="attachment_filename">
+          <th mat-header-cell *matHeaderCellDef>Attachment</th>
+          <td mat-cell *matCellDef="let entry" [class.sent-emails__unknown]="!entry.attachment_filename">
+            {{ entry.attachment_filename ?? '—' }}
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+        <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+      </table>
+    </div>
+  }
+</div>

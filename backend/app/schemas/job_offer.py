@@ -54,7 +54,7 @@ class SourceStatus(BaseModel):
 
     platform: str = Field(..., max_length=100)
     status: Literal["ok", "unavailable"]
-    reason: Literal["timeout", "rate-limited", "error", "empty"] | None = None
+    reason: Literal["timeout", "rate-limited", "error", "empty", "not-configured"] | None = None
 
 
 class JobSearchResponse(BaseModel):

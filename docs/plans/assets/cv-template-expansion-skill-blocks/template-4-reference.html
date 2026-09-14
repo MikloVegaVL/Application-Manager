@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Resume Template 3</title>
+<style>
+  :root{
+    --navy:#1b2b45;
+    --navy-light:#2b3d5a;
+    --teal:#3f8f96;
+    --text-dark:#26364a;
+    --text-mid:#666;
+    --rule:#e2e2e2;
+  }
+
+  *{box-sizing:border-box;}
+
+  body{
+    margin:0;
+    background:#dfe2e6;
+    font-family:'Segoe UI', Arial, Helvetica, sans-serif;
+    color:var(--text-dark);
+    display:flex;
+    justify-content:center;
+    padding:32px 12px;
+  }
+
+  .page{
+    width:850px;
+    max-width:100%;
+    background:#fff;
+    box-shadow:0 4px 18px rgba(0,0,0,.15);
+    display:flex;
+    flex-wrap:nowrap;
+    align-items:stretch;
+  }
+
+  /* ---------- SIDEBAR ---------- */
+  .sidebar{
+    flex:1 1 0;
+    min-width:0;
+    background:var(--navy);
+    color:#fff;
+    padding:34px 22px 40px;
+  }
+  .avatar-wrap{
+    display:flex;
+    justify-content:center;
+    margin-bottom:24px;
+  }
+  .avatar{
+    width:104px;
+    height:104px;
+    border-radius:50%;
+    object-fit:cover;
+    border:3px solid rgba(255,255,255,.5);
+    background:#556;
+  }
+
+  .side-section{ margin-bottom:26px; }
+  .side-title{
+    font-size:14px;
+    font-weight:700;
+    letter-spacing:.5px;
+    color:#fff;
+    margin:0 0 12px 0;
+    padding-bottom:6px;
+    border-bottom:2px solid var(--teal);
+    display:inline-block;
+  }
+
+  .contact-item{
+    display:flex;
+    align-items:flex-start;
+    gap:9px;
+    font-size:12px;
+    color:#dfe4ea;
+    margin-bottom:10px;
+    line-height:1.4;
+    word-break:break-word;
+  }
+  .contact-item .ico{
+    color:var(--teal);
+    flex-shrink:0;
+    width:14px;
+    text-align:center;
+    margin-top:1px;
+    font-size:12.5px;
+  }
+
+  .skill-row{ margin-bottom:11px; }
+  .skill-name{
+    font-size:12.2px;
+    color:#e8ecf0;
+    margin-bottom:4px;
+  }
+  .bar{
+    display:flex;
+    gap:4px;
+  }
+  .bar span{
+    height:6px;
+    flex:1;
+    background:var(--navy-light);
+    border-radius:1px;
+  }
+  .bar span.filled{ background:var(--teal); }
+
+  .lang-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:10px;
+    font-size:12.2px;
+    color:#e8ecf0;
+  }
+  .dots{
+    display:flex;
+    gap:5px;
+  }
+  .dots span{
+    width:9px;
+    height:9px;
+    border-radius:50%;
+    border:1.5px solid var(--teal);
+    background:transparent;
+  }
+  .dots span.filled{ background:var(--teal); }
+
+  /* ---------- MAIN ---------- */
+  .main{
+    flex:2.4 1 0;
+    min-width:0;
+    padding:36px 40px 44px;
+  }
+
+  .name-block{
+    text-align:center;
+    margin-bottom:26px;
+  }
+  .name-block h1{
+    margin:0 0 8px 0;
+    font-size:24px;
+    font-weight:700;
+    letter-spacing:1px;
+    color:var(--text-dark);
+  }
+  .name-rule{
+    width:70px;
+    height:2px;
+    background:var(--teal);
+    margin:0 auto 10px;
+  }
+  .name-block .role{
+    margin:0;
+    font-size:12px;
+    letter-spacing:2px;
+    color:var(--teal);
+    font-weight:600;
+  }
+
+  .section{ margin-bottom:24px; }
+  .section-title{
+    font-size:14.5px;
+    font-weight:700;
+    letter-spacing:.5px;
+    color:var(--teal);
+    margin:0 0 10px 0;
+    padding-bottom:6px;
+    border-bottom:2px solid var(--rule);
+  }
+  .summary-text{
+    font-size:12.6px;
+    line-height:1.65;
+    color:var(--text-mid);
+    margin:0;
+  }
+
+  .job{ margin-bottom:18px; }
+  .job:last-child{ margin-bottom:0; }
+  .job-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    gap:12px;
+    flex-wrap:wrap;
+  }
+  .job-title{
+    font-size:13.5px;
+    font-weight:700;
+    color:var(--text-dark);
+    margin:0;
+  }
+  .job-date{
+    font-size:11.5px;
+    color:var(--text-mid);
+    white-space:nowrap;
+  }
+  .job-company{
+    font-size:12.3px;
+    color:var(--teal);
+    font-weight:600;
+    margin:2px 0 8px 0;
+  }
+  .job ul{
+    margin:0;
+    padding-left:16px;
+  }
+  .job li{
+    font-size:12.2px;
+    line-height:1.55;
+    color:var(--text-mid);
+    margin-bottom:4px;
+  }
+
+  .edu-item{ margin-bottom:14px; }
+  .edu-item:last-child{ margin-bottom:0; }
+  .edu-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    gap:12px;
+    flex-wrap:wrap;
+  }
+  .edu-title{
+    font-size:13.5px;
+    font-weight:700;
+    color:var(--text-dark);
+    margin:0;
+  }
+  .edu-date{
+    font-size:11.5px;
+    color:var(--text-mid);
+    white-space:nowrap;
+  }
+  .edu-item p{
+    font-size:12.2px;
+    color:var(--text-mid);
+    line-height:1.55;
+    margin:4px 0;
+  }
+
+  .project-item{ margin-bottom:14px; }
+  .project-link{
+    font-size:12.4px;
+    color:var(--teal);
+    display:block;
+    margin-bottom:2px;
+    word-break:break-all;
+    text-decoration:none;
+  }
+  .project-role{
+    font-size:12.4px;
+    font-weight:700;
+    color:var(--text-dark);
+    margin:0 0 4px 0;
+  }
+  .project-item p{
+    font-size:12.2px;
+    color:var(--text-mid);
+    line-height:1.55;
+    margin:0;
+  }
+
+  @media (max-width:600px){
+    .page{ flex-direction:column; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+
+    <div class="avatar-wrap">
+      <img class="avatar" src="https://placehold.co/160x160/556/fff?text=Photo" alt="Profile photo">
+    </div>
+
+    <div class="side-section">
+      <h2 class="side-title">Contact</h2>
+      <div class="contact-item"><span class="ico">&#9993;</span><span>name@email.com</span></div>
+      <div class="contact-item"><span class="ico">&#9742;</span><span>+00 000 000 0000</span></div>
+      <div class="contact-item"><span class="ico">&#8962;</span><span>Street, City, Country</span></div>
+      <div class="contact-item"><span class="ico">in</span><span>linkedin.com/in/username</span></div>
+      <div class="contact-item"><span class="ico">&#127760;</span><span>yourwebsite.com</span></div>
+    </div>
+
+    <div class="side-section">
+      <h2 class="side-title">Skills</h2>
+
+      <div class="skill-row">
+        <div class="skill-name">Skill One</div>
+        <div class="bar">
+          <span class="filled"></span><span class="filled"></span><span class="filled"></span><span class="filled"></span><span class="filled"></span>
+        </div>
+      </div>
+
+      <div class="skill-row">
+        <div class="skill-name">Skill Two</div>
+        <div class="bar">
+          <span class="filled"></span><span class="filled"></span><span class="filled"></span><span class="filled"></span><span></span>
+        </div>
+      </div>
+
+      <div class="skill-row">
+        <div class="skill-name">Skill Three</div>
+        <div class="bar">
+          <span class="filled"></span><span class="filled"></span><span class="filled"></span><span></span><span></span>
+        </div>
+      </div>
+
+      <div class="skill-row">
+        <div class="skill-name">Skill Four</div>
+        <div class="bar">
+          <span class="filled"></span><span class="filled"></span><span class="filled"></span><span class="filled"></span><span></span>
+        </div>
+      </div>
+
+      <div class="skill-row">
+        <div class="skill-name">Skill Five</div>
+        <div class="bar">
+          <span class="filled"></span><span class="filled"></span><span></span><span></span><span></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-section">
+      <h2 class="side-title">Languages</h2>
+
+      <div class="lang-row">
+        <span>Language One</span>
+        <span class="dots">
+          <span class="filled"></span><span class="filled"></span><span class="filled"></span><span class="filled"></span><span class="filled"></span>
+        </span>
+      </div>
+
+      <div class="lang-row">
+        <span>Language Two</span>
+        <span class="dots">
+          <span class="filled"></span><span class="filled"></span><span class="filled"></span><span></span><span></span>
+        </span>
+      </div>
+
+      <div class="lang-row">
+        <span>Language Three</span>
+        <span class="dots">
+          <span class="filled"></span><span class="filled"></span><span></span><span></span><span></span>
+        </span>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <div class="name-block">
+      <h1>Firstname Lastname</h1>
+      <div class="name-rule"></div>
+      <p class="role">JOB TITLE HERE</p>
+    </div>
+
+    <div class="section">
+      <h2 class="section-title">Summary</h2>
+      <p class="summary-text">
+        Brief professional summary goes here. Two to four sentences describing your
+        background, core strengths, and the type of role you're targeting. Keep it
+        specific to the job you're applying for.
+      </p>
+    </div>
+
+    <div class="section">
+      <h2 class="section-title">Experience</h2>
+
+      <div class="job">
+        <div class="job-head">
+          <p class="job-title">Job Title</p>
+          <span class="job-date">Month Year – Present</span>
+        </div>
+        <p class="job-company">Company Name</p>
+        <ul>
+          <li>Achievement or responsibility described with impact and metrics where possible.</li>
+          <li>Second bullet describing a key contribution or project.</li>
+          <li>Third bullet highlighting a tool, process, or collaboration.</li>
+        </ul>
+      </div>
+
+      <div class="job">
+        <div class="job-head">
+          <p class="job-title">Previous Job Title</p>
+          <span class="job-date">Month Year – Month Year</span>
+        </div>
+        <p class="job-company">Previous Company</p>
+        <ul>
+          <li>Bullet describing scope of work and technologies used.</li>
+          <li>Bullet describing collaboration or team contribution.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2 class="section-title">Education</h2>
+
+      <div class="edu-item">
+        <div class="edu-head">
+          <p class="edu-title">Program / Course Name</p>
+          <span class="edu-date">Month Year – Month Year</span>
+        </div>
+        <p>Institution Name</p>
+        <p>Short description of the program, focus areas, or notable coursework.</p>
+      </div>
+
+      <div class="edu-item">
+        <div class="edu-head">
+          <p class="edu-title">Certification / Second Program</p>
+          <span class="edu-date">Month Year – Present</span>
+        </div>
+        <p>Institution Name</p>
+        <p><strong>Key Topics:</strong> Topic one, topic two, topic three.</p>
+        <p><strong>Final Project:</strong> Short description of a capstone or applied project.</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2 class="section-title">Projects</h2>
+
+      <div class="project-item">
+        <a class="project-link" href="#">https://www.example-project.com/</a>
+        <p class="project-role">Role Title</p>
+        <p>Short description of the project, the client or purpose, and your contribution.</p>
+      </div>
+    </div>
+
+  </main>
+
+</div>
+
+</body>
+</html>

@@ -9,10 +9,16 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatTabsModule } from '@angular/material/tabs';
 
-import { MasterProfile, MasterProfileRead, ProfileAttachment } from '../../core/models/master-profile.model';
+import {
+  MasterProfile,
+  MasterProfileRead,
+  ProfileAttachment,
+  SENDER_EMAIL_OPTIONS,
+} from '../../core/models/master-profile.model';
 import { ProfileService } from '../../core/services/profile.service';
 
 /**
@@ -34,6 +40,7 @@ import { ProfileService } from '../../core/services/profile.service';
     MatIconModule,
     MatInputModule,
     MatProgressSpinnerModule,
+    MatSelectModule,
     MatTabsModule,
   ],
   templateUrl: './profile.component.html',
@@ -68,11 +75,16 @@ export class ProfileComponent implements OnInit {
   protected readonly uploadingAttachment = signal(false);
   protected readonly deletingAttachmentId = signal<number | null>(null);
 
+  protected readonly senderEmailOptions = SENDER_EMAIL_OPTIONS;
+
   protected readonly profileForm: FormGroup = this.formBuilder.nonNullable.group({
     full_name: ['', [Validators.required, Validators.maxLength(255)]],
     email: ['', [Validators.required, Validators.email]],
     phone: [''],
     address: [''],
+    linkedin: [''],
+    website: [''],
+    sender_email: [SENDER_EMAIL_OPTIONS[0]],
   });
 
   ngOnInit(): void {
@@ -91,7 +103,7 @@ export class ProfileComponent implements OnInit {
       error: (error: HttpErrorResponse) => {
         this.loading.set(false);
         if (error.status !== 404) {
-          this.snackBar.open('Profil konnte nicht geladen werden.', 'OK', { duration: 4000 });
+          this.notify('The profile could not be loaded.', 4000);
         }
         // 404 = es existiert noch kein Profil -> leeres Formular für die Neuanlage.
       },
@@ -101,7 +113,7 @@ export class ProfileComponent implements OnInit {
   onSubmit(): void {
     if (this.profileForm.invalid) {
       this.profileForm.markAllAsTouched();
-      this.snackBar.open('Bitte prüfe die markierten Pflichtfelder.', 'OK', { duration: 3000 });
+      this.notify('Please check the highlighted required fields.');
       return;
     }
 
@@ -130,13 +142,21 @@ export class ProfileComponent implements OnInit {
           return;
         }
         this.saving.set(false);
-        this.snackBar.open('Profil konnte nicht gespeichert werden.', 'OK', { duration: 4000 });
+        this.notify('The profile could not be saved.', 4000);
       },
     });
   }
 
   private submitWithBase(
-    raw: { full_name: string; email: string; phone: string; address: string },
+    raw: {
+      full_name: string;
+      email: string;
+      phone: string;
+      address: string;
+      linkedin: string;
+      website: string;
+      sender_email: string;
+    },
     base: MasterProfileRead | null,
   ): void {
     const payload: MasterProfile = {
@@ -144,7 +164,11 @@ export class ProfileComponent implements OnInit {
       email: raw.email,
       phone: raw.phone || null,
       address: raw.address || null,
+      linkedin: raw.linkedin || null,
+      website: raw.website || null,
+      sender_email: raw.sender_email || null,
       summary: base?.summary ?? null,
+      berufsbezeichnung: base?.berufsbezeichnung ?? null,
       experiences_json: base?.experiences_json ?? [],
       education_json: base?.education_json ?? [],
       skills_json: base?.skills_json ?? [],
@@ -158,11 +182,11 @@ export class ProfileComponent implements OnInit {
       next: (profile) => {
         this.saving.set(false);
         this.applyProfileToForm(profile);
-        this.snackBar.open('Profil wurde gespeichert.', 'OK', { duration: 3000 });
+        this.notify('Profile was saved.');
       },
       error: () => {
         this.saving.set(false);
-        this.snackBar.open('Profil konnte nicht gespeichert werden.', 'OK', { duration: 4000 });
+        this.notify('The profile could not be saved.', 4000);
       },
     });
   }
@@ -176,6 +200,9 @@ export class ProfileComponent implements OnInit {
       email: profile.email,
       phone: profile.phone ?? '',
       address: profile.address ?? '',
+      linkedin: profile.linkedin ?? '',
+      website: profile.website ?? '',
+      sender_email: profile.sender_email ?? SENDER_EMAIL_OPTIONS[0],
     });
   }
 
@@ -212,7 +239,7 @@ export class ProfileComponent implements OnInit {
   private setSelectedCvFile(file: File): void {
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
     if (!isPdf) {
-      this.snackBar.open('Bitte eine PDF-Datei auswählen.', 'OK', { duration: 3000 });
+      this.notify('Please select a PDF file.');
       return;
     }
     this.selectedCvFile.set(file);
@@ -234,12 +261,12 @@ export class ProfileComponent implements OnInit {
         this.uploadingCvFile.set(false);
         this.selectedCvFile.set(null);
         this.cvFilename.set(profile.cv_filename);
-        this.snackBar.open('Lebenslauf-Datei wurde hochgeladen.', 'OK', { duration: 3000 });
+        this.notify('CV file was uploaded.');
       },
       error: (error: HttpErrorResponse) => {
         this.uploadingCvFile.set(false);
         const message =
-          (error.error?.detail as string | undefined) ?? 'Upload fehlgeschlagen. Bitte erneut versuchen.';
+          (error.error?.detail as string | undefined) ?? 'Upload failed. Please try again.';
         this.snackBar.open(message, 'OK', { duration: 5000 });
       },
     });
@@ -255,11 +282,11 @@ export class ProfileComponent implements OnInit {
       next: (profile) => {
         this.deletingCvFile.set(false);
         this.cvFilename.set(profile.cv_filename);
-        this.snackBar.open('Lebenslauf-Datei wurde entfernt.', 'OK', { duration: 3000 });
+        this.notify('CV file was removed.');
       },
       error: () => {
         this.deletingCvFile.set(false);
-        this.snackBar.open('Lebenslauf-Datei konnte nicht entfernt werden.', 'OK', { duration: 4000 });
+        this.notify('The CV file could not be removed.', 4000);
       },
     });
   }
@@ -296,14 +323,15 @@ export class ProfileComponent implements OnInit {
 
   private setSelectedAttachmentFile(file: File): void {
     if (this.attachments().length >= this.MAX_ATTACHMENTS) {
-      this.snackBar.open(`Es können maximal ${this.MAX_ATTACHMENTS} zusätzliche Anhänge hochgeladen werden.`, 'OK', {
-        duration: 4000,
-      });
+      this.notify(
+        `A maximum of ${this.MAX_ATTACHMENTS} additional attachments can be uploaded.`,
+        4000,
+      );
       return;
     }
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
     if (!isPdf) {
-      this.snackBar.open('Bitte eine PDF-Datei auswählen.', 'OK', { duration: 3000 });
+      this.notify('Please select a PDF file.');
       return;
     }
     this.selectedAttachmentFile.set(file);
@@ -325,12 +353,12 @@ export class ProfileComponent implements OnInit {
         this.uploadingAttachment.set(false);
         this.selectedAttachmentFile.set(null);
         this.attachments.set(profile.attachments);
-        this.snackBar.open('Anhang wurde hochgeladen.', 'OK', { duration: 3000 });
+        this.notify('Attachment was uploaded.');
       },
       error: (error: HttpErrorResponse) => {
         this.uploadingAttachment.set(false);
         const message =
-          (error.error?.detail as string | undefined) ?? 'Upload fehlgeschlagen. Bitte erneut versuchen.';
+          (error.error?.detail as string | undefined) ?? 'Upload failed. Please try again.';
         this.snackBar.open(message, 'OK', { duration: 5000 });
       },
     });
@@ -346,12 +374,17 @@ export class ProfileComponent implements OnInit {
       next: (profile) => {
         this.deletingAttachmentId.set(null);
         this.attachments.set(profile.attachments);
-        this.snackBar.open('Anhang wurde entfernt.', 'OK', { duration: 3000 });
+        this.notify('Attachment was removed.');
       },
       error: () => {
         this.deletingAttachmentId.set(null);
-        this.snackBar.open('Anhang konnte nicht entfernt werden.', 'OK', { duration: 4000 });
+        this.notify('The attachment could not be removed.', 4000);
       },
     });
+  }
+
+  /** Zeigt eine SnackBar-Meldung mit "OK"-Label. */
+  private notify(message: string, duration = 3000): void {
+    this.snackBar.open(message, 'OK', { duration });
   }
 }

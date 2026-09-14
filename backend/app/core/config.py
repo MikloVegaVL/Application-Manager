@@ -72,6 +72,20 @@ class Settings(BaseSettings):
     SMTP_USE_TLS: bool = True
     SMTP_FROM_EMAIL: str | None = None
 
+    # --- Zweiter SMTP-Account (sayhello@thomastritscher.com, All-Inkl/KAS) ---
+    # `app.services.mail_service` wählt diesen Account statt des obigen
+    # Primär-Accounts, wenn `MasterProfile.sender_email` dieser Adresse
+    # entspricht - so landet die Mail tatsächlich im Sent-Ordner dieses
+    # Postfachs, statt nur den From-Header eines fremden Accounts zu tragen.
+    # Port 465 bei All-Inkl ist implizites SSL (kein STARTTLS), daher ein
+    # eigenes `SMTP2_USE_SSL` statt des `SMTP_USE_TLS` des Primär-Accounts.
+    SMTP2_HOST: str | None = None
+    SMTP2_PORT: int = 465
+    SMTP2_USERNAME: str | None = None
+    SMTP2_PASSWORD: str | None = None
+    SMTP2_USE_SSL: bool = True
+    SMTP2_FROM_EMAIL: str | None = None
+
     # --- Arbeitsagentur API ---
     ARBEITSAGENTUR_CLIENT_ID: str | None = None
     ARBEITSAGENTUR_CLIENT_SECRET: str | None = None
@@ -88,6 +102,27 @@ class Settings(BaseSettings):
     JOB_SEARCH_LINKEDIN_RESULT_CAP: int = 10
     # Wie lange LinkedIn nach einem 429 übersprungen wird (KTD5).
     JOB_SEARCH_LINKEDIN_COOLDOWN_SECONDS: float = 300.0
+
+    # --- Jobsuche: weitere HTML-Boards (U3/U6, KTD7) ---
+    # Alle neuen Börsen sind standardmäßig aktiviert; ein Board ohne
+    # verlässliche anonyme Suchoberfläche lässt sich per Flag deaktivieren,
+    # ohne den Rest der Suche zu blockieren (KD1).
+    JOB_SEARCH_DEVJOBS_ENABLED: bool = True
+    JOB_SEARCH_KIMETA_ENABLED: bool = True
+    JOB_SEARCH_STEPSTONE_ENABLED: bool = True
+    JOB_SEARCH_GERMANTECHJOBS_ENABLED: bool = True
+    JOB_SEARCH_INDEED_ENABLED: bool = True
+    JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED: bool = True
+
+    # --- Jobsuche: credential-basierte APIs (U3/U4/U5, KTD7/KTD9) ---
+    JOB_SEARCH_ADZUNA_ENABLED: bool = True
+    JOB_SEARCH_JOOBLE_ENABLED: bool = True
+    # Leere Defaults sind beabsichtigt: ohne Zugangsdaten melden Adzuna und
+    # Jooble den Status `not-configured`, statt die Suche fehlschlagen zu
+    # lassen (R9/KD7).
+    ADZUNA_APP_ID: str = ""
+    ADZUNA_APP_KEY: str = ""
+    JOOBLE_API_KEY: str = ""
 
     # --- Generierte/hochgeladene Dateien ---
     # Ablageort der vom Nutzer hochgeladenen Lebenslauf-Anhang-Datei (siehe

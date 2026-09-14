@@ -29,12 +29,31 @@ describe('SkillsSectionComponent', () => {
     expect(component['skillLevels']).toEqual(['Grundkenntnisse', 'Gut', 'Sehr gut', 'Experte']);
   });
 
+  it('maps stored skill levels to fixed English labels while keeping the enum value (R3)', () => {
+    expect(component['skillLevelLabel']('Grundkenntnisse')).toBe('Basic knowledge');
+    expect(component['skillLevelLabel']('Sehr gut')).toBe('Very good');
+    // Der gespeicherte Wert bleibt der deutsche Enum-String.
+    expect(component['skillLevels']).toEqual(['Grundkenntnisse', 'Gut', 'Sehr gut', 'Experte']);
+  });
+
   it('adds a skill with a name and level to the form array', () => {
     component.add();
     formArray.at(0).patchValue({ name: 'TypeScript', level: 'Experte' });
 
     expect(formArray.length).toBe(1);
-    expect(formArray.at(0).getRawValue()).toEqual({ name: 'TypeScript', level: 'Experte' });
+    expect(formArray.at(0).getRawValue()).toEqual({
+      name: 'TypeScript',
+      level: 'Experte',
+    });
+  });
+
+  it('renders no category select for a skill row', () => {
+    component.add();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.skill-row__category')).toBeFalsy();
+    expect(compiled.querySelector('[formcontrolname="category"]')).toBeFalsy();
   });
 
   it('removes a skill from the form array', () => {
@@ -59,7 +78,7 @@ describe('SkillsSectionComponent', () => {
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('.skill-row__hint')).toBeTruthy();
-    expect(compiled.textContent).toContain('Auto-migriert');
+    expect(compiled.textContent).toContain('Auto-migrated');
   });
 
   it('does not show the review hint for a skill at a non-default level', () => {

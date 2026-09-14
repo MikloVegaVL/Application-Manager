@@ -9,3 +9,11 @@ A schema-validation failure on AI-generated structured output that recurs at the
 
 ### Flattened-schema fallback
 The mitigation applied once a Structural failure is detected: the AI is asked to answer against a temporary, indirection-free variant of the response schema instead of the original one. The answer is validated against that variant and then reconstructed back into the original schema's shape before being returned to the caller, so callers never see the temporary variant.
+
+## CV Builder
+
+### Berufsbezeichnung
+The optional job title shown beneath the profile name in a CV template, set independently of any experience entry's `role` (which is a position held at one employer).
+
+### Skill category
+The domain a skill belongs to, used to group skills into compact sections in a rendered CV instead of listing every skill individually. A skill without a category falls into a catch-all group, so grouping never drops a skill.

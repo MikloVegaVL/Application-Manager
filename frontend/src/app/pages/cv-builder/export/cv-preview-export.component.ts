@@ -18,16 +18,18 @@ import {
   SkillEntry,
 } from '../../../core/models/master-profile.model';
 import { ProfileService } from '../../../core/services/profile.service';
+import { downloadBlobResponse } from '../../../core/utils/download-blob-response.util';
 
-const DEFAULT_EXPORT_FILENAME = 'lebenslauf.pdf';
+const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
 
 /**
  * Vorschau & Export-Sektion des CV Builders (R9-R11, U9).
  *
- * KTD7: die Vorschau nutzt dieselbe PDF-Rendering-Pipeline wie der Export
- * (`POST /cv-builder/preview` bzw. `.../export`, siehe `cv_builder.py`) -
- * das Ergebnis wird per Browser-nativem `<embed>` angezeigt, nicht als
- * separates Live-HTML/CSS-Preview-Template nachgebaut.
+ * KTD1: die Vorschau nutzt dieselbe PDF-Rendering-Pipeline wie der Export
+ * (`POST /cv-builder/preview` bzw. `.../export`, siehe `cv_builder.py`), rendert
+ * aber im `preview`-Modus (Beispiel-Skeleton) - das Ergebnis wird per
+ * Browser-nativem `<embed>` angezeigt, nicht als separates Live-HTML/CSS-
+ * Preview-Template nachgebaut.
  *
  * KTD11: Preview/Export senden den AKTUELLEN Formularinhalt (inkl. etwaiger
  * noch nicht gespeicherter Änderungen) als Request-Body - die vom
@@ -35,42 +37,55 @@ const DEFAULT_EXPORT_FILENAME = 'lebenslauf.pdf';
  * werden bei jedem Klick per `getRawValue()`/`.value` frisch gelesen, nie aus
  * `lastSavedProfile`.
  *
- * KTD8: `templateIdControl` ist dieselbe FormControl-Instanz, die die
+ * KTD10: `templateIdControl` ist dieselbe FormControl-Instanz, die die
  * Elternform auch in den Save-Payload (`PATCH /profile`) übernimmt - die
  * gewählte Vorlage ist so Teil des persistierten Profils. Ist beim Laden der
- * Vorlagenliste noch keine Vorlage gewählt (Wert `null`, z. B. bei einem
- * frisch angelegten Profil), wird automatisch die erste verfügbare Vorlage
- * vorbelegt.
+ * Vorlagenliste keine Vorlage gewählt (Wert `null`, z. B. bei einem frisch
+ * angelegten Profil) oder eine unbekannte (z. B. das entfernte `modern`), wird
+ * automatisch die erste verfügbare Vorlage vorbelegt.
  */
 @Component({
   selector: 'app-cv-preview-export',
   standalone: true,
-  imports: [ReactiveFormsModule, MatButtonModule, MatButtonToggleModule, MatIconModule, MatProgressSpinnerModule],
+  imports: [
+    ReactiveFormsModule,
+    MatButtonModule,
+    MatButtonToggleModule,
+    MatIconModule,
+    MatProgressSpinnerModule,
+  ],
   template: `
     <section class="cv-preview-export">
-      <h3>Vorschau & Export</h3>
+      <h3>Preview & export</h3>
       <p>
-        Wähle eine Vorlage und erzeuge eine Vorschau oder einen PDF-Download - basierend auf dem aktuellen
-        Formularinhalt, auch wenn er noch nicht gespeichert wurde.
+        Choose a template and generate a preview or a PDF download - based on the current form
+        content, even if it has not been saved yet.
       </p>
 
-      @if (templatesLoading()) {
-        <div class="cv-preview-export__templates-loading">
-          <mat-progress-spinner mode="indeterminate" diameter="24" />
-          <p>Vorlagen werden geladen ...</p>
-        </div>
-      } @else if (templatesError()) {
-        <div class="cv-preview-export__error">
-          <p>{{ templatesError() }}</p>
-          <button mat-stroked-button type="button" (click)="loadTemplates()">Erneut versuchen</button>
-        </div>
-      } @else {
-        <mat-button-toggle-group [formControl]="templateIdControl" aria-label="Vorlage wählen">
-          @for (template of templates(); track template.id) {
-            <mat-button-toggle [value]="template.id">{{ template.label }}</mat-button-toggle>
+      <div class="cv-preview-export__picker-row">
+        <div class="cv-preview-export__control">
+          <span class="cv-preview-export__control-label">Template</span>
+          @if (templatesLoading()) {
+            <div class="cv-preview-export__templates-loading">
+              <mat-progress-spinner mode="indeterminate" diameter="24" />
+              <p>Loading templates ...</p>
+            </div>
+          } @else if (templatesError()) {
+            <div class="cv-preview-export__error">
+              <p>{{ templatesError() }}</p>
+              <button mat-stroked-button type="button" (click)="loadTemplates()">
+                Try again
+              </button>
+            </div>
+          } @else {
+            <mat-button-toggle-group [formControl]="templateIdControl" aria-label="Choose template">
+              @for (template of templates(); track template.id) {
+                <mat-button-toggle [value]="template.id">{{ template.label }}</mat-button-toggle>
+              }
+            </mat-button-toggle-group>
           }
-        </mat-button-toggle-group>
-      }
+        </div>
+      </div>
 
       <div class="cv-preview-export__actions">
         <button
@@ -85,7 +100,7 @@ const DEFAULT_EXPORT_FILENAME = 'lebenslauf.pdf';
           } @else {
             <mat-icon>visibility</mat-icon>
           }
-          Vorschau
+          Preview
         </button>
         <button
           mat-stroked-button
@@ -98,7 +113,7 @@ const DEFAULT_EXPORT_FILENAME = 'lebenslauf.pdf';
           } @else {
             <mat-icon>download</mat-icon>
           }
-          Als PDF exportieren
+          Export as PDF
         </button>
       </div>
 
@@ -134,6 +149,23 @@ const DEFAULT_EXPORT_FILENAME = 'lebenslauf.pdf';
         }
       }
 
+      &__picker-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+      }
+
+      &__control {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      &__control-label {
+        font-size: 0.8125rem;
+        color: rgba(0, 0, 0, 0.6);
+      }
+
       &__actions {
         display: flex;
         gap: 12px;
@@ -165,6 +197,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
   private readonly sanitizer = inject(DomSanitizer);
 
   @Input({ required: true }) summaryControl!: FormControl<string>;
+  @Input({ required: true }) berufsbezeichnungControl!: FormControl<string>;
   @Input({ required: true }) experiencesArray!: FormArray<FormGroup>;
   @Input({ required: true }) educationArray!: FormArray<FormGroup>;
   @Input({ required: true }) skillsArray!: FormArray<FormGroup>;
@@ -195,7 +228,12 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
   }
 
   protected canRender(): boolean {
-    return !!this.templateIdControl.value;
+    return !this.templatesError() && this.isKnownTemplate(this.templateIdControl.value);
+  }
+
+  /** KTD10: nur eine tatsächlich geladene Vorlage ist renderbar. */
+  private isKnownTemplate(id: string | null): boolean {
+    return id !== null && this.templates().some((template) => template.id === id);
   }
 
   loadTemplates(): void {
@@ -205,14 +243,16 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
       next: (templates) => {
         this.templatesLoading.set(false);
         this.templates.set(templates);
-        // KTD8: keine Vorlage gewählt (frisches Profil) -> erste verfügbare vorbelegen.
-        if (!this.templateIdControl.value && templates.length > 0) {
+        // KTD10: gespeicherte Vorlage auf eine bekannte ID normalisieren - die
+        // erste verfügbare vorbelegen, wenn keine (oder eine unbekannte, z. B.
+        // das entfernte `modern`) gewählt war.
+        if (!this.isKnownTemplate(this.templateIdControl.value) && templates.length > 0) {
           this.templateIdControl.setValue(templates[0].id);
         }
       },
       error: () => {
         this.templatesLoading.set(false);
-        this.templatesError.set('Vorlagen konnten nicht geladen werden.');
+        this.templatesError.set('Templates could not be loaded.');
       },
     });
   }
@@ -232,7 +272,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
         const blob = response.body;
         if (!blob) {
           this.previewUrl.set(null);
-          this.previewError.set('Vorschau konnte nicht geladen werden.');
+          this.previewError.set('The preview could not be loaded.');
           return;
         }
         const objectUrl = URL.createObjectURL(blob);
@@ -259,12 +299,9 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
     this.profileService.exportCv(payload).subscribe({
       next: (response) => {
         this.exporting.set(false);
-        const blob = response.body;
-        if (!blob) {
-          this.exportError.set('Export fehlgeschlagen. Bitte erneut versuchen.');
-          return;
+        if (!downloadBlobResponse(response, DEFAULT_EXPORT_FILENAME)) {
+          this.exportError.set('Export failed. Please try again.');
         }
-        this.triggerDownload(blob, this.resolveFilename(response.headers.get('Content-Disposition')));
       },
       error: (error: HttpErrorResponse) => {
         this.exporting.set(false);
@@ -282,6 +319,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
     return {
       template_id: templateId,
       summary: this.summaryControl.value,
+      berufsbezeichnung: this.berufsbezeichnungControl.value,
       experiences_json: this.experiencesArray.getRawValue() as ExperienceEntry[],
       education_json: this.educationArray.getRawValue() as EducationEntry[],
       skills_json: this.skillsArray.getRawValue() as SkillEntry[],
@@ -290,33 +328,16 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
     };
   }
 
-  private triggerDownload(blob: Blob, filename: string): void {
-    const objectUrl = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = objectUrl;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(objectUrl);
-  }
-
-  private resolveFilename(contentDisposition: string | null): string {
-    if (!contentDisposition) {
-      return DEFAULT_EXPORT_FILENAME;
-    }
-    const match = /filename="?([^";]+)"?/.exec(contentDisposition);
-    return match?.[1] ?? DEFAULT_EXPORT_FILENAME;
-  }
-
   private resolveErrorMessage(error: HttpErrorResponse): string {
     switch (error.status) {
       case 404:
-        return 'Es wurde noch kein Profil angelegt.';
+        return 'No profile has been created yet.';
       case 422:
-        return 'Die gewählte Vorlage ist ungültig.';
+        return 'The selected template is invalid.';
       case 500:
-        return 'Der Lebenslauf konnte nicht als PDF erzeugt werden.';
+        return 'The CV could not be generated as a PDF.';
       default:
-        return 'Etwas ist schiefgelaufen. Bitte erneut versuchen.';
+        return 'Something went wrong. Please try again.';
     }
   }
 

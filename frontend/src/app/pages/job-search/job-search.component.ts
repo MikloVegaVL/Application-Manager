@@ -59,6 +59,21 @@ export class JobSearchComponent {
     this.sourceStatuses().filter((source) => source.status === 'unavailable'),
   );
 
+  /** Aktuell als Filter gewählte Quellen-Plattformen; leer = alle Treffer anzeigen. */
+  protected readonly selectedSources = signal<string[]>([]);
+
+  protected readonly hasActiveSourceFilter = computed(() => this.selectedSources().length > 0);
+
+  /** Auf die gewählten Quellen reduzierte Trefferliste (rein clientseitig,
+   * `results` bleibt vollständig - vgl. den Status-Filter der Bewerbungen). */
+  protected readonly filteredResults = computed(() => {
+    const selected = this.selectedSources();
+    if (selected.length === 0) {
+      return this.results();
+    }
+    return this.results().filter((job) => selected.includes(job.source_platform));
+  });
+
   /** True, wenn jede abgefragte Quelle in der letzten Suche unavailable war -
    * dann ist eine leere Ergebnisliste kein "falscher Suchbegriff", sondern
    * ein Erreichbarkeitsproblem (siehe Design-Review zu U7). */
@@ -70,6 +85,14 @@ export class JobSearchComponent {
     arbeitsagentur: 'Arbeitsagentur',
     linkedin: 'LinkedIn',
     xing: 'Xing',
+    adzuna: 'Adzuna',
+    jooble: 'Jooble',
+    devjobs: 'DEVjobs.de',
+    kimeta: 'Kimeta',
+    stepstone: 'Stepstone',
+    germantechjobs: 'GermanTechJobs',
+    indeed: 'Indeed',
+    programmiererjobboerse: 'Programmiererjobboerse.de',
   };
 
   private readonly savedJobIds = this.state.savedJobIds;
@@ -91,6 +114,8 @@ export class JobSearchComponent {
     // "LinkedIn nicht verfügbar" von der letzten Suche angezeigt werden,
     // während die neue Suche noch läuft.
     this.sourceStatuses.set([]);
+    // Ein Quellen-Filter der letzten Suche passt nicht zu den neuen Quellen.
+    this.selectedSources.set([]);
     this.hasSearched.set(true);
 
     this.jobService.searchJobs(keywords.trim(), location.trim() || undefined).subscribe({
@@ -104,7 +129,7 @@ export class JobSearchComponent {
         this.results.set([]);
         this.sourceStatuses.set([]);
         this.loading.set(false);
-        this.errorMessage.set('Die Jobsuche ist fehlgeschlagen. Bitte versuche es später erneut.');
+        this.errorMessage.set('The job search failed. Please try again later.');
       },
     });
   }
@@ -113,7 +138,18 @@ export class JobSearchComponent {
    * schaffen - lässt Suchbegriff/Ort im Formular unangetastet, damit man
    * dieselbe Suche leicht abwandeln kann. */
   onClearResults(): void {
+    this.selectedSources.set([]);
     this.state.clearResults();
+  }
+
+  /** Übernimmt die im Quellen-Chip-Listbox gewählten Plattformen
+   * (Mehrfachauswahl; leere Auswahl = alle Treffer). */
+  onSourceFilterChange(selected: string[] | string | null): void {
+    this.selectedSources.set(Array.isArray(selected) ? selected : selected ? [selected] : []);
+  }
+
+  clearSourceFilter(): void {
+    this.selectedSources.set([]);
   }
 
   /** Menschenlesbares Label für einen Quellen-Platform-Key (z. B. "linkedin" -> "LinkedIn"). */
@@ -143,7 +179,7 @@ export class JobSearchComponent {
       next: (saved) => {
         this.state.cacheSavedJob(job.source_url, saved.id);
         this.savingSourceUrl.set(null);
-        this.snackBar.open(`"${job.title}" wurde gespeichert.`, 'OK', { duration: 3000 });
+        this.snackBar.open(`"${job.title}" was saved.`, 'OK', { duration: 3000 });
       },
       error: (error: HttpErrorResponse) => {
         this.savingSourceUrl.set(null);
@@ -153,10 +189,10 @@ export class JobSearchComponent {
           // siehe JobSearchStateService) - Cache nachziehen statt nur zu
           // melden, sonst bliebe der Button dauerhaft im "speichern"-Zustand.
           this.state.cacheSavedJob(job.source_url, conflictId);
-          this.snackBar.open('Dieser Job wurde bereits gespeichert.', 'OK', { duration: 3000 });
+          this.snackBar.open('This job has already been saved.', 'OK', { duration: 3000 });
           return;
         }
-        this.snackBar.open('Job konnte nicht gespeichert werden.', 'OK', { duration: 3000 });
+        this.snackBar.open('The job could not be saved.', 'OK', { duration: 3000 });
       },
     });
   }
@@ -191,7 +227,7 @@ export class JobSearchComponent {
           this.navigateToEditor(conflictId);
           return;
         }
-        this.snackBar.open('Bewerbung konnte nicht gestartet werden.', 'OK', { duration: 4000 });
+        this.snackBar.open('The application could not be started.', 'OK', { duration: 4000 });
       },
     });
   }

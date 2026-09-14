@@ -48,7 +48,8 @@ export class ProfileService {
    * Lädt eine Lebenslauf-PDF hoch und lässt sie serverseitig per KI in eine
    * reine Vorschau strukturieren (`POST /cv-builder/parse`, R5/R6). Schreibt
    * NICHTS in die Datenbank - das Ergebnis befüllt im CV-Builder-Formular
-   * nur die Formularfelder, bis der Nutzer explizit speichert (KTD1).
+   * nur die Formularfelder, bis der Nutzer explizit speichert (KTD1). Die
+   * KI gibt die extrahierten Textwerte immer auf Englisch aus.
    */
   parseCv(file: File): Observable<CvParseResponse> {
     const formData = new FormData();

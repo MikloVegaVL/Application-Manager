@@ -1,58 +1,77 @@
 <div class="profile-page">
   <header class="profile-page__intro">
-    <h1>Profil</h1>
-    <p>Stammdaten und Dokumente - die Basis für automatisch generierte Bewerbungen. Berufserfahrung, Ausbildung, Skills & Co. pflegst du im <a routerLink="/cv-builder">Lebenslauf-Editor</a>.</p>
+    <h1>Profile</h1>
+    <p>Master data and documents - the basis for automatically generated applications. Maintain your work experience, education, skills and more in the <a routerLink="/cv-builder">CV editor</a>.</p>
   </header>
 
   @if (loading()) {
     <div class="profile-page__loading">
       <mat-progress-spinner mode="indeterminate" diameter="48" />
-      <p>Profil wird geladen ...</p>
+      <p>Loading profile ...</p>
     </div>
   } @else {
     <form [formGroup]="profileForm" (ngSubmit)="onSubmit()">
       <mat-tab-group animationDuration="150ms">
         <!-- Tab 1: Persönliche Daten -->
-        <mat-tab label="Persönliche Daten">
+        <mat-tab label="Personal details">
           <div class="tab-content">
             <div class="form-grid">
               <mat-form-field appearance="outline">
-                <mat-label>Vollständiger Name</mat-label>
+                <mat-label>Full name</mat-label>
                 <input matInput formControlName="full_name" />
                 @if (profileForm.controls['full_name'].hasError('required') && profileForm.controls['full_name'].touched) {
-                  <mat-error>Bitte gib deinen Namen an.</mat-error>
+                  <mat-error>Please enter your name.</mat-error>
                 }
               </mat-form-field>
 
               <mat-form-field appearance="outline">
-                <mat-label>E-Mail</mat-label>
+                <mat-label>Email</mat-label>
                 <input matInput type="email" formControlName="email" />
                 @if (profileForm.controls['email'].hasError('required') && profileForm.controls['email'].touched) {
-                  <mat-error>Bitte gib deine E-Mail-Adresse an.</mat-error>
+                  <mat-error>Please enter your email address.</mat-error>
                 } @else if (profileForm.controls['email'].hasError('email') && profileForm.controls['email'].touched) {
-                  <mat-error>Bitte gib eine gültige E-Mail-Adresse an.</mat-error>
+                  <mat-error>Please enter a valid email address.</mat-error>
                 }
               </mat-form-field>
 
               <mat-form-field appearance="outline">
-                <mat-label>Telefon</mat-label>
+                <mat-label>Phone</mat-label>
                 <input matInput formControlName="phone" />
               </mat-form-field>
 
               <mat-form-field appearance="outline">
-                <mat-label>Adresse</mat-label>
+                <mat-label>Address</mat-label>
                 <input matInput formControlName="address" />
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>LinkedIn</mat-label>
+                <input matInput formControlName="linkedin" placeholder="linkedin.com/in/..." />
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Website</mat-label>
+                <input matInput formControlName="website" placeholder="example.com" />
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Sender email</mat-label>
+                <mat-select formControlName="sender_email">
+                  @for (option of senderEmailOptions; track option) {
+                    <mat-option [value]="option">{{ option }}</mat-option>
+                  }
+                </mat-select>
               </mat-form-field>
             </div>
           </div>
         </mat-tab>
 
         <!-- Tab 2: Lebenslauf-Anhang -->
-        <mat-tab label="Lebenslauf-Anhang">
+        <mat-tab label="CV attachment">
           <div class="tab-content">
             <p class="cv-import__hint">
-              Lade hier deinen Lebenslauf als PDF hoch - diese Datei wird unverändert (keine
-              KI-Analyse) als Anhang verwendet, wenn du eine Bewerbung per E-Mail versendest.
+              Upload your CV as a PDF here - this file is used unchanged (no AI analysis) as an
+              attachment when you send an application by email.
             </p>
 
             @if (cvFilename(); as filename) {
@@ -71,13 +90,13 @@
                   } @else {
                     <mat-icon>delete</mat-icon>
                   }
-                  Entfernen
+                  Remove
                 </button>
               </p>
             } @else {
               <p class="cv-attachment__current cv-attachment__current--empty">
-                Noch keine Lebenslauf-Datei hochgeladen - Bewerbungen können erst versendet werden,
-                sobald eine Datei hochgeladen wurde.
+                No CV file uploaded yet - applications can only be sent once a file has been
+                uploaded.
               </p>
             }
 
@@ -90,7 +109,7 @@
               (click)="cvFileInput.click()"
             >
               <mat-icon>upload_file</mat-icon>
-              <p>PDF hierher ziehen oder klicken zum Auswählen</p>
+              <p>Drag a PDF here or click to select</p>
               @if (selectedCvFile(); as file) {
                 <p class="cv-dropzone__filename">
                   {{ file.name }}
@@ -115,23 +134,23 @@
               } @else {
                 <mat-icon>upload</mat-icon>
               }
-              Lebenslauf-Datei hochladen
+              Upload CV file
             </button>
           </div>
         </mat-tab>
 
         <!-- Tab 3: Weitere Anhänge -->
-        <mat-tab label="Weitere Anhänge">
+        <mat-tab label="Additional attachments">
           <div class="tab-content">
             <p class="cv-import__hint">
-              Lade hier bis zu {{ MAX_ATTACHMENTS }} zusätzliche Dokumente als PDF hoch (z. B.
-              Arbeitszeugnisse, Zertifikate) - sie werden beim Versand einer Bewerbung zusätzlich
-              zum Lebenslauf als weitere E-Mail-Anhänge mitgeschickt.
+              Upload up to {{ MAX_ATTACHMENTS }} additional PDF documents here (e.g. references,
+              certificates) - they are sent as extra email attachments in addition to your CV
+              when you send an application.
             </p>
 
             @if (attachments().length === 0) {
               <p class="cv-attachment__current cv-attachment__current--empty">
-                Noch keine zusätzlichen Anhänge hochgeladen.
+                No additional attachments uploaded yet.
               </p>
             } @else {
               <div class="cv-attachment__list">
@@ -151,7 +170,7 @@
                       } @else {
                         <mat-icon>delete</mat-icon>
                       }
-                      Entfernen
+                      Remove
                     </button>
                   </p>
                 }
@@ -168,7 +187,7 @@
                 (click)="attachmentFileInput.click()"
               >
                 <mat-icon>upload_file</mat-icon>
-                <p>PDF hierher ziehen oder klicken zum Auswählen</p>
+                <p>Drag a PDF here or click to select</p>
                 @if (selectedAttachmentFile(); as file) {
                   <p class="cv-dropzone__filename">
                     {{ file.name }}
@@ -199,11 +218,11 @@
                 } @else {
                   <mat-icon>upload</mat-icon>
                 }
-                Anhang hochladen
+                Upload attachment
               </button>
             } @else {
               <p class="cv-import__hint">
-                Maximale Anzahl erreicht - entferne zuerst einen Anhang, um einen neuen hochzuladen.
+                Maximum reached - remove an attachment first to upload a new one.
               </p>
             }
           </div>
@@ -217,7 +236,7 @@
           } @else {
             <mat-icon>save</mat-icon>
           }
-          Profil speichern
+          Save profile
         </button>
       </div>
     </form>

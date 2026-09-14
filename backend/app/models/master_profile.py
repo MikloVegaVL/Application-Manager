@@ -27,7 +27,19 @@ class MasterProfile(Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Weitere Kontaktkanäle für den CV-Header, identisch behandelt wie
+    # `phone`/`address` (Identitätsfeld, siehe `_IDENTITY_FIELDS`).
+    linkedin: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    website: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Absenderadresse für den E-Mail-Versand (siehe `app.services.mail_service`,
+    # `app.api.applications.send_application`) - wählbar aus einer festen
+    # Auswahl im Profil-Formular (`sayhello@thomastritscher.com`,
+    # `thomas.tritscher@mail.de`), Fallback ist `settings.SMTP_FROM_EMAIL`.
+    sender_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Optionaler Job-Titel, der im CV unter dem Namen erscheint (R5) - im
+    # Builder editierbar und Teil des Inhalts-Payloads, nicht der Identität.
+    berufsbezeichnung: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Strukturierte Listen (z. B. Stationen im Werdegang, Ausbildungen,
     # Skills) werden als JSON abgelegt. Der JSON-Typ von SQLAlchemy

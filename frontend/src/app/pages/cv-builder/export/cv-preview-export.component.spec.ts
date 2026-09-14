@@ -8,7 +8,7 @@ import { CvPreviewExportComponent } from './cv-preview-export.component';
 
 const templatesFixture = [
   { id: 'classic', label: 'Classic' },
-  { id: 'modern', label: 'Modern' },
+  { id: 'template-1', label: 'Template 1' },
 ];
 
 describe('CvPreviewExportComponent', () => {
@@ -18,6 +18,7 @@ describe('CvPreviewExportComponent', () => {
   let formBuilder: FormBuilder;
 
   let summaryControl: FormControl<string>;
+  let berufsbezeichnungControl: FormControl<string>;
   let experiencesArray: FormArray<FormGroup>;
   let educationArray: FormArray<FormGroup>;
   let skillsArray: FormArray<FormGroup>;
@@ -27,6 +28,7 @@ describe('CvPreviewExportComponent', () => {
 
   const setInputs = (): void => {
     fixture.componentRef.setInput('summaryControl', summaryControl);
+    fixture.componentRef.setInput('berufsbezeichnungControl', berufsbezeichnungControl);
     fixture.componentRef.setInput('experiencesArray', experiencesArray);
     fixture.componentRef.setInput('educationArray', educationArray);
     fixture.componentRef.setInput('skillsArray', skillsArray);
@@ -46,6 +48,7 @@ describe('CvPreviewExportComponent', () => {
   const expectedPayload = (overrides: Record<string, unknown> = {}) => ({
     template_id: 'classic',
     summary: '',
+    berufsbezeichnung: '',
     experiences_json: [],
     education_json: [],
     skills_json: [],
@@ -66,6 +69,7 @@ describe('CvPreviewExportComponent', () => {
     formBuilder = TestBed.inject(FormBuilder);
 
     summaryControl = formBuilder.nonNullable.control('');
+    berufsbezeichnungControl = formBuilder.nonNullable.control('');
     experiencesArray = formBuilder.array<FormGroup>([]);
     educationArray = formBuilder.array<FormGroup>([]);
     skillsArray = formBuilder.array<FormGroup>([]);
@@ -89,7 +93,9 @@ describe('CvPreviewExportComponent', () => {
     flushTemplates();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    const toggles = compiled.querySelectorAll('mat-button-toggle');
+    const toggles = compiled.querySelectorAll(
+      'mat-button-toggle-group[aria-label="Choose template"] mat-button-toggle',
+    );
     expect(toggles.length).toBe(2);
 
     // KTD8: no prior selection (null) -> first available template pre-selected.
@@ -99,15 +105,34 @@ describe('CvPreviewExportComponent', () => {
     secondToggleButton.click();
     fixture.detectChanges();
 
-    expect(templateIdControl.value).toBe('modern');
+    expect(templateIdControl.value).toBe('template-1');
   });
 
   it('does not override an already-selected template when templates load', () => {
+    templateIdControl.setValue('template-1');
+    setInputs();
+    flushTemplates();
+
+    expect(templateIdControl.value).toBe('template-1');
+  });
+
+  it('resets an unknown stored template id to the first fetched template (KTD10)', () => {
     templateIdControl.setValue('modern');
     setInputs();
     flushTemplates();
 
-    expect(templateIdControl.value).toBe('modern');
+    expect(templateIdControl.value).toBe('classic');
+  });
+
+  it('disables rendering while the template load is in error (KTD10)', () => {
+    templateIdControl.setValue('classic');
+    setInputs();
+    httpMock
+      .expectOne((r) => r.url.endsWith('/cv-builder/templates') && r.method === 'GET')
+      .flush({ detail: 'boom' }, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(component['canRender']()).toBeFalse();
   });
 
   it('shows an error with a retry action when templates fail to load', () => {
@@ -118,7 +143,7 @@ describe('CvPreviewExportComponent', () => {
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).toContain('Vorlagen konnten nicht geladen werden.');
+    expect(compiled.textContent).toContain('Templates could not be loaded.');
 
     const retryButton = compiled.querySelector('.cv-preview-export__error button') as HTMLButtonElement;
     retryButton.click();
@@ -126,7 +151,9 @@ describe('CvPreviewExportComponent', () => {
     retryReq.flush(templatesFixture);
     fixture.detectChanges();
 
-    expect(compiled.querySelectorAll('mat-button-toggle').length).toBe(2);
+    expect(
+      compiled.querySelectorAll('mat-button-toggle-group[aria-label="Choose template"] mat-button-toggle').length,
+    ).toBe(2);
   });
 
   it('preview sends the current form content, shows a loading indicator while pending, and displays the PDF on success', () => {
@@ -156,6 +183,23 @@ describe('CvPreviewExportComponent', () => {
     expect(embed?.getAttribute('src')).toMatch(/^blob:/);
   });
 
+  it('preview sends the live Berufsbezeichnung value (R5)', () => {
+    berufsbezeichnungControl.setValue('Frontend Developer');
+    setInputs();
+    flushTemplates();
+
+    const previewButton = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      '.cv-preview-export__actions button',
+    )[0] as HTMLButtonElement;
+    previewButton.click();
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/preview') && r.method === 'POST');
+    expect(req.request.body.berufsbezeichnung).toBe('Frontend Developer');
+
+    req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+    fixture.detectChanges();
+  });
+
   it('shows an error message (not a stale preview) when the preview request fails with 404/422/500', () => {
     setInputs();
     flushTemplates();
@@ -177,9 +221,9 @@ describe('CvPreviewExportComponent', () => {
       .flush(new Blob(), { status: 404, statusText: 'Not Found' });
     fixture.detectChanges();
 
-    expect(component['previewError']()).toBe('Es wurde noch kein Profil angelegt.');
+    expect(component['previewError']()).toBe('No profile has been created yet.');
     expect(compiled.querySelector('embed')).toBeFalsy();
-    expect(compiled.textContent).toContain('Es wurde noch kein Profil angelegt.');
+    expect(compiled.textContent).toContain('No profile has been created yet.');
   });
 
   it('shows a 422-specific error message for an invalid template', () => {
@@ -194,7 +238,7 @@ describe('CvPreviewExportComponent', () => {
       .flush(new Blob(), { status: 422, statusText: 'Unprocessable Entity' });
     fixture.detectChanges();
 
-    expect(component['previewError']()).toBe('Die gewählte Vorlage ist ungültig.');
+    expect(component['previewError']()).toBe('The selected template is invalid.');
   });
 
   it('shows a 500-specific error message when rendering fails', () => {
@@ -209,7 +253,7 @@ describe('CvPreviewExportComponent', () => {
       .flush(new Blob(), { status: 500, statusText: 'Server Error' });
     fixture.detectChanges();
 
-    expect(component['previewError']()).toBe('Der Lebenslauf konnte nicht als PDF erzeugt werden.');
+    expect(component['previewError']()).toBe('The CV could not be generated as a PDF.');
   });
 
   it('export sends the same body and triggers a browser download using the Content-Disposition filename', () => {
@@ -259,7 +303,7 @@ describe('CvPreviewExportComponent', () => {
       .flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
     fixture.detectChanges();
 
-    expect(downloadedFilename).toBe('lebenslauf.pdf');
+    expect(downloadedFilename).toBe('resume.pdf');
   });
 
   it('shows an error message when export fails', () => {
@@ -274,8 +318,8 @@ describe('CvPreviewExportComponent', () => {
       .flush(new Blob(), { status: 500, statusText: 'Server Error' });
     fixture.detectChanges();
 
-    expect(component['exportError']()).toBe('Der Lebenslauf konnte nicht als PDF erzeugt werden.');
-    expect(compiled.textContent).toContain('Der Lebenslauf konnte nicht als PDF erzeugt werden.');
+    expect(component['exportError']()).toBe('The CV could not be generated as a PDF.');
+    expect(compiled.textContent).toContain('The CV could not be generated as a PDF.');
   });
 
   it('KTD11: preview/export body reflects an unsaved edit made after the last save, not the saved profile', () => {
@@ -293,4 +337,17 @@ describe('CvPreviewExportComponent', () => {
     expect(req.request.body.summary).toBe('Unsaved summary edit');
     req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
   });
+
+  it('has no document-language control (R1)', () => {
+    setInputs();
+    flushTemplates();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    // Only the template picker remains - a language toggle group would make
+    // this two.
+    const toggleGroups = compiled.querySelectorAll('mat-button-toggle-group');
+    expect(toggleGroups.length).toBe(1);
+    expect(toggleGroups[0].getAttribute('aria-label')).toBe('Choose template');
+  });
+
 });

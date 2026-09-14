@@ -13,6 +13,7 @@ import {
   createExperienceGroup,
   createProjectGroup,
   createSkillGroup,
+  replaceArray,
 } from '../cv-section-forms.util';
 import { sectionsEqual } from '../cv-section-diff.util';
 
@@ -26,19 +27,21 @@ type ImportSectionKey = 'experiences_json' | 'education_json' | 'skills_json' | 
 
 interface ImportSectionConflict {
   key: ImportSectionKey;
-  label: string;
 }
 
+/**
+ * R3/KTD5: Anzeige-Labels für die vier Konflikt-Sektionen - die
+ * gespeicherten Sektionsschlüssel (`ImportSectionKey`) bleiben unverändert.
+ */
 const SECTION_LABELS: Record<ImportSectionKey, string> = {
-  experiences_json: 'Berufserfahrung',
-  education_json: 'Ausbildung',
+  experiences_json: 'Work experience',
+  education_json: 'Education',
   skills_json: 'Skills',
-  projects_json: 'Projekte',
+  projects_json: 'Projects',
 };
 
 /** KTD5: Default-Kompetenzgrad für aus dem CV-Import übernommene Skills - die
- * KI liefert nur Namen (`ParsedCvProfile.skills: string[]`), nie einen
- * Kompetenzgrad (R7, bewusst dem Nutzer überlassen). */
+ * KI liefert keinen Kompetenzgrad (R7, bewusst dem Nutzer überlassen). */
 const IMPORTED_SKILL_LEVEL: SkillEntry['level'] = 'Grundkenntnisse';
 
 /**
@@ -61,11 +64,11 @@ const IMPORTED_SKILL_LEVEL: SkillEntry['level'] = 'Grundkenntnisse';
   imports: [MatButtonModule, MatIconModule, MatProgressSpinnerModule],
   template: `
     <section class="cv-import">
-      <h3>Lebenslauf importieren</h3>
+      <h3>Import CV</h3>
       <p>
-        Lade eine Lebenslauf-PDF hoch, um Zusammenfassung, Berufserfahrung, Ausbildung, Skills und
-        Projekte automatisch vorzubefüllen. Foto und Sprachen werden dabei nicht verändert - Name-
-        und Kontaktdaten dienen nur zur Kontrolle und werden nicht übernommen.
+        Upload a CV PDF to automatically prefill summary, work experience, education, skills and
+        projects. Photo and languages are not changed - name and contact details are shown for
+        reference only and are not applied.
       </p>
 
       <div
@@ -78,10 +81,10 @@ const IMPORTED_SKILL_LEVEL: SkillEntry['level'] = 'Grundkenntnisse';
       >
         @if (uploading()) {
           <mat-progress-spinner mode="indeterminate" diameter="32" />
-          <p>Lebenslauf wird analysiert ...</p>
+          <p>Analyzing CV ...</p>
         } @else {
           <mat-icon>upload_file</mat-icon>
-          <p>Lebenslauf-PDF hierher ziehen oder klicken zum Auswählen</p>
+          <p>Drag a CV PDF here or click to select</p>
         }
       </div>
       <input #fileInput type="file" accept="application/pdf" hidden (change)="onFileSelected($event)" />
@@ -89,20 +92,20 @@ const IMPORTED_SKILL_LEVEL: SkillEntry['level'] = 'Grundkenntnisse';
       @if (errorMessage(); as message) {
         <div class="cv-import__error">
           <p>{{ message }}</p>
-          <button mat-stroked-button type="button" (click)="retry()">Erneut versuchen</button>
+          <button mat-stroked-button type="button" (click)="retry()">Try again</button>
         </div>
       }
 
       @if (conflicts().length > 0) {
         <div class="cv-import__conflict">
           <p>
-            Diese Bereiche enthalten noch nicht gespeicherte Änderungen und werden beim Übernehmen
-            des neuen Imports ersetzt: {{ conflictLabels() }}.
+            These sections contain unsaved changes and will be replaced when you apply the new
+            import: {{ conflictLabels() }}.
           </p>
           <div class="cv-import__conflict-actions">
-            <button mat-stroked-button type="button" (click)="cancelReplace()">Abbrechen</button>
+            <button mat-stroked-button type="button" (click)="cancelReplace()">Cancel</button>
             <button mat-flat-button color="primary" type="button" (click)="confirmReplace()">
-              Übernehmen
+              Apply
             </button>
           </div>
         </div>
@@ -110,15 +113,15 @@ const IMPORTED_SKILL_LEVEL: SkillEntry['level'] = 'Grundkenntnisse';
 
       @if (parsedResult(); as parsed) {
         <div class="cv-import__identity">
-          <h4>Erkannte Kontaktdaten (nur zur Anzeige, wird nicht gespeichert)</h4>
+          <h4>Detected contact details (display only, not saved)</h4>
           <dl>
             <dt>Name</dt>
             <dd>{{ parsed.full_name || '—' }}</dd>
-            <dt>E-Mail</dt>
+            <dt>Email</dt>
             <dd>{{ parsed.email || '—' }}</dd>
-            <dt>Telefon</dt>
+            <dt>Phone</dt>
             <dd>{{ parsed.phone || '—' }}</dd>
-            <dt>Adresse</dt>
+            <dt>Address</dt>
             <dd>{{ parsed.address || '—' }}</dd>
           </dl>
         </div>
@@ -299,13 +302,13 @@ export class CvImportComponent {
 
   protected conflictLabels(): string {
     return this.conflicts()
-      .map((conflict) => conflict.label)
+      .map((conflict) => SECTION_LABELS[conflict.key])
       .join(', ');
   }
 
   private startUpload(file: File): void {
     if (file.type && file.type !== 'application/pdf') {
-      this.errorMessage.set('Bitte eine PDF-Datei auswählen.');
+      this.errorMessage.set('Please select a PDF file.');
       return;
     }
 
@@ -334,7 +337,7 @@ export class CvImportComponent {
     const allKeys: ImportSectionKey[] = ['experiences_json', 'education_json', 'skills_json', 'projects_json'];
     const conflicts = allKeys
       .filter((key) => !sectionsEqual(this.currentSectionValue(key), this.savedSectionValue(key)))
-      .map((key) => ({ key, label: SECTION_LABELS[key] }));
+      .map((key) => ({ key }));
 
     if (conflicts.length === 0) {
       this.applySections(parsed, allKeys);
@@ -349,27 +352,21 @@ export class CvImportComponent {
 
   private applySections(parsed: ParsedCvProfile, keys: ImportSectionKey[]): void {
     if (keys.includes('experiences_json')) {
-      this.replaceArray(this.experiencesArray, parsed.experiences, (entry) =>
-        createExperienceGroup(this.formBuilder, entry),
-      );
+      replaceArray(this.experiencesArray, parsed.experiences, (entry) => createExperienceGroup(this.formBuilder, entry));
     }
     if (keys.includes('education_json')) {
-      this.replaceArray(this.educationArray, parsed.education, (entry) =>
-        createEducationGroup(this.formBuilder, entry),
-      );
+      replaceArray(this.educationArray, parsed.education, (entry) => createEducationGroup(this.formBuilder, entry));
     }
     if (keys.includes('skills_json')) {
-      const skillEntries: SkillEntry[] = parsed.skills.map((name) => ({ name, level: IMPORTED_SKILL_LEVEL }));
-      this.replaceArray(this.skillsArray, skillEntries, (entry) => createSkillGroup(this.formBuilder, entry));
+      const skillEntries: SkillEntry[] = parsed.skills.map((skill) => ({
+        name: skill.name,
+        level: IMPORTED_SKILL_LEVEL,
+      }));
+      replaceArray(this.skillsArray, skillEntries, (entry) => createSkillGroup(this.formBuilder, entry));
     }
     if (keys.includes('projects_json')) {
-      this.replaceArray(this.projectsArray, parsed.projects, (entry) => createProjectGroup(this.formBuilder, entry));
+      replaceArray(this.projectsArray, parsed.projects, (entry) => createProjectGroup(this.formBuilder, entry));
     }
-  }
-
-  private replaceArray<T>(array: FormArray<FormGroup>, entries: T[], factory: (entry: T) => FormGroup): void {
-    array.clear();
-    entries.forEach((entry) => array.push(factory(entry)));
   }
 
   private currentSectionValue(key: ImportSectionKey): unknown {
@@ -394,9 +391,9 @@ export class CvImportComponent {
     if (error.status === 502) {
       return (
         detail ??
-        'Der Lebenslauf konnte nicht automatisch analysiert werden (KI-Dienst nicht erreichbar). Bitte später erneut versuchen.'
+        'The CV could not be analyzed automatically (AI service unreachable). Please try again later.'
       );
     }
-    return detail ?? 'Der Import ist fehlgeschlagen. Bitte die Datei prüfen und erneut versuchen.';
+    return detail ?? 'The import failed. Please check the file and try again.';
   }
 }

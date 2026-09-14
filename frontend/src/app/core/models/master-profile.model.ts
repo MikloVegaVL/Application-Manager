@@ -14,6 +14,7 @@ export interface EducationEntry {
   field_of_study: string | null;
   start_date: string | null;
   end_date: string | null;
+  description: string | null;
 }
 
 /**
@@ -46,11 +47,23 @@ export interface LanguageEntry {
 /** Entspricht `ProjectEntry`: ein Projekt im CV-Builder. */
 export interface ProjectEntry {
   title: string;
+  role: string | null;
   description: string;
   start_date: string | null;
   end_date: string | null;
   link: string | null;
 }
+
+/**
+ * Auswahl der Absenderadressen fürs `sender_email`-Select (Default: erster
+ * Eintrag) - auch von `sent-emails.component.ts` als Filter-Optionen
+ * wiederverwendet, daher hier statt in `profile.component.ts` (core statt
+ * page-zu-page-Import).
+ */
+export const SENDER_EMAIL_OPTIONS: readonly string[] = [
+  'sayhello@thomastritscher.com',
+  'thomas.tritscher@mail.de',
+];
 
 /** Entspricht `MasterProfileCreate` - Payload für `PUT /api/profile` (Upsert). */
 export interface MasterProfile {
@@ -58,7 +71,11 @@ export interface MasterProfile {
   email: string;
   phone: string | null;
   address: string | null;
+  linkedin: string | null;
+  website: string | null;
+  sender_email: string | null;
   summary: string | null;
+  berufsbezeichnung: string | null;
   experiences_json: ExperienceEntry[];
   education_json: EducationEntry[];
   skills_json: SkillEntry[];
@@ -91,12 +108,20 @@ export interface MasterProfileRead extends MasterProfile {
 }
 
 /**
+ * Entspricht `ParsedSkill` im Backend: ein per KI aus dem CV extrahierter
+ * Skill. Die KI leitet keinen Kompetenzgrad ab (R7) - das Frontend ergänzt
+ * beim Übernehmen einen Default.
+ */
+export interface ParsedSkill {
+  name: string;
+}
+
+/**
  * Entspricht `ParsedCvProfile`: Ergebnis von `POST /cv-builder/parse`.
  * `full_name`/`email`/`phone`/`address` sind reine Anzeigefelder für den
  * CV-Builder-Import (KTD1) - werden im Formular nur read-only dargestellt
- * und NIE in den Save-Payload (`PATCH /profile`) übernommen. `skills` sind
- * bewusst reine Strings (kein `SkillEntry[]`): die KI leitet keinen
- * Kompetenzgrad ab (R7), das Frontend ergänzt beim Übernehmen einen
+ * und NIE in den Save-Payload (`PATCH /profile`) übernommen. `skills` tragen
+ * keinen Kompetenzgrad (R7), das Frontend ergänzt beim Übernehmen einen
  * Default-Level.
  */
 export interface ParsedCvProfile {
@@ -107,7 +132,7 @@ export interface ParsedCvProfile {
   summary: string | null;
   experiences: ExperienceEntry[];
   education: EducationEntry[];
-  skills: string[];
+  skills: ParsedSkill[];
   projects: ProjectEntry[];
 }
 
@@ -131,6 +156,7 @@ export interface CvParseResponse {
  */
 export interface ProfileContentUpdate {
   summary?: string | null;
+  berufsbezeichnung?: string | null;
   experiences_json?: ExperienceEntry[];
   education_json?: EducationEntry[];
   skills_json?: SkillEntry[];
@@ -156,6 +182,7 @@ export interface CvTemplate {
 export interface CvRenderPayload {
   template_id: string;
   summary: string | null;
+  berufsbezeichnung: string | null;
   experiences_json: ExperienceEntry[];
   education_json: EducationEntry[];
   skills_json: SkillEntry[];

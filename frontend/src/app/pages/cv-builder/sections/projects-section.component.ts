@@ -30,23 +30,27 @@ import { createProjectGroup } from '../cv-section-forms.util';
   template: `
     <section class="form-array-section">
       <div class="form-array-section__header">
-        <h3>Projekte</h3>
+        <h3>Projects</h3>
         <button mat-stroked-button type="button" (click)="add()">
           <mat-icon>add</mat-icon>
-          Projekt hinzufügen
+          Add project
         </button>
       </div>
 
       @if (formArray.length === 0) {
-        <p class="form-array-section__empty">Noch keine Projekte erfasst.</p>
+        <p class="form-array-section__empty">No projects added yet.</p>
       }
 
       @for (group of formArray.controls; track $index) {
         <mat-card class="entry-card" appearance="outlined" [formGroup]="group">
           <mat-card-content class="entry-card__grid">
             <mat-form-field appearance="outline">
-              <mat-label>Titel</mat-label>
+              <mat-label>Title</mat-label>
               <input matInput formControlName="title" />
+            </mat-form-field>
+            <mat-form-field appearance="outline">
+              <mat-label>Role</mat-label>
+              <input matInput formControlName="role" placeholder="optional" />
             </mat-form-field>
             <mat-form-field appearance="outline">
               <mat-label>Link</mat-label>
@@ -54,21 +58,21 @@ import { createProjectGroup } from '../cv-section-forms.util';
             </mat-form-field>
             <mat-form-field appearance="outline">
               <mat-label>Start</mat-label>
-              <input matInput formControlName="start_date" placeholder="z. B. 2022" />
+              <input matInput formControlName="start_date" placeholder="e.g. 2022" />
             </mat-form-field>
             <mat-form-field appearance="outline">
-              <mat-label>Ende</mat-label>
-              <input matInput formControlName="end_date" placeholder="leer = aktuell" />
+              <mat-label>End</mat-label>
+              <input matInput formControlName="end_date" placeholder="empty = current" />
             </mat-form-field>
             <mat-form-field appearance="outline" class="entry-card__description">
-              <mat-label>Beschreibung</mat-label>
+              <mat-label>Description</mat-label>
               <textarea matInput formControlName="description" rows="2"></textarea>
             </mat-form-field>
           </mat-card-content>
           <mat-card-actions align="end">
             <button mat-button color="warn" type="button" (click)="remove($index)">
               <mat-icon>delete</mat-icon>
-              Entfernen
+              Remove
             </button>
           </mat-card-actions>
         </mat-card>

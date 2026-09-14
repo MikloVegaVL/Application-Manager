@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, HostListener, OnInit, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  HostListener,
+  OnInit,
+  inject,
+  signal,
+} from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormArray, FormBuilder, FormControl, FormGroup } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -24,6 +31,8 @@ import {
   createLanguageGroup,
   createProjectGroup,
   createSkillGroup,
+  normalizeProfileSections,
+  replaceArray,
 } from './cv-section-forms.util';
 import { sectionsEqual } from './cv-section-diff.util';
 import { CvPreviewExportComponent } from './export/cv-preview-export.component';
@@ -87,64 +96,73 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
   template: `
     <div class="cv-builder-page">
       <header class="cv-builder-page__intro">
-        <h1>Lebenslauf</h1>
-        <p>Inhalte für deinen Lebenslauf pflegen, per KI importieren und als Vorlage exportieren.</p>
+        <h1>CV Builder</h1>
+        <p>Maintain your CV content, import it with AI, and export it as a template.</p>
       </header>
 
       @switch (state()) {
         @case ('loading') {
           <div class="cv-builder-page__loading">
             <mat-progress-spinner mode="indeterminate" diameter="48" />
-            <p>Profil wird geladen ...</p>
+            <p>Loading profile ...</p>
           </div>
         }
         @case ('empty') {
           <div class="cv-builder-page__empty">
             <mat-icon>info</mat-icon>
-            <p>Es wurde noch kein Profil angelegt. Bitte lege zuerst dein Profil an, bevor du den Lebenslauf bearbeitest.</p>
-            <a mat-flat-button color="primary" routerLink="/profile">Zum Profil</a>
+            <p>No profile has been created yet. Please create your profile first before editing your CV.</p>
+            <a mat-flat-button color="primary" routerLink="/profile">Go to profile</a>
           </div>
         }
         @case ('error') {
           <div class="cv-builder-page__error">
             <mat-icon>error_outline</mat-icon>
-            <p>Profil konnte nicht geladen werden.</p>
+            <p>The profile could not be loaded.</p>
             <button
               mat-stroked-button
               type="button"
               class="cv-builder-page__retry"
               (click)="retry()"
             >
-              Erneut versuchen
+              Try again
             </button>
           </div>
         }
         @case ('ready') {
           <div class="cv-builder-page__save-bar">
-            <button mat-flat-button color="primary" type="button" [disabled]="saving()" (click)="save()">
+            <button
+              mat-flat-button
+              color="primary"
+              type="button"
+              [disabled]="saving()"
+              (click)="save()"
+            >
               @if (saving()) {
                 <mat-progress-spinner mode="indeterminate" diameter="18" />
               } @else {
                 <mat-icon>save</mat-icon>
               }
-              Speichern
+              Save
             </button>
             @if (saveError(); as message) {
               <p class="cv-builder-page__save-error">{{ message }}</p>
             }
           </div>
           <mat-tab-group animationDuration="150ms">
-            <mat-tab label="Zusammenfassung">
+            <mat-tab label="Summary">
               <div class="tab-content">
-                <app-summary-section [control]="summaryControl" />
+                <app-summary-section
+                  [control]="summaryControl"
+                  [berufsbezeichnungControl]="berufsbezeichnungControl"
+                />
               </div>
             </mat-tab>
-            <mat-tab label="Berufserfahrung">
+            <mat-tab label="Work experience">
               <div class="tab-content">
                 <app-experience-section [formArray]="experiencesArray" />
               </div>
             </mat-tab>
-            <mat-tab label="Ausbildung">
+            <mat-tab label="Education">
               <div class="tab-content">
                 <app-education-section [formArray]="educationArray" />
               </div>
@@ -154,17 +172,17 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
                 <app-skills-section [formArray]="skillsArray" />
               </div>
             </mat-tab>
-            <mat-tab label="Sprachen">
+            <mat-tab label="Languages">
               <div class="tab-content">
                 <app-languages-section [formArray]="languagesArray" />
               </div>
             </mat-tab>
-            <mat-tab label="Projekte">
+            <mat-tab label="Projects">
               <div class="tab-content">
                 <app-projects-section [formArray]="projectsArray" />
               </div>
             </mat-tab>
-            <mat-tab label="Foto">
+            <mat-tab label="Photo">
               <div class="tab-content">
                 <app-photo-section />
               </div>
@@ -181,10 +199,11 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
                 />
               </div>
             </mat-tab>
-            <mat-tab label="Vorschau & Export">
+            <mat-tab label="Preview & export">
               <div class="tab-content">
                 <app-cv-preview-export
                   [summaryControl]="summaryControl"
+                  [berufsbezeichnungControl]="berufsbezeichnungControl"
                   [experiencesArray]="experiencesArray"
                   [educationArray]="educationArray"
                   [skillsArray]="skillsArray"
@@ -267,6 +286,8 @@ export class CvBuilderComponent implements OnInit {
   protected readonly lastSavedProfile = signal<MasterProfileRead | null>(null);
 
   protected readonly summaryControl: FormControl<string> = this.formBuilder.nonNullable.control('');
+  /** R5: optionaler Job-Titel, im CV unter dem Namen; Inhalt (kein Identitätsfeld). */
+  protected readonly berufsbezeichnungControl: FormControl<string> = this.formBuilder.nonNullable.control('');
   protected readonly experiencesArray: FormArray<FormGroup> = this.formBuilder.array<FormGroup>([]);
   protected readonly educationArray: FormArray<FormGroup> = this.formBuilder.array<FormGroup>([]);
   protected readonly skillsArray: FormArray<FormGroup> = this.formBuilder.array<FormGroup>([]);
@@ -301,6 +322,7 @@ export class CvBuilderComponent implements OnInit {
 
     const payload: ProfileContentUpdate = {
       summary: this.summaryControl.value,
+      berufsbezeichnung: this.berufsbezeichnungControl.value,
       experiences_json: this.experiencesArray.getRawValue() as ExperienceEntry[],
       education_json: this.educationArray.getRawValue() as EducationEntry[],
       skills_json: this.skillsArray.getRawValue() as SkillEntry[],
@@ -312,11 +334,11 @@ export class CvBuilderComponent implements OnInit {
     this.profileService.patchProfile(payload).subscribe({
       next: (profile) => {
         this.saving.set(false);
-        this.lastSavedProfile.set(profile);
+        this.lastSavedProfile.set(normalizeProfileSections(profile));
       },
       error: () => {
         this.saving.set(false);
-        this.saveError.set('Speichern fehlgeschlagen. Bitte erneut versuchen.');
+        this.saveError.set('Saving failed. Please try again.');
       },
     });
   }
@@ -333,6 +355,7 @@ export class CvBuilderComponent implements OnInit {
 
     return (
       !sectionsEqual(this.summaryControl.value, saved.summary) ||
+      !sectionsEqual(this.berufsbezeichnungControl.value, saved.berufsbezeichnung) ||
       !sectionsEqual(this.experiencesArray.getRawValue(), saved.experiences_json) ||
       !sectionsEqual(this.educationArray.getRawValue(), saved.education_json) ||
       !sectionsEqual(this.skillsArray.getRawValue(), saved.skills_json) ||
@@ -360,7 +383,13 @@ export class CvBuilderComponent implements OnInit {
     this.profileService.getProfile().subscribe({
       next: (profile) => {
         this.applyProfileToArrays(profile);
-        this.lastSavedProfile.set(profile);
+        // fix(review): `lastSavedProfile` must carry the same []-defaulted
+        // section values `applyProfileToArrays` just put on the FormArrays -
+        // otherwise hasUnsavedChanges()'s sectionsEqual([], undefined) is
+        // false right after load (undefined normalizes to null, [] stays
+        // []), tripping the CanDeactivate guard/beforeunload with zero user
+        // edits for exactly the version-skewed-backend case this fixes.
+        this.lastSavedProfile.set(normalizeProfileSections(profile));
         this.state.set('ready');
       },
       error: (error: HttpErrorResponse) => {
@@ -371,23 +400,18 @@ export class CvBuilderComponent implements OnInit {
 
   private applyProfileToArrays(profile: MasterProfileRead): void {
     this.summaryControl.setValue(profile.summary ?? '');
+    this.berufsbezeichnungControl.setValue(profile.berufsbezeichnung ?? '');
     this.templateIdControl.setValue(profile.template_id);
 
-    this.experiencesArray.clear();
-    profile.experiences_json.forEach((entry) =>
-      this.experiencesArray.push(createExperienceGroup(this.formBuilder, entry)),
+    // `replaceArray` tolerates a missing field - a version-skewed backend
+    // (see ce-debug, 2026-09-12) can send a profile without a newer section
+    // entirely, and the section should render empty rather than crash.
+    replaceArray(this.experiencesArray, profile.experiences_json, (entry) =>
+      createExperienceGroup(this.formBuilder, entry),
     );
-
-    this.educationArray.clear();
-    profile.education_json.forEach((entry) => this.educationArray.push(createEducationGroup(this.formBuilder, entry)));
-
-    this.skillsArray.clear();
-    profile.skills_json.forEach((entry) => this.skillsArray.push(createSkillGroup(this.formBuilder, entry)));
-
-    this.languagesArray.clear();
-    profile.languages_json.forEach((entry) => this.languagesArray.push(createLanguageGroup(this.formBuilder, entry)));
-
-    this.projectsArray.clear();
-    profile.projects_json.forEach((entry) => this.projectsArray.push(createProjectGroup(this.formBuilder, entry)));
+    replaceArray(this.educationArray, profile.education_json, (entry) => createEducationGroup(this.formBuilder, entry));
+    replaceArray(this.skillsArray, profile.skills_json, (entry) => createSkillGroup(this.formBuilder, entry));
+    replaceArray(this.languagesArray, profile.languages_json, (entry) => createLanguageGroup(this.formBuilder, entry));
+    replaceArray(this.projectsArray, profile.projects_json, (entry) => createProjectGroup(this.formBuilder, entry));
   }
 }

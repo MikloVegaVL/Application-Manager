@@ -21,11 +21,27 @@
   </mat-sidenav>
 
   <mat-sidenav-content>
-    <mat-toolbar color="accent" class="app-toolbar">
+    <mat-toolbar color="primary" class="app-toolbar">
       <button mat-icon-button (click)="isHandset() ? sidenav.toggle() : toggleSidenav()">
         <mat-icon>menu</mat-icon>
       </button>
+      <img class="app-toolbar__logo" src="assets/logo.png" alt="" aria-hidden="true" />
       <span class="app-toolbar__title">Application Manager</span>
+
+      <span class="app-toolbar__spacer"></span>
+
+      <mat-form-field class="app-toolbar__theme" appearance="outline" subscriptSizing="dynamic">
+        <mat-icon matPrefix>palette</mat-icon>
+        <mat-select
+          [value]="theme.selected()"
+          (selectionChange)="theme.select($event.value)"
+          aria-label="Select color scheme"
+        >
+          @for (option of theme.options; track option.id) {
+            <mat-option [value]="option.id">{{ option.label }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
     </mat-toolbar>
 
     <main class="app-content">

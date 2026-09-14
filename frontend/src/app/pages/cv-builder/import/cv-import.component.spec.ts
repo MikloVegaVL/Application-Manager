@@ -13,7 +13,11 @@ const baseProfile: MasterProfileRead = {
   email: 'max@example.com',
   phone: null,
   address: null,
+  linkedin: null,
+  website: null,
+  sender_email: null,
   summary: null,
+  berufsbezeichnung: null,
   experiences_json: [],
   education_json: [],
   skills_json: [],
@@ -37,10 +41,19 @@ const parsedFixture: ParsedCvProfile = {
     { company: 'Acme', role: 'Engineer', start_date: '2020', end_date: null, description: 'Built things.' },
   ],
   education: [
-    { institution: 'Uni', degree: 'B.Sc.', field_of_study: 'CS', start_date: '2016', end_date: '2019' },
+    {
+      institution: 'Uni',
+      degree: 'B.Sc.',
+      field_of_study: 'CS',
+      start_date: '2016',
+      end_date: '2019',
+      description: null,
+    },
   ],
-  skills: ['TypeScript', 'Angular'],
-  projects: [{ title: 'Side Project', description: 'A thing.', start_date: null, end_date: null, link: null }],
+  skills: [{ name: 'TypeScript' }, { name: 'Angular' }],
+  projects: [
+    { title: 'Side Project', role: null, description: 'A thing.', start_date: null, end_date: null, link: null },
+  ],
 };
 
 describe('CvImportComponent', () => {
@@ -100,6 +113,7 @@ describe('CvImportComponent', () => {
 
     const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/parse') && r.method === 'POST');
     expect(req.request.body instanceof FormData).toBeTrue();
+    expect((req.request.body as FormData).get('language')).toBeNull();
     req.flush({ parsed: parsedFixture, warnings: ['phone'] });
     fixture.detectChanges();
 
@@ -121,6 +135,16 @@ describe('CvImportComponent', () => {
     expect(compiled.textContent).toContain('erika@example.com');
 
     httpMock.expectNone((r) => r.url.endsWith('/profile') && r.method === 'PATCH');
+  });
+
+  it('does not send a language field when parsing (R4)', () => {
+    setInputs(baseProfile);
+
+    component.onFileSelected({ target: { files: [pdfFile()] } } as unknown as Event);
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/parse') && r.method === 'POST');
+    expect((req.request.body as FormData).get('language')).toBeNull();
+    req.flush({ parsed: parsedFixture, warnings: [] });
   });
 
   it('shows an inline error near the dropzone on parse failure, and retry re-triggers the upload', () => {
@@ -176,12 +200,12 @@ describe('CvImportComponent', () => {
       .flush({ parsed: parsedFixture, warnings: [] });
     fixture.detectChanges();
 
-    expect(component['conflicts']().map((c) => c.label)).toEqual(['Berufserfahrung']);
+    expect(component['conflicts']().map((c) => c.key)).toEqual(['experiences_json']);
     // Education has no conflict - not applied yet either, pending the decision.
     expect(educationArray.length).toBe(0);
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).toContain('Berufserfahrung');
+    expect(compiled.textContent).toContain('Work experience');
 
     const cancelButton = compiled.querySelector('.cv-import__conflict-actions button') as HTMLButtonElement;
     cancelButton.click();
@@ -227,7 +251,10 @@ describe('CvImportComponent', () => {
       .flush({ parsed: parsedFixture, warnings: [] });
     fixture.detectChanges();
 
-    expect(component['conflicts']().map((c) => c.label).sort()).toEqual(['Ausbildung', 'Berufserfahrung']);
+    expect(component['conflicts']().map((c) => c.key).sort()).toEqual([
+      'education_json',
+      'experiences_json',
+    ]);
 
     const compiled = fixture.nativeElement as HTMLElement;
     const confirmButton = compiled.querySelectorAll('.cv-import__conflict-actions button')[1] as HTMLButtonElement;
