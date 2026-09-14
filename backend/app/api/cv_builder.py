@@ -45,8 +45,8 @@ class CvRenderRequest(BaseModel):
     noch nicht gespeicherter Änderungen (R10/R11), daher bewusst NICHT aus
     der Datenbank gelesen, sondern 1:1 aus dem Request-Body übernommen.
 
-    Identitätsfelder (`full_name`/`email`/`phone`/`address`) sind bewusst
-    NICHT Teil dieses Bodys (KTD11): Preview/Export mergen sie serverseitig
+    Identitätsfelder (`full_name`/`email`/`phone`/`address`/`linkedin`/
+    `website`) sind bewusst NICHT Teil dieses Bodys (KTD11): Preview/Export mergen sie serverseitig
     aus dem gespeicherten `MasterProfile`-Datensatz. Das tatsächliche Foto
     ebenso: `photo_filename` steht hier nur der Payload-Symmetrie mit
     `MasterProfileUpdate` wegen - das Foto wird, anders als Textfelder,
@@ -97,6 +97,8 @@ def _render_cv_for_current_profile(
             email=profile.email,
             phone=profile.phone,
             address=profile.address,
+            linkedin=profile.linkedin,
+            website=profile.website,
             summary=payload.summary,
             berufsbezeichnung=payload.berufsbezeichnung,
             experiences=payload.experiences_json,

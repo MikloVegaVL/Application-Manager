@@ -37,8 +37,11 @@ SAMPLE_EN: dict[str, Any] = {
     # Eintrags (KTD3) - anders als die vollständigen Beispiel-Einträge unten.
     "entry_description": "Description of the role …",
     "project_description": "Short project description …",
+    "education_description": "Focus areas and notable achievements …",
     "phone": "+49 170 0000000",
     "address": "1 Example Street, 12345 Example City",
+    "linkedin": "linkedin.com/in/example",
+    "website": "example.com",
     "experiences": [
         {
             "company": "Example GmbH",

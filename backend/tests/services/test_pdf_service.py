@@ -157,6 +157,57 @@ class TestRenderCvPdfTemplateContent:
             url_fetcher("https://example.com/x.png")
 
 
+class TestLinkedinWebsiteAndEducationDescription:
+    """ce-debug, 2026-09-14: `linkedin`/`website` sind weitere
+    Kontaktkanäle (wie `phone`/`address`), `EducationEntry.description` ist
+    ein optionales Freitextfeld wie bei `ExperienceEntry`/`ProjectEntry`."""
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_linkedin_and_website_render_when_present(self, mocker, template_id):
+        content = _full_content()
+        content["linkedin"] = "linkedin.com/in/max-mustermann"
+        content["website"] = "max-mustermann.dev"
+
+        rendered = _rendered_html(mocker, template_id=template_id, **content)
+
+        assert "linkedin.com/in/max-mustermann" in rendered
+        assert "max-mustermann.dev" in rendered
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_linkedin_and_website_omitted_when_absent(self, mocker, template_id):
+        rendered = _rendered_html(mocker, template_id=template_id, **_full_content())
+
+        assert "linkedin" not in rendered.lower()
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_education_description_renders_when_present(self, mocker, template_id):
+        content = _full_content()
+        content["education"] = [
+            EducationEntry(
+                institution="Universität Musterstadt",
+                degree="B.Sc. Informatik",
+                field_of_study="Informatik",
+                start_date="2017",
+                end_date="2021",
+                description="Schwerpunkt: Verteilte Systeme.",
+            )
+        ]
+
+        rendered = _rendered_html(mocker, template_id=template_id, **content)
+
+        assert "Schwerpunkt: Verteilte Systeme." in rendered
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_education_renders_between_experience_and_projects(self, mocker, template_id):
+        """Education sits in the document flow between Experience and
+        Projects on every template - previously true only for
+        `classic`/`template-3`; `template-1`/`template-2`/`template-4` used
+        to render Education in a separate sidebar column instead."""
+        rendered = _rendered_html(mocker, template_id=template_id, **_full_content())
+
+        assert rendered.index(">Experience<") < rendered.index(">Education<") < rendered.index(">Projects<")
+
+
 class TestSkillLevelBlocksAndLanguageLevelDots:
     """R3/R4/R6/KTD1: die 4-stufige Skill-Skala wird serverseitig auf einen
     5-Block-Balken abgebildet, die CEFR-Stufe auf den bestehenden
@@ -237,7 +288,7 @@ class TestFixedEnglishChrome:
         assert "Resume -" in rendered
         assert "Page " in rendered
         assert " of " in rendered
-        for heading in ("Profile", "Experience", "Education", "Skills", "Languages", "Projects"):
+        for heading in ("Summary", "Experience", "Education", "Skills", "Languages", "Projects"):
             assert heading in rendered
 
     def test_photo_alt_and_placeholder_are_english(self, mocker, tmp_path):
@@ -845,7 +896,7 @@ class TestRenderCvPdfPreviewMode:
             mocker, template_id=template_id, preview=True, **_empty_content()
         )
 
-        for heading in ("Profile", "Experience", "Education", "Skills", "Languages", "Projects"):
+        for heading in ("Summary", "Experience", "Education", "Skills", "Languages", "Projects"):
             assert heading in rendered
 
     @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
@@ -869,8 +920,8 @@ class TestRenderCvPdfPreviewMode:
 
         assert "Example GmbH" not in rendered
         assert "Experience" not in rendered
-        # R9: auch die leere `Profile`-Überschrift fehlt im Export.
-        assert "Profile" not in rendered
+        # R9: auch die leere `Summary`-Überschrift fehlt im Export.
+        assert "Summary" not in rendered
 
     def test_preview_keeps_real_entry_and_fills_only_a_blank_sub_field(self, mocker):
         content = _empty_content()

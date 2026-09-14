@@ -217,13 +217,22 @@ describe('ProfileComponent - non-destructive identity save (KTD14)', () => {
     email: 'erika@example.com',
     phone: '+49 30 1234567',
     address: 'Musterstraße 1, Berlin',
+    linkedin: 'linkedin.com/in/erika-mustermann',
+    website: 'erika-mustermann.dev',
     summary: 'Erfahrene Softwareentwicklerin.',
     berufsbezeichnung: 'Frontend Developer',
     experiences_json: [
       { company: 'Acme GmbH', role: 'Senior Engineer', start_date: '2020', end_date: null, description: 'Backend.' },
     ],
     education_json: [
-      { institution: 'TU Berlin', degree: 'MSc', field_of_study: 'Informatik', start_date: '2015', end_date: '2019' },
+      {
+        institution: 'TU Berlin',
+        degree: 'MSc',
+        field_of_study: 'Informatik',
+        start_date: '2015',
+        end_date: '2019',
+        description: null,
+      },
     ],
     skills_json: [{ name: 'TypeScript', level: 'Experte' }],
     languages_json: [{ name: 'Englisch', level: 'C1' }],
@@ -271,6 +280,8 @@ describe('ProfileComponent - non-destructive identity save (KTD14)', () => {
     expect(body.email).toBe(loadedProfileFixture.email);
     expect(body.phone).toBe(loadedProfileFixture.phone);
     expect(body.address).toBe(loadedProfileFixture.address);
+    expect(body.linkedin).toBe(loadedProfileFixture.linkedin);
+    expect(body.website).toBe(loadedProfileFixture.website);
 
     expect(body.summary).toBe(loadedProfileFixture.summary);
     expect(body.berufsbezeichnung).toBe(loadedProfileFixture.berufsbezeichnung);

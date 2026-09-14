@@ -64,6 +64,7 @@ class EducationEntry(BaseModel):
     field_of_study: str | None = Field(default=None, max_length=255)
     start_date: str | None = None
     end_date: str | None = None
+    description: str | None = None
 
 
 class MasterProfileBase(BaseModel):
@@ -73,6 +74,8 @@ class MasterProfileBase(BaseModel):
     email: EmailStr
     phone: str | None = Field(default=None, max_length=50)
     address: str | None = Field(default=None, max_length=255)
+    linkedin: str | None = Field(default=None, max_length=255)
+    website: str | None = Field(default=None, max_length=255)
     summary: str | None = None
     berufsbezeichnung: str | None = Field(default=None, max_length=255)
     experiences_json: list[ExperienceEntry] = Field(default_factory=list)
@@ -104,6 +107,8 @@ class MasterProfileUpdate(BaseModel):
     email: EmailStr | None = None
     phone: str | None = Field(default=None, max_length=50)
     address: str | None = Field(default=None, max_length=255)
+    linkedin: str | None = Field(default=None, max_length=255)
+    website: str | None = Field(default=None, max_length=255)
     summary: str | None = None
     berufsbezeichnung: str | None = Field(default=None, max_length=255)
     experiences_json: list[ExperienceEntry] | None = None

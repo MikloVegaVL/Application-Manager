@@ -293,10 +293,12 @@ def test_migration_content_language_upgrade_downgrade_upgrade_round_trips(migrat
 
 
 def test_migration_drops_content_language_columns(migration_db) -> None:
-    """U4/R5/AE4: `head` (past `581736b96da4`) no longer has
-    `content_language`/`content_translations_json` - the app runs English-
-    only now, there's no per-language content left to store. `downgrade -1`
-    re-adds both columns with their original shape."""
+    """U4/R5/AE4: `head` no longer has `content_language`/
+    `content_translations_json` - the app runs English-only now, there's no
+    per-language content left to store. Downgrading back to `581736b96da4`
+    (the revision that dropped them) re-adds both columns with their
+    original shape - targeted explicitly rather than via `-1`, so this stays
+    correct as later migrations (e.g. `f47e23403358`) move `head` further."""
     alembic_cfg, engine = migration_db
     _insert_master_profile(engine, email="drop-content-language@example.com", skills_json="[]")
 
@@ -308,7 +310,7 @@ def test_migration_drops_content_language_columns(migration_db) -> None:
     assert "content_language" not in columns_after_upgrade
     assert "content_translations_json" not in columns_after_upgrade
 
-    downgrade(alembic_cfg, "-1")
+    downgrade(alembic_cfg, "9a7b6c5d4e3f")
 
     with engine.connect() as conn:
         columns_after_downgrade = {col["name"] for col in sa.inspect(conn).get_columns("master_profiles")}

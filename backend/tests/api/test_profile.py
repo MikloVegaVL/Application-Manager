@@ -181,6 +181,7 @@ def test_patch_profile_partial_payload_leaves_other_fields_untouched(client, tmp
             "field_of_study": "Informatik",
             "start_date": None,
             "end_date": None,
+            "description": None,
         }
     ]
     assert body["languages_json"] == [{"name": "Deutsch", "level": "C2"}]
@@ -292,6 +293,38 @@ def test_put_profile_round_trips_berufsbezeichnung(client, tmp_path, monkeypatch
 
     assert response.status_code == 200
     assert response.json()["berufsbezeichnung"] == "Frontend Developer"
+
+
+def test_put_profile_round_trips_linkedin_and_website(client, tmp_path, monkeypatch):
+    """`linkedin`/`website` sind Identitätsfelder wie `phone`/`address`
+    (siehe `ce-debug`, 2026-09-14): `PUT /profile` persistiert sie."""
+    test_client, _session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+
+    response = test_client.put(
+        "/api/profile",
+        json={
+            "full_name": "Max Mustermann",
+            "email": "max@example.com",
+            "linkedin": "linkedin.com/in/maxmustermann",
+            "website": "maxmustermann.dev",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["linkedin"] == "linkedin.com/in/maxmustermann"
+    assert body["website"] == "maxmustermann.dev"
+
+
+def test_patch_profile_rejects_non_null_linkedin(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    response = test_client.patch("/api/profile", json={"linkedin": "linkedin.com/in/x"})
+
+    assert response.status_code == 422
 
 
 # --- POST/GET/DELETE /profile/cv-file -----------------------------------

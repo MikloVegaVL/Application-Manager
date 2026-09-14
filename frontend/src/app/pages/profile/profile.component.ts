@@ -73,6 +73,8 @@ export class ProfileComponent implements OnInit {
     email: ['', [Validators.required, Validators.email]],
     phone: [''],
     address: [''],
+    linkedin: [''],
+    website: [''],
   });
 
   ngOnInit(): void {
@@ -136,7 +138,7 @@ export class ProfileComponent implements OnInit {
   }
 
   private submitWithBase(
-    raw: { full_name: string; email: string; phone: string; address: string },
+    raw: { full_name: string; email: string; phone: string; address: string; linkedin: string; website: string },
     base: MasterProfileRead | null,
   ): void {
     const payload: MasterProfile = {
@@ -144,6 +146,8 @@ export class ProfileComponent implements OnInit {
       email: raw.email,
       phone: raw.phone || null,
       address: raw.address || null,
+      linkedin: raw.linkedin || null,
+      website: raw.website || null,
       summary: base?.summary ?? null,
       berufsbezeichnung: base?.berufsbezeichnung ?? null,
       experiences_json: base?.experiences_json ?? [],
@@ -177,6 +181,8 @@ export class ProfileComponent implements OnInit {
       email: profile.email,
       phone: profile.phone ?? '',
       address: profile.address ?? '',
+      linkedin: profile.linkedin ?? '',
+      website: profile.website ?? '',
     });
   }
 

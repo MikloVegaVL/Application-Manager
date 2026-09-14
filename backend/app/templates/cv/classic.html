@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>{{ doc.title }} - {{ full_name }}</title>
+{% from "cv/_contact_icons.html" import icon_mail, icon_phone, icon_pin, icon_linkedin, icon_globe %}
 <style>
   @page {
     size: A4;
@@ -36,8 +37,16 @@
 
   .header__text { flex: 1; }
   .header__name { font-size: 15pt; font-weight: 700; margin: 0 0 2mm; }
-  .header__line { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 9.5pt; color: #444; }
+  .header__line {
+    display: flex;
+    align-items: center;
+    gap: 1.5mm;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 9.5pt;
+    color: #444;
+  }
   .header__email { color: #2f6fd0; }
+  .c-icon { width: 3mm; height: 3mm; flex-shrink: 0; color: #e8543f; }
 
   .photo { width: 30mm; height: 30mm; object-fit: cover; }
   .photo--placeholder {
@@ -97,11 +106,15 @@
       {% endif %}
       <div class="header__text">
         <h1 class="header__name">{{ full_name }}</h1>
-        {% if address %}<div class="header__line">{{ address }}</div>
-        {% elif preview %}<div class="header__line ph">{{ sample.address }}</div>{% endif %}
-        {% if phone %}<div class="header__line">{{ phone }}</div>
-        {% elif preview %}<div class="header__line ph">{{ sample.phone }}</div>{% endif %}
-        <div class="header__line header__email">{{ email }}</div>
+        {% if address %}<div class="header__line">{{ icon_pin() }}<span>{{ address }}</span></div>
+        {% elif preview %}<div class="header__line ph">{{ icon_pin() }}<span>{{ sample.address }}</span></div>{% endif %}
+        {% if phone %}<div class="header__line">{{ icon_phone() }}<span>{{ phone }}</span></div>
+        {% elif preview %}<div class="header__line ph">{{ icon_phone() }}<span>{{ sample.phone }}</span></div>{% endif %}
+        <div class="header__line header__email">{{ icon_mail() }}<span>{{ email }}</span></div>
+        {% if linkedin %}<div class="header__line">{{ icon_linkedin() }}<span>{{ linkedin }}</span></div>
+        {% elif preview %}<div class="header__line ph">{{ icon_linkedin() }}<span>{{ sample.linkedin }}</span></div>{% endif %}
+        {% if website %}<div class="header__line">{{ icon_globe() }}<span>{{ website }}</span></div>
+        {% elif preview %}<div class="header__line ph">{{ icon_globe() }}<span>{{ sample.website }}</span></div>{% endif %}
       </div>
     </div>
 
@@ -156,6 +169,8 @@
             <span>{{ edu.degree }}{% if edu.field_of_study %} &middot; {{ edu.field_of_study }}{% endif %}, {{ edu.institution }}</span>
             <span class="entry__date">{{ edu.date_range }}</span>
           </div>
+          {% if edu.description %}<p class="entry__description">{{ edu.description }}</p>
+          {% elif preview %}<p class="entry__description ph">{{ sample.education_description }}</p>{% endif %}
         </div>
         {% endfor %}
       </div>

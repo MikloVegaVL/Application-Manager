@@ -14,6 +14,7 @@ export interface EducationEntry {
   field_of_study: string | null;
   start_date: string | null;
   end_date: string | null;
+  description: string | null;
 }
 
 /**
@@ -58,6 +59,8 @@ export interface MasterProfile {
   email: string;
   phone: string | null;
   address: string | null;
+  linkedin: string | null;
+  website: string | null;
   summary: string | null;
   berufsbezeichnung: string | null;
   experiences_json: ExperienceEntry[];

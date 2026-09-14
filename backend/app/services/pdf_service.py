@@ -168,7 +168,7 @@ _DOC_CHROME: dict[str, str] = {
     "photo_alt": "Profile photo",
     "photo_placeholder": "Photo",
     "contact": "Contact",
-    "profile": "Profile",
+    "profile": "Summary",
     "experience": "Experience",
     "education": "Education",
     "skills": "Skills",
@@ -220,6 +220,8 @@ def render_cv_pdf(
     email: str,
     phone: str | None,
     address: str | None,
+    linkedin: str | None = None,
+    website: str | None = None,
     summary: str | None,
     berufsbezeichnung: str | None = None,
     experiences: list[Any],
@@ -234,8 +236,9 @@ def render_cv_pdf(
     """Rendert den Lebenslauf als PDF (bytes).
 
     `template_id` wählt eines der `templates/cv/*.html`-Templates (R9).
-    `full_name`/`email`/`phone`/`address` sind die serverseitig aus dem
-    gespeicherten `MasterProfile` gemergten Identitätsfelder (KTD11);
+    `full_name`/`email`/`phone`/`address`/`linkedin`/`website` sind die
+    serverseitig aus dem gespeicherten `MasterProfile` gemergten
+    Identitätsfelder (KTD11);
     `photo_path` ist der Dateisystempfad des gespeicherten Profilfotos
     (oder `None`) - anders als die übrigen Inhaltsfelder kommt das Foto
     NICHT aus dem Request-Body, da es bereits beim Upload persistiert wird
@@ -268,6 +271,8 @@ def render_cv_pdf(
         email=email,
         phone=phone,
         address=address,
+        linkedin=linkedin,
+        website=website,
         summary=summary,
         berufsbezeichnung=berufsbezeichnung,
         experiences=experiences_ctx,

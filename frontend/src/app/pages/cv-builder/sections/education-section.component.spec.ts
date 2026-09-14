@@ -53,6 +53,7 @@ describe('EducationSectionComponent', () => {
       field_of_study: 'Informatik',
       start_date: '2017',
       end_date: '2021',
+      description: 'Schwerpunkt: Verteilte Systeme.',
     });
 
     expect(group.getRawValue()).toEqual({
@@ -61,6 +62,7 @@ describe('EducationSectionComponent', () => {
       field_of_study: 'Informatik',
       start_date: '2017',
       end_date: '2021',
+      description: 'Schwerpunkt: Verteilte Systeme.',
     });
   });
 });

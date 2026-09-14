@@ -64,6 +64,10 @@ import { createEducationGroup } from '../cv-section-forms.util';
               <mat-label>End</mat-label>
               <input matInput formControlName="end_date" placeholder="e.g. 2021" />
             </mat-form-field>
+            <mat-form-field appearance="outline" class="entry-card__description">
+              <mat-label>Description</mat-label>
+              <textarea matInput formControlName="description" rows="2"></textarea>
+            </mat-form-field>
           </mat-card-content>
           <mat-card-actions align="end">
             <button mat-button color="warn" type="button" (click)="remove($index)">
@@ -104,6 +108,10 @@ import { createEducationGroup } from '../cv-section-forms.util';
         grid-template-columns: repeat(2, minmax(200px, 1fr));
         gap: 8px 16px;
         padding-top: 8px;
+      }
+
+      &__description {
+        grid-column: 1 / -1;
       }
     }
 

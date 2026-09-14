@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>{{ doc.title }} - {{ full_name }}</title>
+{% from "cv/_contact_icons.html" import icon_mail, icon_phone, icon_pin, icon_linkedin, icon_globe %}
 <style>
   @page {
     size: A4;
@@ -71,7 +72,8 @@
   .sidebar h2:first-of-type { margin-top: 0; }
 
   .contact-list { list-style: none; margin: 0; padding: 0; font-size: 8.8pt; color: #d9dce2; }
-  .contact-list li { margin-bottom: 1.5mm; word-break: break-word; }
+  .contact-list li { display: flex; align-items: flex-start; gap: 1.5mm; margin-bottom: 1.5mm; word-break: break-word; }
+  .c-icon { width: 3mm; height: 3mm; margin-top: 0.3mm; flex-shrink: 0; color: #c9a24b; }
 
   .skill-row { display: flex; justify-content: space-between; align-items: center; gap: 2mm; font-size: 8.8pt; font-weight: 700; margin-bottom: 2mm; }
   .blocks { white-space: nowrap; }
@@ -101,9 +103,6 @@
      beschränkt, landet aber zusätzlich als unsichtbarer Text im PDF-
      Textinhalt, damit ATS-Parser/Copy-Paste die Stufe extrahieren können. */
   .sr-only { display: inline-block; width: 0; height: 0; overflow: hidden; font-size: 0; line-height: 0; }
-
-  .edu-entry { font-size: 8.8pt; margin-bottom: 2mm; }
-  .edu-entry__date { color: #c9a24b; }
 
   .header-band {
     text-align: center;
@@ -157,11 +156,15 @@
 
       <h2>{{ doc.contact }}</h2>
       <ul class="contact-list">
-        <li>{{ email }}</li>
-        {% if phone %}<li>{{ phone }}</li>
-        {% elif preview %}<li class="ph">{{ sample.phone }}</li>{% endif %}
-        {% if address %}<li>{{ address }}</li>
-        {% elif preview %}<li class="ph">{{ sample.address }}</li>{% endif %}
+        <li>{{ icon_mail() }}<span>{{ email }}</span></li>
+        {% if phone %}<li>{{ icon_phone() }}<span>{{ phone }}</span></li>
+        {% elif preview %}<li class="ph">{{ icon_phone() }}<span>{{ sample.phone }}</span></li>{% endif %}
+        {% if address %}<li>{{ icon_pin() }}<span>{{ address }}</span></li>
+        {% elif preview %}<li class="ph">{{ icon_pin() }}<span>{{ sample.address }}</span></li>{% endif %}
+        {% if linkedin %}<li>{{ icon_linkedin() }}<span>{{ linkedin }}</span></li>
+        {% elif preview %}<li class="ph">{{ icon_linkedin() }}<span>{{ sample.linkedin }}</span></li>{% endif %}
+        {% if website %}<li>{{ icon_globe() }}<span>{{ website }}</span></li>
+        {% elif preview %}<li class="ph">{{ icon_globe() }}<span>{{ sample.website }}</span></li>{% endif %}
       </ul>
 
       {% if skills_ctx or preview %}
@@ -194,18 +197,6 @@
       {% endfor %}
       {% endif %}
 
-      {% if education or preview %}
-      <h2>{{ doc.education }}</h2>
-      {% set edu_list = education if education else sample.education %}
-      {% set edu_sample = not education %}
-      {% for edu in edu_list %}
-      <div class="edu-entry{% if edu_sample %} ph{% endif %}">
-        <div><strong>{{ edu.degree }}</strong>{% if edu.field_of_study %}, {{ edu.field_of_study }}{% endif %}</div>
-        <div>{{ edu.institution }}</div>
-        <div class="edu-entry__date">{{ edu.date_range }}</div>
-      </div>
-      {% endfor %}
-      {% endif %}
     </aside>
 
     <div class="main">
@@ -235,6 +226,22 @@
         </div>
         {% if exp.description %}<p class="entry__description">{{ exp.description }}</p>
         {% elif preview %}<p class="entry__description ph">{{ sample.entry_description }}</p>{% endif %}
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      {% if education or preview %}
+      <h2>{{ doc.education }}</h2>
+      {% set edu_list = education if education else sample.education %}
+      {% set edu_sample = not education %}
+      {% for edu in edu_list %}
+      <div class="entry{% if edu_sample %} ph{% endif %}">
+        <div class="entry__title-row">
+          <span>{{ edu.degree }}{% if edu.field_of_study %}, {{ edu.field_of_study }}{% endif %}, {{ edu.institution }}</span>
+          <span class="entry__date">{{ edu.date_range }}</span>
+        </div>
+        {% if edu.description %}<p class="entry__description">{{ edu.description }}</p>
+        {% elif preview %}<p class="entry__description ph">{{ sample.education_description }}</p>{% endif %}
       </div>
       {% endfor %}
       {% endif %}

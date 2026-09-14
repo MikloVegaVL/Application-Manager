@@ -35,6 +35,7 @@ export function createEducationGroup(fb: FormBuilder, entry?: EducationEntry): F
     field_of_study: [entry?.field_of_study ?? ''],
     start_date: [entry?.start_date ?? ''],
     end_date: [entry?.end_date ?? ''],
+    description: [entry?.description ?? ''],
   });
 }
 

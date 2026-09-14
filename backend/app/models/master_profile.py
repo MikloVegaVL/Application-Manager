@@ -27,6 +27,10 @@ class MasterProfile(Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Weitere Kontaktkanäle für den CV-Header, identisch behandelt wie
+    # `phone`/`address` (Identitätsfeld, siehe `_IDENTITY_FIELDS`).
+    linkedin: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    website: Mapped[str | None] = mapped_column(String(255), nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Optionaler Job-Titel, der im CV unter dem Namen erscheint (R5) - im
     # Builder editierbar und Teil des Inhalts-Payloads, nicht der Identität.
