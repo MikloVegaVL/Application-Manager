@@ -40,9 +40,29 @@
     background: #2b3544;
     color: #e8eaee;
     padding: 14mm 8mm;
+    /* Keep top/bottom padding on every page fragment instead of only the
+       first/last (WeasyPrint's default `slice` strips it at each break),
+       so content never sits flush against the page edge at a page break. */
+    box-decoration-break: clone;
   }
 
-  .main { display: table-cell; vertical-align: top; padding: 14mm 12mm; }
+  /* Table-cell/row height in WeasyPrint is content-driven, not page-driven:
+     on the last page the sidebar's own box stops wherever its content ends,
+     short of the physical page bottom. A `position: fixed` layer repaints
+     identically on every generated page regardless of in-flow content, so
+     it fills the colored column down to the true page bottom everywhere,
+     including the last page. See template-2.html for the original fix. */
+  .sidebar-bg {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 62mm;
+    height: 297mm;
+    background: #2b3544;
+    z-index: -1;
+  }
+
+  .main { display: table-cell; vertical-align: top; padding: 14mm 12mm; box-decoration-break: clone; }
 
   .photo {
     width: 32mm;
@@ -148,6 +168,7 @@
 </style>
 </head>
 <body>
+  <div class="sidebar-bg"></div>
   <section class="cv">
     <aside class="sidebar">
       {% if photo_url %}
@@ -257,7 +278,10 @@
       {% for project in project_list %}
       <div class="entry{% if project_sample %} ph{% endif %}">
         <div class="entry__title-row">
-          <span>{{ project.title }}</span>
+          <span>
+            <span class="entry__role">{{ project.title }}</span>
+            {% if project.role %}<span class="entry__company"> — {{ project.role }}</span>{% endif %}
+          </span>
           {% if project.date_range %}<span class="entry__date">{{ project.date_range }}</span>{% endif %}
         </div>
         {% if project.description %}<p class="entry__description">{{ project.description }}</p>

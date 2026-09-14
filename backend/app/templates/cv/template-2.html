@@ -106,7 +106,10 @@
     z-index: -1;
   }
 
-  .main { display: table-cell; vertical-align: top; padding: 10mm 12mm 14mm; }
+  /* Wie `.sidebar` oben: ohne `box-decoration-break: clone` behält nur das
+     erste Seiten-Fragment dieser Zelle das obere Padding - auf Folgeseiten
+     säße der Inhalt sonst bündig am Seitenrand statt mit Abstand. */
+  .main { display: table-cell; vertical-align: top; padding: 10mm 12mm 14mm; box-decoration-break: clone; }
 
   .side-title {
     font-size: 10.5pt;
@@ -282,7 +285,10 @@
       {% for project in project_list %}
       <div class="entry{% if project_sample %} ph{% endif %}">
         <div class="entry__title-row">
-          <span>{{ project.title }}</span>
+          <span>
+            <span class="entry__role">{{ project.title }}</span>
+            {% if project.role %}<span class="entry__company"> — {{ project.role }}</span>{% endif %}
+          </span>
           {% if project.date_range %}<span class="entry__date">{{ project.date_range }}</span>{% endif %}
         </div>
         {% if project.description %}<p class="entry__description">{{ project.description }}</p>

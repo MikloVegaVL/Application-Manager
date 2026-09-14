@@ -79,8 +79,12 @@
      einfach die Quellreihenfolge der beiden `<div>`s unten. */
   .cv { display: table; width: 100%; font-size: 9.4pt; line-height: 1.35; }
 
-  .main { display: table-cell; vertical-align: top; width: 66%; padding: 8mm 6mm 14mm 12mm; }
-  .sidebar { display: table-cell; vertical-align: top; padding: 8mm 12mm 14mm 6mm; }
+  /* `box-decoration-break: clone` keeps top/bottom padding on every page
+     fragment instead of only the first/last (WeasyPrint's default `slice`
+     strips it at each break), so content never sits flush against the page
+     edge at a page break - see template-2.html for the original fix. */
+  .main { display: table-cell; vertical-align: top; width: 66%; padding: 8mm 6mm 14mm 12mm; box-decoration-break: clone; }
+  .sidebar { display: table-cell; vertical-align: top; padding: 8mm 12mm 14mm 6mm; box-decoration-break: clone; }
 
   /* Abschnittstitel: graue Box mit rotem linkem Rand, identisch für Haupt-
      und Seitenspalte (so in der Referenzvorlage, anders als template-2.html,
@@ -203,7 +207,10 @@
       {% for project in project_list %}
       <div class="entry{% if project_sample %} ph{% endif %}">
         <div class="entry__title-row">
-          <span>{{ project.title }}</span>
+          <span>
+            <span class="entry__role">{{ project.title }}</span>
+            {% if project.role %}<span class="entry__company"> — {{ project.role }}</span>{% endif %}
+          </span>
           {% if project.date_range %}<span class="entry__date">{{ project.date_range }}</span>{% endif %}
         </div>
         {% if project.description %}<p class="entry__description">{{ project.description }}</p>
