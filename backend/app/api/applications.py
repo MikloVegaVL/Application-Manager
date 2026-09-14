@@ -16,6 +16,7 @@ from app.db.database import get_db
 from app.models.application import Application, ApplicationStatus
 from app.models.job_offer import JobOffer
 from app.models.master_profile import MasterProfile
+from app.models.sent_email import SentEmail
 from app.schemas.application import (
     ApplicationGenerateRequest,
     ApplicationRead,
@@ -219,6 +220,9 @@ def send_application(
         "Mit freundlichen Grüßen"
     )
     cv_bytes = Path(profile.cv_file_path).read_bytes()
+    # Ein Wert, an zwei Stellen genutzt (Mailversand + SentEmail-Log-Eintrag
+    # unten) - einmal berechnet, damit beide nie auseinanderlaufen können.
+    attachment_filename = profile.cv_filename or "lebenslauf.pdf"
     # Zusätzliche, im Profil hochgeladene PDF-Anhänge (siehe `ProfileAttachment`,
     # `app.api.profile`) werden neben dem Lebenslauf mitgeschickt. Eine fehlende
     # Datei auf der Festplatte überspringt den jeweiligen Anhang, statt den
@@ -230,12 +234,12 @@ def send_application(
     ]
 
     try:
-        send_application_email(
+        used_from_email = send_application_email(
             to_email=payload.to_email,
             subject=subject,
             body_text=body_text,
             attachment_bytes=cv_bytes,
-            attachment_filename=profile.cv_filename or "lebenslauf.pdf",
+            attachment_filename=attachment_filename,
             extra_attachments=extra_attachments,
             from_email=profile.sender_email,
         )
@@ -245,6 +249,23 @@ def send_application(
     application.status = ApplicationStatus.SENT
     application.sent_at = datetime.now(timezone.utc)
     application.sent_to_email = payload.to_email
+    # Protokolliert den Versand als eigenen Log-Eintrag (statt nur die obigen
+    # `Application`-Felder zu überschreiben) - siehe R1/R2, KTD2/KTD3,
+    # docs/plans/2026-09-14-001-feat-application-email-log-plan.md. Läuft in
+    # derselben Transaktion; ein fehlgeschlagener Versand (siehe `except`
+    # oben) erzeugt bewusst keinen Eintrag (R3).
+    db.add(
+        SentEmail(
+            application_id=application.id,
+            company=job_offer.company if job_offer else None,
+            job_title=job_offer.title if job_offer else None,
+            recipient_email=payload.to_email,
+            sent_at=application.sent_at,
+            sender_email=used_from_email,
+            subject=subject,
+            attachment_filename=attachment_filename,
+        )
+    )
     db.commit()
     db.refresh(application)
     return application

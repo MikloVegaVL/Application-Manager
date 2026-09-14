@@ -18,6 +18,7 @@ import {
   SkillEntry,
 } from '../../../core/models/master-profile.model';
 import { ProfileService } from '../../../core/services/profile.service';
+import { downloadBlobResponse } from '../../../core/utils/download-blob-response.util';
 
 const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
 
@@ -298,12 +299,9 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
     this.profileService.exportCv(payload).subscribe({
       next: (response) => {
         this.exporting.set(false);
-        const blob = response.body;
-        if (!blob) {
+        if (!downloadBlobResponse(response, DEFAULT_EXPORT_FILENAME)) {
           this.exportError.set('Export failed. Please try again.');
-          return;
         }
-        this.triggerDownload(blob, this.resolveFilename(response.headers.get('Content-Disposition')));
       },
       error: (error: HttpErrorResponse) => {
         this.exporting.set(false);
@@ -328,23 +326,6 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
       languages_json: this.languagesArray.getRawValue() as LanguageEntry[],
       projects_json: this.projectsArray.getRawValue() as ProjectEntry[],
     };
-  }
-
-  private triggerDownload(blob: Blob, filename: string): void {
-    const objectUrl = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = objectUrl;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(objectUrl);
-  }
-
-  private resolveFilename(contentDisposition: string | null): string {
-    if (!contentDisposition) {
-      return DEFAULT_EXPORT_FILENAME;
-    }
-    const match = /filename="?([^";]+)"?/.exec(contentDisposition);
-    return match?.[1] ?? DEFAULT_EXPORT_FILENAME;
   }
 
   private resolveErrorMessage(error: HttpErrorResponse): string {

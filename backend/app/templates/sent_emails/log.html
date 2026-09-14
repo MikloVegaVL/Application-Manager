@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sent Emails</title>
+<style>
+  @page {
+    size: A4 landscape;
+    margin: 1.6cm;
+    @bottom-center {
+      content: "Page " counter(page) " of " counter(pages);
+      font-size: 8pt;
+      color: #999;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: 'Helvetica', 'Arial', sans-serif;
+    color: #1a1a1a;
+    margin: 0;
+    font-size: 9pt;
+  }
+
+  h1 {
+    font-size: 14pt;
+    margin: 0 0 6mm;
+  }
+
+  /* Echtes <table>-Element statt Flexbox: WeasyPrint fragmentiert
+     table/thead korrekt über Seiten, siehe
+     docs/solutions/ui-bugs/weasyprint-flexbox-does-not-fragment-across-pages.md. */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  thead {
+    display: table-header-group; /* wiederholt sich auf jeder Seite */
+  }
+
+  th {
+    text-align: left;
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #666;
+    border-bottom: 1pt solid #333;
+    padding: 3mm 2mm;
+  }
+
+  td {
+    padding: 2.5mm 2mm;
+    border-bottom: 0.5pt solid #ddd;
+    vertical-align: top;
+    word-break: break-word;
+  }
+
+  tr:nth-child(even) td {
+    background: #fafafa;
+  }
+
+  .unknown {
+    color: #999;
+    font-style: italic;
+  }
+
+  .empty {
+    color: #666;
+    margin-top: 4mm;
+  }
+</style>
+</head>
+<body>
+  <h1>Sent Emails{% if filtered %} (filtered view){% endif %}</h1>
+
+  {% if entries %}
+  <table>
+    <thead>
+      <tr>
+        <th>Company</th>
+        <th>Job title</th>
+        <th>Recipient</th>
+        <th>Sent</th>
+        <th>Sender account</th>
+        <th>Subject</th>
+        <th>Attachment</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in entries %}
+      <tr>
+        <td>{{ entry.company or "unknown" }}</td>
+        <td>{{ entry.job_title or "unknown" }}</td>
+        <td>{{ entry.recipient_email }}</td>
+        <td>{{ entry.sent_at }}</td>
+        <td{% if not entry.sender_email %} class="unknown"{% endif %}>{{ entry.sender_email or "unknown" }}</td>
+        <td{% if not entry.subject %} class="unknown"{% endif %}>{{ entry.subject or "unknown" }}</td>
+        <td{% if not entry.attachment_filename %} class="unknown"{% endif %}>{{ entry.attachment_filename or "unknown" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No entries.</p>
+  {% endif %}
+</body>
+</html>

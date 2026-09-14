@@ -48,6 +48,7 @@ export class NavLayoutComponent {
     { path: '/cv-builder', label: 'CV Builder', icon: 'description' },
     { path: '/applications', label: 'Applications', icon: 'work_outline' },
     { path: '/editor', label: 'Editor', icon: 'edit_document' },
+    { path: '/sent-emails', label: 'Sent Emails', icon: 'mail_outline' },
   ];
 
   /** Auf mobilen Viewports wird der Sidenav standardmäßig als Overlay geführt. */

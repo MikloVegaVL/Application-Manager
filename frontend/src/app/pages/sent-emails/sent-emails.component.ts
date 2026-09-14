@@ -1,0 +1,160 @@
+import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { DatePipe, NgTemplateOutlet } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
+import { RouterLink } from '@angular/router';
+
+import { MatButtonModule } from '@angular/material/button';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
+import { MatInputModule } from '@angular/material/input';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatSelectModule } from '@angular/material/select';
+import { MatTableModule } from '@angular/material/table';
+
+import { SENDER_EMAIL_OPTIONS } from '../../core/models/master-profile.model';
+import { SentEmail, SentEmailFilterParams } from '../../core/models/sent-email.model';
+import { SentEmailService } from '../../core/services/sent-email.service';
+import { downloadBlobResponse } from '../../core/utils/download-blob-response.util';
+
+const DEFAULT_FILTERED_FILENAME = 'sent-emails-filtered.pdf';
+const DEFAULT_FULL_LOG_FILENAME = 'sent-emails-full-log.pdf';
+
+/**
+ * "Sent Emails"-Übersicht (docs/plans/2026-09-14-001-feat-application-email-
+ * log-plan.md): listet jeden protokollierten Bewerbungsmail-Versand,
+ * filterbar nach Firma/Absender-Account/Zeitraum (R4/R7), mit Link-through
+ * zur Application (R5, sofern noch vorhanden) und PDF-Export der aktuellen
+ * Ansicht bzw. des gesamten Protokolls (R8/R9). Rein lesend - kein Resend/
+ * Edit/Delete (R6).
+ *
+ * KTD4: Filterung läuft serverseitig (Query-Parameter), nicht clientseitig
+ * wie in `applications.component.ts` - der Export der "aktuellen Ansicht"
+ * muss exakt dieselbe Ergebnismenge wie die Anzeige liefern, ohne eine
+ * gefilterte ID-Liste extra zum Backend zu schicken.
+ */
+@Component({
+  selector: 'app-sent-emails',
+  standalone: true,
+  imports: [
+    DatePipe,
+    NgTemplateOutlet,
+    RouterLink,
+    MatButtonModule,
+    MatFormFieldModule,
+    MatIconModule,
+    MatInputModule,
+    MatProgressSpinnerModule,
+    MatSelectModule,
+    MatTableModule,
+  ],
+  templateUrl: './sent-emails.component.html',
+  styleUrl: './sent-emails.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class SentEmailsComponent implements OnInit {
+  private readonly sentEmailService = inject(SentEmailService);
+
+  protected readonly senderEmailOptions = SENDER_EMAIL_OPTIONS;
+  protected readonly displayedColumns = [
+    'company',
+    'recipient_email',
+    'sent_at',
+    'sender_email',
+    'subject',
+    'attachment_filename',
+  ];
+
+  protected readonly entries = signal<SentEmail[]>([]);
+  protected readonly loading = signal(true);
+  protected readonly errorMessage = signal<string | null>(null);
+
+  protected readonly companyFilter = signal('');
+  protected readonly senderEmailFilter = signal<string | null>(null);
+  protected readonly dateFromFilter = signal('');
+  protected readonly dateToFilter = signal('');
+
+  protected readonly exportingCurrent = signal(false);
+  protected readonly exportingAll = signal(false);
+  protected readonly exportError = signal<string | null>(null);
+
+  ngOnInit(): void {
+    this.load();
+  }
+
+  protected onFilterChange(): void {
+    this.load();
+  }
+
+  protected hasActiveFilter(): boolean {
+    const filter = this.currentFilter();
+    return Boolean(filter.company || filter.sender_email || filter.date_from || filter.date_to);
+  }
+
+  protected exportCurrent(): void {
+    if (this.exportingCurrent()) {
+      return;
+    }
+    this.exportingCurrent.set(true);
+    this.exportError.set(null);
+    this.sentEmailService.exportCurrent(this.currentFilter()).subscribe({
+      next: (response) => {
+        this.exportingCurrent.set(false);
+        if (!downloadBlobResponse(response, DEFAULT_FILTERED_FILENAME)) {
+          this.exportError.set('Export failed. Please try again.');
+        }
+      },
+      error: () => {
+        this.exportingCurrent.set(false);
+        this.exportError.set('Export failed. Please try again.');
+      },
+    });
+  }
+
+  protected exportAll(): void {
+    if (this.exportingAll()) {
+      return;
+    }
+    this.exportingAll.set(true);
+    this.exportError.set(null);
+    this.sentEmailService.exportAll().subscribe({
+      next: (response) => {
+        this.exportingAll.set(false);
+        if (!downloadBlobResponse(response, DEFAULT_FULL_LOG_FILENAME)) {
+          this.exportError.set('Export failed. Please try again.');
+        }
+      },
+      error: () => {
+        this.exportingAll.set(false);
+        this.exportError.set('Export failed. Please try again.');
+      },
+    });
+  }
+
+  private currentFilter(): SentEmailFilterParams {
+    return {
+      company: this.companyFilter().trim() || null,
+      sender_email: this.senderEmailFilter(),
+      date_from: this.dateFromFilter() || null,
+      date_to: this.dateToFilter() || null,
+    };
+  }
+
+  private load(): void {
+    this.loading.set(true);
+    this.errorMessage.set(null);
+
+    this.sentEmailService.list(this.currentFilter()).subscribe({
+      next: (entries) => {
+        this.entries.set(entries);
+        this.loading.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        console.error('Sent emails could not be loaded', error);
+        this.entries.set([]);
+        this.loading.set(false);
+        this.errorMessage.set('The sent emails log could not be loaded. Please try again later.');
+      },
+    });
+  }
+
+}

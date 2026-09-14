@@ -25,7 +25,9 @@ from app.models.application import Application, ApplicationStatus
 from app.models.job_offer import JobOffer
 from app.models.master_profile import MasterProfile
 from app.models.profile_attachment import ProfileAttachment
+from app.models.sent_email import SentEmail
 from app.services.ai_generator import ApplicationGenerationError
+from app.services.mail_service import MailSendError
 
 
 @pytest.fixture
@@ -481,7 +483,7 @@ def test_send_application_with_blank_subject_and_message_uses_reworded_fallback(
     finally:
         session.close()
 
-    mock_send_application_email = Mock(return_value=None)
+    mock_send_application_email = Mock(return_value="absender@example.com")
     monkeypatch.setattr("app.api.applications.send_application_email", mock_send_application_email)
 
     response = client.post(
@@ -511,7 +513,7 @@ def test_send_application_fallback_body_text_does_not_mention_anschreiben(
     finally:
         session.close()
 
-    mock_send_application_email = Mock(return_value=None)
+    mock_send_application_email = Mock(return_value="absender@example.com")
     monkeypatch.setattr("app.api.applications.send_application_email", mock_send_application_email)
 
     response = client.post(
@@ -537,7 +539,7 @@ def test_send_application_marks_application_as_sent(
     finally:
         session.close()
 
-    monkeypatch.setattr("app.api.applications.send_application_email", Mock(return_value=None))
+    monkeypatch.setattr("app.api.applications.send_application_email", Mock(return_value="absender@example.com"))
 
     response = client.post(
         f"/api/applications/{application_id}/send",
@@ -574,7 +576,7 @@ def test_send_application_includes_profile_attachments_alongside_cv(
     finally:
         session.close()
 
-    mock_send_application_email = Mock(return_value=None)
+    mock_send_application_email = Mock(return_value="absender@example.com")
     monkeypatch.setattr("app.api.applications.send_application_email", mock_send_application_email)
 
     response = client.post(
@@ -610,7 +612,7 @@ def test_send_application_skips_missing_attachment_files(
     finally:
         session.close()
 
-    mock_send_application_email = Mock(return_value=None)
+    mock_send_application_email = Mock(return_value="absender@example.com")
     monkeypatch.setattr("app.api.applications.send_application_email", mock_send_application_email)
 
     response = client.post(
@@ -621,3 +623,124 @@ def test_send_application_skips_missing_attachment_files(
     assert response.status_code == 200
     _, call_kwargs = mock_send_application_email.call_args
     assert call_kwargs["extra_attachments"] == []
+
+
+# --- SentEmail log entry (U2, docs/plans/2026-09-14-001-feat-application-
+# email-log-plan.md) ---------------------------------------------------
+
+
+def test_send_application_creates_one_sent_email_log_entry(
+    client: TestClient, db_session_local, tmp_path, monkeypatch
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/6"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+        _create_profile_with_cv_file(session, tmp_path, filename="mein-lebenslauf.pdf")
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "app.api.applications.send_application_email", Mock(return_value="absender@example.com")
+    )
+
+    response = client.post(
+        f"/api/applications/{application_id}/send",
+        json={"to_email": "recruiter@example.com", "subject": "Meine Bewerbung"},
+    )
+    assert response.status_code == 200
+
+    session = db_session_local()
+    try:
+        rows = session.query(SentEmail).filter_by(application_id=application_id).all()
+    finally:
+        session.close()
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.recipient_email == "recruiter@example.com"
+    assert row.sender_email == "absender@example.com"
+    assert row.subject == "Meine Bewerbung"
+    assert row.attachment_filename == "mein-lebenslauf.pdf"
+    assert row.company == "Acme GmbH"
+    assert row.job_title == "Backend Engineer"
+    assert row.sent_at is not None
+
+
+def test_resending_an_application_creates_a_second_independent_log_entry(
+    client: TestClient, db_session_local, tmp_path, monkeypatch
+) -> None:
+    """Covers AE1: resending must not overwrite the prior send's log entry."""
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/7"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id, status=ApplicationStatus.DRAFT).id
+        _create_profile_with_cv_file(session, tmp_path)
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "app.api.applications.send_application_email", Mock(return_value="absender@example.com")
+    )
+
+    first = client.post(
+        f"/api/applications/{application_id}/send", json={"to_email": "first@example.com"}
+    )
+    second = client.post(
+        f"/api/applications/{application_id}/send", json={"to_email": "second@example.com"}
+    )
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+    session = db_session_local()
+    try:
+        rows = (
+            session.query(SentEmail)
+            .filter_by(application_id=application_id)
+            .order_by(SentEmail.id)
+            .all()
+        )
+    finally:
+        session.close()
+
+    assert len(rows) == 2
+    assert rows[0].recipient_email == "first@example.com"
+    assert rows[1].recipient_email == "second@example.com"
+
+
+def test_failed_send_creates_no_log_entry_and_leaves_status_unchanged(
+    client: TestClient, db_session_local, tmp_path, monkeypatch
+) -> None:
+    """Covers AE2: a MailSendError must not create a SentEmail row."""
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/8"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+        _create_profile_with_cv_file(session, tmp_path)
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "app.api.applications.send_application_email",
+        Mock(side_effect=MailSendError("SMTP down")),
+    )
+
+    response = client.post(
+        f"/api/applications/{application_id}/send",
+        json={"to_email": "recruiter@example.com"},
+    )
+    assert response.status_code == 502
+
+    session = db_session_local()
+    try:
+        assert session.query(SentEmail).filter_by(application_id=application_id).count() == 0
+        application = session.get(Application, application_id)
+        assert application.status == ApplicationStatus.DRAFT
+    finally:
+        session.close()

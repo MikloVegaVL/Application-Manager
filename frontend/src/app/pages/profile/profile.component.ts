@@ -13,14 +13,13 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatTabsModule } from '@angular/material/tabs';
 
-import { MasterProfile, MasterProfileRead, ProfileAttachment } from '../../core/models/master-profile.model';
+import {
+  MasterProfile,
+  MasterProfileRead,
+  ProfileAttachment,
+  SENDER_EMAIL_OPTIONS,
+} from '../../core/models/master-profile.model';
 import { ProfileService } from '../../core/services/profile.service';
-
-/** Auswahl der Absenderadressen fürs `sender_email`-Select (Default: erster Eintrag). */
-export const SENDER_EMAIL_OPTIONS: readonly string[] = [
-  'sayhello@thomastritscher.com',
-  'thomas.tritscher@mail.de',
-];
 
 /**
  * Profil-Seite: nur noch Identitätsfelder (Name, E-Mail, Telefon, Adresse)

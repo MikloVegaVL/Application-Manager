@@ -1,0 +1,98 @@
+.sent-emails {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+
+  &__intro {
+    h1 {
+      margin: 0 0 4px;
+    }
+
+    p {
+      margin: 0;
+      color: var(--app-muted-text);
+    }
+  }
+
+  &__toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  &__filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+
+    mat-form-field {
+      width: 200px;
+    }
+  }
+
+  &__exports {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+
+    mat-progress-spinner {
+      display: inline-block;
+      margin-right: 4px;
+    }
+  }
+
+  &__loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 48px 0;
+    color: var(--app-muted-text);
+  }
+
+  &__error {
+    color: var(--app-error);
+  }
+
+  &__empty {
+    color: var(--app-muted-text);
+  }
+
+  // Wraps the table in a scroll container instead of reflowing six columns
+  // on a narrow viewport (design-lens finding, docs/plans/2026-09-14-001-
+  // feat-application-email-log-plan.md).
+  &__table-wrapper {
+    overflow-x: auto;
+    border: 1px solid var(--app-border, rgba(0, 0, 0, 0.12));
+    border-radius: 8px;
+  }
+
+  &__table {
+    width: 100%;
+
+    a {
+      color: inherit;
+      text-decoration: none;
+
+      &:hover {
+        text-decoration: underline;
+      }
+    }
+  }
+
+  &__job-title {
+    display: block;
+    color: var(--app-muted-text);
+    font-size: 0.8125rem;
+  }
+
+  &__unknown {
+    color: var(--app-muted-text);
+    font-style: italic;
+  }
+}
