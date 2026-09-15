@@ -34,10 +34,13 @@ export class AddJobOfferDialogComponent {
   private readonly dialogRef = inject(MatDialogRef<AddJobOfferDialogComponent, AddJobOfferDialogResult>);
   private readonly formBuilder = inject(FormBuilder);
 
+  /** `Validators.required` alone accepts whitespace-only input (it only checks
+   * `length === 0`); `Validators.pattern(/\S/)` additionally requires at least
+   * one non-whitespace character (ce-code-review finding, 2026-09-15). */
   protected readonly form = this.formBuilder.nonNullable.group({
-    title: ['', Validators.required],
-    company: ['', Validators.required],
-    source_url: ['', Validators.required],
+    title: ['', [Validators.required, Validators.pattern(/\S/)]],
+    company: ['', [Validators.required, Validators.pattern(/\S/)]],
+    source_url: ['', [Validators.required, Validators.pattern(/\S/)]],
     description_text: [''],
     application_email: ['', Validators.email],
   });

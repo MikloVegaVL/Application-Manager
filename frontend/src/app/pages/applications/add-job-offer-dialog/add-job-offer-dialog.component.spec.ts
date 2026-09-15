@@ -96,6 +96,17 @@ describe('AddJobOfferDialogComponent', () => {
     expect(component['form'].controls.source_url.touched).toBe(true);
   });
 
+  it('blocks submission when title, company, or source_url is whitespace-only', () => {
+    fillRequiredFields();
+    component['form'].controls.title.setValue('   ');
+    component['form'].controls.company.setValue('   ');
+    component['form'].controls.source_url.setValue('   ');
+
+    component['onConfirm']();
+
+    expect(dialogRef.close).not.toHaveBeenCalled();
+  });
+
   it('blocks submission when application_email is not a valid email', () => {
     fillRequiredFields();
     component['form'].controls.application_email.setValue('not-an-email');
