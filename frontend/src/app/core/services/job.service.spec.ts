@@ -1,8 +1,8 @@
 import { TestBed } from '@angular/core/testing';
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
-import { JobService } from './job.service';
+import { JobService, jobSaveConflictId } from './job.service';
 import {
   ApplicationEmailLookupResult,
   JobSearchResponse,
@@ -84,5 +84,34 @@ describe('JobService', () => {
     req.flush(mockResult);
 
     expect(received).toEqual(mockResult);
+  });
+});
+
+describe('jobSaveConflictId', () => {
+  it('returns the job_offer_id from a 409 conflict detail', () => {
+    const error = new HttpErrorResponse({
+      status: 409,
+      error: { detail: { message: 'already saved', job_offer_id: 42 } },
+    });
+
+    expect(jobSaveConflictId(error)).toBe(42);
+  });
+
+  it('returns null when the 409 detail is missing a numeric job_offer_id', () => {
+    const error = new HttpErrorResponse({
+      status: 409,
+      error: { detail: { message: 'already saved' } },
+    });
+
+    expect(jobSaveConflictId(error)).toBeNull();
+  });
+
+  it('returns null for a non-409 status regardless of body', () => {
+    const error = new HttpErrorResponse({
+      status: 500,
+      error: { detail: { message: 'boom', job_offer_id: 7 } },
+    });
+
+    expect(jobSaveConflictId(error)).toBeNull();
   });
 });

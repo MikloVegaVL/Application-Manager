@@ -1,0 +1,9 @@
+.dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  &__field {
+    width: 100%;
+  }
+}

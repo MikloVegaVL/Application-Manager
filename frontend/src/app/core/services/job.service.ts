@@ -1,4 +1,4 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
@@ -8,8 +8,22 @@ import {
   ApplicationEmailLookupResult,
   JobOffer,
   JobOfferRead,
+  JobSaveConflictDetail,
   JobSearchResponse,
 } from '../models/job-offer.model';
+
+/** Liest `job_offer_id` aus dem 409-Detail von `POST /jobs/save` (siehe
+ * `JobSaveConflictDetail` und das Backend-Backfill in `save_job`) - `null`,
+ * wenn der Fehler kein solcher Konflikt war. Gemeinsam genutzt von
+ * `JobSearchComponent` und `ApplicationsComponent`, damit dieselbe
+ * 409-Auswertung nicht ein drittes Mal dupliziert wird. */
+export function jobSaveConflictId(error: HttpErrorResponse): number | null {
+  if (error.status !== 409) {
+    return null;
+  }
+  const detail = error.error?.detail as JobSaveConflictDetail | undefined;
+  return typeof detail?.job_offer_id === 'number' ? detail.job_offer_id : null;
+}
 
 /**
  * Kommuniziert mit den Job-Endpunkten des Backends

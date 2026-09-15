@@ -1,7 +1,23 @@
 <div class="applications">
   <header class="applications__intro">
-    <h1>Applications</h1>
-    <p>Overview of all generated applications including status tracking.</p>
+    <div class="applications__intro-text">
+      <h1>Applications</h1>
+      <p>Overview of all generated applications including status tracking.</p>
+    </div>
+    <button
+      mat-stroked-button
+      color="primary"
+      type="button"
+      [disabled]="savingNewJobOffer()"
+      (click)="onAddJobOffer()"
+    >
+      @if (savingNewJobOffer()) {
+        <mat-progress-spinner mode="indeterminate" diameter="18" />
+      } @else {
+        <mat-icon>add</mat-icon>
+      }
+      Add job offer
+    </button>
   </header>
 
   @if (loading()) {
