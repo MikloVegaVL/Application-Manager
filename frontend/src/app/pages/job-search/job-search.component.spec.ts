@@ -12,6 +12,7 @@ import {
   ApplicationEmailLookupResult,
   JobSearchResponse,
 } from '../../core/models/job-offer.model';
+import { JobSearchStateService } from '../../core/services/job-search-state.service';
 import { environment } from '../../../environments/environment';
 
 describe('JobSearchComponent', () => {
@@ -275,6 +276,61 @@ describe('JobSearchComponent', () => {
 
     expect(navigateSpy).toHaveBeenCalledWith(['/editor', 42]);
     expect(component.isSaved(job)).toBeTrue();
+    expect(component['results']().length).toBe(0);
+  });
+
+  it('Covers R5: removes the card via the cached-id generate path', () => {
+    triggerSearch();
+    flushSearch({
+      results: [
+        {
+          title: 'Angular Developer',
+          company: 'Acme',
+          location: 'Berlin',
+          source_url: 'https://example.com/job/cached',
+          description_text: null,
+          source_platform: 'linkedin',
+        },
+      ],
+      sources: [{ platform: 'linkedin', status: 'ok', reason: null }],
+    });
+    const job = component['results']()[0];
+    const router = TestBed.inject(Router);
+    const navigateSpy = spyOn(router, 'navigate').and.resolveTo(true);
+    TestBed.inject(JobSearchStateService).cacheSavedJob(job.source_url, 77);
+
+    component.onGenerateApplication(job);
+
+    expect(navigateSpy).toHaveBeenCalledWith(['/editor', 77]);
+    expect(component['results']().length).toBe(0);
+  });
+
+  it('Covers R6/KTD5: an in-session save that empties the list shows the applied empty state', () => {
+    triggerSearch();
+    flushSearch({
+      results: [
+        {
+          title: 'Angular Developer',
+          company: 'Acme',
+          location: 'Berlin',
+          source_url: 'https://example.com/job/last',
+          description_text: null,
+          source_platform: 'linkedin',
+        },
+      ],
+      sources: [{ platform: 'linkedin', status: 'ok', reason: null }],
+    });
+    const job = component['results']()[0];
+
+    component.onSaveJob(job);
+
+    httpMock
+      .expectOne((request) => request.url === `${environment.apiBaseUrl}/jobs/save`)
+      .flush({ ...job, id: 5, created_at: new Date().toISOString(), is_processed: false });
+
+    fixture.detectChanges();
+    expect(component['allResultsApplied']()).toBeTrue();
+    expect(fixture.nativeElement.textContent).toContain('already been applied');
   });
 
   it('Covers R5: removes the card immediately after a successful save', () => {

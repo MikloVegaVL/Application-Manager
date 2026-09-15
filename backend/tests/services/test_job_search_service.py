@@ -811,6 +811,15 @@ def test_search_returns_every_result_when_no_excluded_urls_are_given():
     assert response.excluded_applied_count == 0
 
 
+def test_search_returns_every_result_when_the_excluded_set_is_empty():
+    service, *_ = _service(aa_offers=[_offer("arbeitsagentur")])
+
+    response = service.search("Angular", excluded_source_urls=set())
+
+    assert len(response.results) == 1
+    assert response.excluded_applied_count == 0
+
+
 def test_excluded_applied_count_ignores_results_dropped_by_the_relevance_filter():
     """KTD3: der Zähler misst nur Treffer, die den Relevanzfilter passiert
     haben - ein bereits beworbener, aber irrelevanter Treffer zählt nicht."""
