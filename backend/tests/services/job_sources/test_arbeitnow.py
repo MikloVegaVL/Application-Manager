@@ -59,7 +59,10 @@ def teardown_function() -> None:
 # --- Happy path -------------------------------------------------------------
 
 
-def test_happy_path_maps_matching_results_with_arbeitnow_platform(requests_mock):
+def test_happy_path_maps_all_results_with_arbeitnow_platform(requests_mock):
+    """Keyword-Filterung läuft seit R8/KTD9/KTD10 nicht mehr hier, sondern
+    zentral in `JobSearchService._apply_relevance_filter` - der Client selbst
+    mappt beide (ortsgleichen) Treffer unverändert."""
     requests_mock.get(
         ArbeitnowJobsClient.BASE_URL,
         json=_payload(
@@ -74,7 +77,7 @@ def test_happy_path_maps_matching_results_with_arbeitnow_platform(requests_mock)
 
     offers = ArbeitnowJobsClient().search("Angular", "Berlin")
 
-    assert len(offers) == 1
+    assert len(offers) == 2
     assert offers[0].source_platform == "arbeitnow"
     assert offers[0].title == "Angular Developer"
     assert offers[0].company == "Acme GmbH"
@@ -91,8 +94,9 @@ def test_description_html_is_stripped(requests_mock):
 
 
 def test_no_query_params_are_sent(requests_mock):
-    """KTD3: die API kennt kein `keywords`/`location` - der Client fragt nur
-    die unparametrisierte erste Seite ab und filtert client-seitig."""
+    """Die API kennt kein `keywords`/`location` - der Client fragt nur die
+    unparametrisierte erste Seite ab und filtert client-seitig nur noch nach
+    Ort (KTD9); Keyword-Filterung läuft zentral (R8)."""
     requests_mock.get(ArbeitnowJobsClient.BASE_URL, json=_payload(_job()))
 
     ArbeitnowJobsClient().search("Angular", "Berlin")
@@ -100,37 +104,7 @@ def test_no_query_params_are_sent(requests_mock):
     assert requests_mock.last_request.qs == {}
 
 
-# --- Client-side filtering (KTD3) -------------------------------------------
-
-
-def test_keyword_filter_requires_every_term_to_match(requests_mock):
-    requests_mock.get(
-        ArbeitnowJobsClient.BASE_URL,
-        json=_payload(
-            _job(title="Angular Developer"),
-            _job(
-                slug="ruby-2",
-                title="Ruby Developer",
-                company_name="Beta AG",
-                description="<p>Wir suchen einen Ruby-Entwickler.</p>",
-            ),
-        ),
-    )
-
-    offers = ArbeitnowJobsClient().search("Angular Developer")
-
-    assert [offer.title for offer in offers] == ["Angular Developer"]
-
-
-def test_keyword_matches_against_description_and_company_too(requests_mock):
-    requests_mock.get(
-        ArbeitnowJobsClient.BASE_URL,
-        json=_payload(_job(title="Software Engineer", company_name="Angular Consulting GmbH")),
-    )
-
-    offers = ArbeitnowJobsClient().search("Angular")
-
-    assert len(offers) == 1
+# --- Client-side location filtering (KTD9) ----------------------------------
 
 
 def test_location_filter_is_a_case_insensitive_substring_match(requests_mock):

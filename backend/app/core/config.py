@@ -110,6 +110,17 @@ class Settings(BaseSettings):
     JOB_SEARCH_DEVJOBS_ENABLED: bool = True
     JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED: bool = True
 
+    # --- Jobsuche: credential-basierte APIs (siehe Plan
+    # docs/plans/2026-09-15-003-feat-job-search-source-and-relevance-plan.md) ---
+    JOB_SEARCH_ADZUNA_ENABLED: bool = True
+    JOB_SEARCH_JOOBLE_ENABLED: bool = True
+    # Leere Defaults sind beabsichtigt: ohne Zugangsdaten melden Adzuna und
+    # Jooble den Status `not-configured`, statt die Suche fehlschlagen zu
+    # lassen.
+    ADZUNA_APP_ID: str = ""
+    ADZUNA_APP_KEY: str = ""
+    JOOBLE_API_KEY: str = ""
+
     # --- Bewerbungs-E-Mail-Suche (On-Demand, KTD3/KTD4) ---
     # Die Suche ist eine synchrone Live-Scrape-Anfrage und muss laut KTD4
     # strikt begrenzt sein: Seitenanzahl, Per-Fetch-Timeout, maximale

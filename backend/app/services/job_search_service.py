@@ -42,9 +42,11 @@ import requests
 
 from app.core.config import settings
 from app.schemas.job_offer import JobOfferCreate, JobSearchResponse, SourceStatus
+from app.services.job_sources.adzuna import AdzunaJobsClient
 from app.services.job_sources.arbeitnow import ArbeitnowJobsClient
 from app.services.job_sources.boards import BOARD_DESCRIPTORS, BoardSource
 from app.services.job_sources.devjobs import DevjobsScraper
+from app.services.job_sources.jooble import JoobleJobsClient
 from app.services.job_sources.linkedin import LinkedInJobsClient
 from app.services.job_sources.shared import (
     DEFAULT_USER_AGENT,
@@ -347,6 +349,27 @@ class JobSearchService:
                 )
             )
         )
+        if settings.JOB_SEARCH_ADZUNA_ENABLED:
+            registry.append(
+                SourceRegistration(
+                    AdzunaJobsClient(
+                        app_id=settings.ADZUNA_APP_ID,
+                        app_key=settings.ADZUNA_APP_KEY,
+                        # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
+                        timeout=inner_timeout_for(self._deadline_seconds),
+                    )
+                )
+            )
+        if settings.JOB_SEARCH_JOOBLE_ENABLED:
+            registry.append(
+                SourceRegistration(
+                    JoobleJobsClient(
+                        api_key=settings.JOOBLE_API_KEY,
+                        # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
+                        timeout=inner_timeout_for(self._deadline_seconds),
+                    )
+                )
+            )
         if settings.JOB_SEARCH_LINKEDIN_ENABLED:
             registry.append(
                 SourceRegistration(
@@ -494,6 +517,11 @@ class JobSearchService:
             if not validate_source_url(fallback_url):
                 # R3/KTD10: eine unsichere (Loopback/private/metadata/nicht-
                 # http(s)) Fallback-URL darf nie serverseitig abgerufen werden.
+                # Bewusst KEIN `return` hier (KTD7 im Plan
+                # docs/plans/2026-09-15-003-feat-job-search-source-and-relevance-plan.md):
+                # dieser Zweig muss trotzdem durch den Relevanzfilter unten
+                # laufen wie der Erfolgsfall - ein zweiter Rückgabepunkt hier
+                # würde ihn daran vorbeiführen.
                 logger.warning("Unsichere Fallback-URL abgelehnt - Fallback übersprungen.")
                 source_statuses.append(
                     SourceStatus(
@@ -502,26 +530,67 @@ class JobSearchService:
                         reason="error",
                     )
                 )
-                return JobSearchResponse(results=results, sources=source_statuses)
-
-            logger.info("Keine Treffer über die Arbeitsagentur-API - nutze Fallback-Scraper (%s).", fallback_url)
-            fallback_results = self._fallback_scraper.search(url=fallback_url, keywords=keywords, location=location)
-            results.extend(fallback_results)
-            # Auch der Fallback-Pfad bekommt einen Status-Eintrag - sonst
-            # verletzt die Antwort ihre eigene Zusicherung, dass `sources`
-            # jede Quelle abdeckt, die zu `results` beiträgt (z. B. würde die
-            # Frontend-Statusleiste sonst alle drei Primärquellen als
-            # "unavailable" zeigen, obwohl der Fallback Treffer geliefert hat).
-            fallback_status = "ok" if fallback_results else "unavailable"
-            source_statuses.append(
-                SourceStatus(
-                    platform=GenericJobScraper.SOURCE_PLATFORM,
-                    status=fallback_status,
-                    reason=None if fallback_results else "empty",
+            else:
+                logger.info("Keine Treffer über die Arbeitsagentur-API - nutze Fallback-Scraper (%s).", fallback_url)
+                fallback_results = self._fallback_scraper.search(url=fallback_url, keywords=keywords, location=location)
+                results.extend(fallback_results)
+                # Auch der Fallback-Pfad bekommt einen Status-Eintrag - sonst
+                # verletzt die Antwort ihre eigene Zusicherung, dass `sources`
+                # jede Quelle abdeckt, die zu `results` beiträgt (z. B. würde die
+                # Frontend-Statusleiste sonst alle drei Primärquellen als
+                # "unavailable" zeigen, obwohl der Fallback Treffer geliefert hat).
+                fallback_status = "ok" if fallback_results else "unavailable"
+                source_statuses.append(
+                    SourceStatus(
+                        platform=GenericJobScraper.SOURCE_PLATFORM,
+                        status=fallback_status,
+                        reason=None if fallback_results else "empty",
+                    )
                 )
+
+        # R6/R7: ein gemeinsamer Relevanzfilter läuft genau einmal über die
+        # vollständig zusammengeführten Treffer (Fan-out plus optionaler
+        # Fallback-Scrape), bevor die Antwort gebaut wird - unabhängig davon,
+        # welcher der beiden obigen Zweige gelaufen ist (KTD7). `source_statuses`
+        # bleibt unverändert vor-Filter (KTD5); der Filter wirkt nur auf
+        # `results`.
+        filtered_results = self._apply_relevance_filter(results, keywords)
+        if len(filtered_results) != len(results):
+            # KTD8: ein Logeintrag macht sichtbar, wenn der Filter Treffer
+            # entfernt hat - sonst hat eine Quelle, deren Treffer alle
+            # herausgefiltert wurden, keinerlei Spur in den Logs (sie bleibt
+            # laut KTD5 weiterhin `status="ok"`).
+            logger.info(
+                "Relevanzfilter: %d von %d Treffern behalten.",
+                len(filtered_results),
+                len(results),
             )
 
-        return JobSearchResponse(results=results, sources=source_statuses)
+        return JobSearchResponse(results=filtered_results, sources=source_statuses)
+
+    @staticmethod
+    def _apply_relevance_filter(
+        results: list[JobOfferCreate], keywords: str
+    ) -> list[JobOfferCreate]:
+        """Behält nur Treffer, deren Titel oder Beschreibung jeden
+        Stichwort-Teilbegriff enthält (R6/R7, KTD3/KTD4). Verallgemeinert
+        Arbeitnows frühere private `_matches`-Keyword-Hälfte auf alle Quellen.
+
+        Eine leere/`None`-Beschreibung wird als leerer String behandelt -
+        der Treffer wird dann effektiv nur gegen den Titel geprüft, nicht von
+        der Prüfung ausgenommen (KTD4). Eine leere Stichwortliste (z. B. bei
+        Whitespace-only-Suchbegriffen) lässt alle Treffer unverändert
+        passieren, wie schon Arbeitnows frühere Logik.
+        """
+        keyword_terms = [term.lower() for term in keywords.split() if term]
+        if not keyword_terms:
+            return results
+        filtered: list[JobOfferCreate] = []
+        for offer in results:
+            haystack = f"{offer.title} {offer.description_text or ''}".lower()
+            if all(term in haystack for term in keyword_terms):
+                filtered.append(offer)
+        return filtered
 
     def enrich_description(self, source_platform: str, source_url: str) -> str | None:
         """Lädt nachträglich den vollen Anzeigetext für ein einzelnes,
