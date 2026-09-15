@@ -783,3 +783,57 @@ def test_source_status_accepts_not_configured_reason():
 
     assert status.reason == "not-configured"
 
+
+# --- Applied-job exclusion (R1/R2/R4) ---------------------------------------
+#
+# Siehe docs/plans/2026-09-15-004-feat-job-search-hide-applied-plan.md (U1,
+# KTD1-KTD3). Der Ausschluss läuft nach dem Relevanzfilter über die
+# zusammengeführten Treffer und zählt nur, was der Relevanzfilter passiert hat.
+
+
+def test_search_excludes_a_result_whose_source_url_is_already_applied():
+    applied = _offer("arbeitsagentur", "Angular Developer")
+    fresh = _offer("linkedin", "Angular Engineer")
+    service, *_ = _service(aa_offers=[applied], li_offers=[fresh])
+
+    response = service.search("Angular", excluded_source_urls={applied.source_url})
+
+    assert [offer.source_url for offer in response.results] == [fresh.source_url]
+    assert response.excluded_applied_count == 1
+
+
+def test_search_returns_every_result_when_no_excluded_urls_are_given():
+    service, *_ = _service(aa_offers=[_offer("arbeitsagentur")])
+
+    response = service.search("Angular")
+
+    assert len(response.results) == 1
+    assert response.excluded_applied_count == 0
+
+
+def test_excluded_applied_count_ignores_results_dropped_by_the_relevance_filter():
+    """KTD3: der Zähler misst nur Treffer, die den Relevanzfilter passiert
+    haben - ein bereits beworbener, aber irrelevanter Treffer zählt nicht."""
+    non_matching = _offer_with_description("linkedin", "Backend Engineer", "Python")
+    service, *_ = _service(aa_offers=[non_matching])
+
+    response = service.search("Angular", excluded_source_urls={non_matching.source_url})
+
+    assert response.results == []
+    assert response.excluded_applied_count == 0
+
+
+def test_excluding_all_of_a_sources_results_keeps_the_source_status_ok():
+    """R8: der Ausschluss wirkt nur auf `results`, nicht auf den pro-Quelle
+    Status - eine Quelle mit vollständig ausgeblendeten Treffern bleibt
+    `status="ok"`."""
+    applied = _offer("linkedin", "Angular Developer")
+    service, *_ = _service(li_offers=[applied])
+
+    response = service.search("Angular", excluded_source_urls={applied.source_url})
+
+    linkedin_status = next(s for s in response.sources if s.platform == "linkedin")
+    assert linkedin_status.status == "ok"
+    assert response.results == []
+    assert response.excluded_applied_count == 1
+

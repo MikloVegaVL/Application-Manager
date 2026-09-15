@@ -77,7 +77,7 @@ def _fake_search_response() -> JobSearchResponse:
 
 
 class _FakeJobSearchService:
-    def search(self, keywords, location=None, fallback_url=None):
+    def search(self, keywords, location=None, fallback_url=None, excluded_source_urls=None):
         return _fake_search_response()
 
 
@@ -240,6 +240,50 @@ def test_real_service_timeout_does_not_delay_response_beyond_deadline(client):
     assert linkedin_status["status"] == "unavailable"
     assert linkedin_status["reason"] == "timeout"
     assert elapsed < 1.0
+
+
+def test_search_excludes_a_saved_job_and_reports_the_count(client):
+    """U1: `GET /jobs/search` blends Treffer aus, deren `source_url` bereits
+    als Stellenangebot gespeichert ist, und meldet die Anzahl (R1/R2/R4)."""
+    platform = "arbeitsagentur"
+    offer = _source_offer(platform)
+    assert client.post("/api/jobs/save", json=offer.model_dump()).status_code == 201
+
+    service = JobSearchService(
+        sources=[SourceRegistration(_FakeSourceClient(platform, offers=[offer]))],
+        deadline_seconds=5.0,
+    )
+    app.dependency_overrides[get_job_search_service] = lambda: service
+
+    response = client.get("/api/jobs/search", params={"keywords": "Angular"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["results"] == []
+    assert body["excluded_applied_count"] == 1
+
+
+def test_search_returns_a_job_again_after_its_application_is_deleted(client):
+    """Covers AE3: das Löschen einer Bewerbung entfernt ihr `JobOffer`, daher
+    wird die Stelle in einer späteren Suche nicht mehr ausgeblendet."""
+    platform = "arbeitsagentur"
+    offer = _source_offer(platform)
+    client.post("/api/jobs/save", json=offer.model_dump())
+    application_id = client.get("/api/applications").json()[0]["id"]
+    assert client.delete(f"/api/applications/{application_id}").status_code == 204
+
+    service = JobSearchService(
+        sources=[SourceRegistration(_FakeSourceClient(platform, offers=[offer]))],
+        deadline_seconds=5.0,
+    )
+    app.dependency_overrides[get_job_search_service] = lambda: service
+
+    response = client.get("/api/jobs/search", params={"keywords": "Angular"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [r["source_url"] for r in body["results"]] == [offer.source_url]
+    assert body["excluded_applied_count"] == 0
 
 
 def test_save_job_returns_201(client):

@@ -37,13 +37,24 @@ def search_jobs(
             "keine Treffer liefert."
         ),
     ),
+    db: Session = Depends(get_db),
     service: JobSearchService = Depends(get_job_search_service),
 ) -> JobSearchResponse:
     """Sucht Stellenangebote gleichzeitig über Arbeitsagentur, LinkedIn und
     Xing (und bei Bedarf über den generischen Fallback-Scraper). Liefert
     die zusammengeführten Ergebnisse plus einen Status pro Quelle, ohne sie
-    zu speichern (KTD2)."""
-    return service.search(keywords=keywords, location=location, fallback_url=fallback_url)
+    zu speichern (KTD2).
+
+    Bereits gespeicherte Stellenangebote (= bereits beworben) werden
+    ausgeblendet (R1/R2). Der Service bleibt ohne Datenbankzugriff; die
+    gespeicherten `source_url`s kommen aus dieser Ebene (KTD1)."""
+    saved_source_urls = [row[0] for row in db.query(JobOffer.source_url).all()]
+    return service.search(
+        keywords=keywords,
+        location=location,
+        fallback_url=fallback_url,
+        excluded_source_urls=saved_source_urls,
+    )
 
 
 @router.post("/save", response_model=JobOfferRead, status_code=status.HTTP_201_CREATED)

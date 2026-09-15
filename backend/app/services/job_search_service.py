@@ -31,7 +31,7 @@ from __future__ import annotations
 import base64
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from time import monotonic
@@ -426,6 +426,7 @@ class JobSearchService:
         keywords: str,
         location: str | None = None,
         fallback_url: str | None = None,
+        excluded_source_urls: Collection[str] | None = None,
     ) -> JobSearchResponse:
         """Fragt alle registrierten Quellen gleichzeitig ab und liefert eine
         zusammengeführte `JobSearchResponse` (KTD3/KTD8/KTD9)."""
@@ -566,7 +567,42 @@ class JobSearchService:
                 len(results),
             )
 
-        return JobSearchResponse(results=filtered_results, sources=source_statuses)
+        # R1/R2: bereits beworbene Treffer werden nach dem Relevanzfilter
+        # ausgeblendet (KTD3). `source_statuses` bleibt unverändert - eine
+        # Quelle mit vollständig ausgeblendeten Treffern bleibt `status="ok"`
+        # (R8).
+        filtered_results, excluded_applied_count = self._exclude_applied(
+            filtered_results, excluded_source_urls
+        )
+        if excluded_applied_count:
+            logger.info(
+                "Bewerbungsfilter: %d Treffer sind bereits beworben und werden ausgeblendet.",
+                excluded_applied_count,
+            )
+
+        return JobSearchResponse(
+            results=filtered_results,
+            sources=source_statuses,
+            excluded_applied_count=excluded_applied_count,
+        )
+
+    @staticmethod
+    def _exclude_applied(
+        results: list[JobOfferCreate],
+        excluded_source_urls: Collection[str] | None,
+    ) -> tuple[list[JobOfferCreate], int]:
+        """Blendet Treffer aus, deren `source_url` bereits als Stellenangebot
+        gespeichert ist (R1/R2, KTD3), und liefert die verbleibenden Treffer
+        plus die Anzahl der ausgeblendeten.
+
+        Ein leeres/`None`-Ausschlussset lässt alle Treffer unverändert
+        passieren. Der Aufrufer übergibt die gespeicherten `source_url`s, weil
+        dieser Service bewusst keinen Datenbankzugriff hat (KTD1)."""
+        if not excluded_source_urls:
+            return results, 0
+        excluded = set(excluded_source_urls)
+        kept = [offer for offer in results if offer.source_url not in excluded]
+        return kept, len(results) - len(kept)
 
     @staticmethod
     def _apply_relevance_filter(
