@@ -58,7 +58,12 @@ class _FakeClient:
         return self._offers
 
 
-def _offer(platform: str, title: str = "Some Job") -> JobOfferCreate:
+def _offer(platform: str, title: str = "Angular Developer") -> JobOfferCreate:
+    """`title` defaults to a term most tests' `service.search("Angular", ...)`
+    calls actually match - the shared relevance filter (R6/R7) drops offers
+    whose title/description don't contain the search keywords, so a fixture
+    default unrelated to "Angular" would silently empty `response.results` in
+    every test that doesn't override it."""
     return JobOfferCreate(
         title=title,
         company="Acme",
@@ -354,12 +359,144 @@ def test_two_registrations_with_the_same_platform_both_get_a_status():
         deadline_seconds=1.0,
     )
 
-    response = service.search("Angular")
+    # Leere Suchbegriffe lassen den Relevanzfilter (R6/R7) alles passieren -
+    # dieser Test prüft Registry-/Status-Verhalten, nicht Keyword-Matching.
+    response = service.search("")
 
     dup_statuses = [s for s in response.sources if s.platform == "dup"]
     assert len(dup_statuses) == 2
     assert {s.status for s in dup_statuses} == {"ok"}
     assert {offer.title for offer in response.results} == {"First", "Second"}
+
+
+# --- Shared relevance filter (R6/R7) ----------------------------------------
+#
+# Siehe docs/plans/2026-09-15-003-feat-job-search-source-and-relevance-plan.md
+# (U3, KTD3-KTD8). Ersetzt Arbeitnows frühere private Keyword-Filterung durch
+# einen zentralen Filter, der nach dem Zusammenführen aller Quellen genau
+# einmal läuft.
+
+
+def _offer_with_description(platform: str, title: str, description: str | None) -> JobOfferCreate:
+    return JobOfferCreate(
+        title=title,
+        company="Acme",
+        location=None,
+        source_url=f"https://example.com/{platform}/{title}",
+        description_text=description,
+        source_platform=platform,
+    )
+
+
+def test_filter_keeps_a_result_whose_title_matches():
+    service, *_ = _service(aa_offers=[_offer("arbeitsagentur", "Angular Developer")])
+
+    response = service.search("Angular")
+
+    assert [offer.title for offer in response.results] == ["Angular Developer"]
+
+
+def test_filter_keeps_a_result_whose_description_matches_but_title_does_not():
+    matching = _offer_with_description("arbeitsagentur", "Software Engineer", "Wir suchen Angular-Kenntnisse.")
+    service, *_ = _service(aa_offers=[matching])
+
+    response = service.search("Angular")
+
+    assert [offer.title for offer in response.results] == ["Software Engineer"]
+
+
+def test_filter_drops_a_result_matching_neither_title_nor_description():
+    non_matching = _offer_with_description("arbeitsagentur", "Backend Engineer", "Wir suchen Python-Kenntnisse.")
+    service, *_ = _service(aa_offers=[non_matching])
+
+    response = service.search("Angular")
+
+    assert response.results == []
+
+
+def test_filter_requires_every_keyword_term_to_match():
+    only_angular = _offer("arbeitsagentur", "Angular Developer")
+    service, *_ = _service(aa_offers=[only_angular])
+
+    response = service.search("Angular Senior")
+
+    assert response.results == []
+
+
+def test_filter_evaluates_a_missing_description_on_title_alone():
+    """KTD4: `description_text=None` (z. B. Arbeitsagentur/LinkedIn/heuristisch
+    gescrapte Board-/Xing-Treffer) degradiert den Filter auf Titel-only,
+    statt den Treffer von der Prüfung auszunehmen."""
+    service, *_ = _service(aa_offers=[_offer("arbeitsagentur", "Angular Developer")])
+
+    response = service.search("Angular")
+
+    assert len(response.results) == 1
+    assert response.results[0].description_text is None
+
+
+def test_filter_passes_everything_through_on_an_empty_keyword_string():
+    service, *_ = _service(
+        aa_offers=[_offer("arbeitsagentur", "Backend Engineer")],
+        li_offers=[_offer("linkedin", "Data Analyst")],
+    )
+
+    response = service.search("")
+
+    assert {offer.title for offer in response.results} == {"Backend Engineer", "Data Analyst"}
+
+
+def test_filter_does_not_change_source_status_when_all_of_a_sources_results_are_dropped():
+    """KTD5: der Filter wirkt nur auf `results`, nicht auf den pro-Quelle
+    Status - eine Quelle mit vollständig herausgefilterten Treffern bleibt
+    weiterhin `status="ok"`."""
+    non_matching = _offer_with_description("linkedin", "Backend Engineer", "Wir suchen Python-Kenntnisse.")
+    service, *_ = _service(
+        aa_offers=[_offer("arbeitsagentur", "Angular Developer")],
+        li_offers=[non_matching],
+    )
+
+    response = service.search("Angular")
+
+    linkedin_status = next(s for s in response.sources if s.platform == "linkedin")
+    assert linkedin_status.status == "ok"
+    assert {offer.source_platform for offer in response.results} == {"arbeitsagentur"}
+
+
+def test_fallback_trigger_uses_pre_filter_arbeitsagentur_results_not_post_filter():
+    """KTD6: der Fallback-Scraper darf nicht feuern, nur weil der
+    Relevanzfilter Arbeitsagenturs (rohe, nicht-leere) Treffer nachträglich
+    herausgefiltert hat - die Auslöse-Bedingung bleibt an den rohen
+    Fan-out-Ergebnissen."""
+    non_matching_aa = _offer_with_description("arbeitsagentur", "Backend Engineer", "Wir suchen Python-Kenntnisse.")
+    service, *_client, fallback = _service(aa_offers=[non_matching_aa])
+
+    response = service.search("Angular", fallback_url="https://example.com/jobs")
+
+    assert fallback.calls == []
+    # Arbeitsagenturs (jetzt herausgefilterter) Treffer bleibt ohne
+    # Fallback-Status-Eintrag - der Fallback-Pfad wurde nie betreten.
+    assert not any(s.platform == "web-scraper" for s in response.sources)
+    assert response.results == []
+
+
+def test_filter_applies_identically_whether_or_not_the_fallback_branch_ran():
+    """KTD7: beide Zweige der Fallback-Verzweigung (ungültige `fallback_url`
+    vs. tatsächlicher Fallback-Scrape) laufen durch denselben, einzigen
+    Filteraufruf - Treffer aus beiden Pfaden werden gleich gefiltert."""
+    # Zweig 1: unsichere fallback_url - kein Scrape, aber Fan-out-Treffer
+    # durchlaufen trotzdem den Filter.
+    service_unsafe, *_ = _service(aa_offers=[], li_offers=[_offer("linkedin", "Backend Engineer")])
+    response_unsafe = service_unsafe.search("Angular", fallback_url="javascript:alert(1)")
+    assert response_unsafe.results == []  # "Backend Engineer" enthält kein "Angular"
+
+    # Zweig 2: gültige fallback_url, Fallback liefert einen nicht-passenden
+    # Treffer - muss ebenso gefiltert werden wie der Fan-out-Pfad.
+    non_matching_fallback = _offer_with_description("web-scraper", "Backend Engineer", "Wir suchen Python-Kenntnisse.")
+    service_fallback, *_client, fallback = _service(aa_offers=[], fallback_offers=[non_matching_fallback])
+    response_fallback = service_fallback.search("Angular", fallback_url="https://example.com/jobs")
+    assert len(fallback.calls) == 1
+    assert response_fallback.results == []
 
 
 def test_registry_deadline_timeout_marks_source_and_returns_promptly():
@@ -406,6 +543,8 @@ def test_default_registry_is_built_from_settings_without_injection():
     assert set(platforms) <= {
         "arbeitsagentur",
         "arbeitnow",
+        "adzuna",
+        "jooble",
         "linkedin",
         "xing",
         "devjobs",
@@ -414,6 +553,14 @@ def test_default_registry_is_built_from_settings_without_injection():
     # KTD2: Arbeitnow ist wie Arbeitsagentur unconditionally registriert -
     # kein Enable-Flag, keine Zugangsdaten.
     assert "arbeitnow" in platforms
+    # Adzuna/Jooble sind flag-gated (JOB_SEARCH_ADZUNA_ENABLED/
+    # JOB_SEARCH_JOOBLE_ENABLED, siehe
+    # docs/plans/2026-09-15-003-feat-job-search-source-and-relevance-plan.md),
+    # aber beide Flags defaulten auf `True` - ohne Settings-Override sind sie
+    # also registriert (ihre fehlenden Zugangsdaten wirken erst zur
+    # Such-Zeit über `is_configured()`, nicht bei der Registrierung selbst).
+    assert "adzuna" in platforms
+    assert "jooble" in platforms
     # U6: alle HTML-Boards (inkl. des eigens registrierten devjobs, siehe
     # job_sources/devjobs.py) sind standardmäßig registriert und tragen je
     # einen eigenen Plattform-Schlüssel - keiner ist "web-scraper" (R4/R6).

@@ -7,11 +7,17 @@ Integrationsform wie `ArbeitsagenturJobsClient` (KTD2), kein Enable-Flag,
 kein `is_configured()`.
 
 Die API bietet keine serverseitigen `keywords`/`location`-Suchparameter -
-nur `remote` und `visa_sponsorship` sind dokumentiert -, daher filtert dieser
-Client die Treffer der ersten Seite client-seitig nach Stichwort und Ort
-(KTD3). Eine Seite liefert laut `meta.per_page` 250 Einträge (live
-verifiziert, 2026-09-15) - für eine einzelne Suche reicht das aus, eine
-zweite Seite abzurufen ist nicht nötig.
+nur `remote` und `visa_sponsorship` sind dokumentiert. Die Stichwort-Filterung
+läuft seit dem Plan
+docs/plans/2026-09-15-003-feat-job-search-source-and-relevance-plan.md
+(R8/KTD9/KTD10) nicht mehr hier, sondern zentral für alle Quellen in
+`JobSearchService._apply_relevance_filter` (title/description, KEIN
+`company_name`-Abgleich mehr - eine bewusste, akzeptierte Verengung).
+`location` kennt der zentrale Filter dagegen nicht; dieser Client filtert
+Treffer der ersten Seite weiterhin client-seitig nach Ort (KTD9). Eine Seite
+liefert laut `meta.per_page` 250 Einträge (live verifiziert, 2026-09-15) -
+für eine einzelne Suche reicht das aus, eine zweite Seite abzurufen ist nicht
+nötig.
 
 Die quellenübergreifende Maschinerie (User-Agent, URL-Validierung,
 HTML-Stripping, Cooldown) liegt in `job_sources/shared.py` und wird von hier
@@ -108,12 +114,11 @@ class ArbeitnowJobsClient(CooldownMixin):
             raise RuntimeError("Arbeitnow-API lieferte kein valides JSON zurück.") from None
 
         raw_results = payload.get("data") or []
-        keyword_terms = [term.lower() for term in keywords.split() if term]
         location_term = location.strip().lower() if location and location.strip() else None
 
         offers: list[JobOfferCreate] = []
         for raw in raw_results:
-            if not self._matches(raw, keyword_terms, location_term):
+            if not self._matches_location(raw, location_term):
                 continue
             try:
                 offer = self._map_offer(raw)
@@ -126,28 +131,18 @@ class ArbeitnowJobsClient(CooldownMixin):
                 break
         return offers
 
-    # --- Client-seitige Filterung (KTD3) ---------------------------------
+    # --- Client-seitige Location-Filterung ---------------------------------
 
     @staticmethod
-    def _matches(
-        raw: dict[str, Any],
-        keyword_terms: list[str],
-        location_term: str | None,
-    ) -> bool:
-        """Filtert client-seitig, da die API keine `keywords`/`location`-
-        Query-Parameter kennt (KTD3). Jeder Stichwort-Teilbegriff muss in
-        Titel, Beschreibung oder Firmenname vorkommen (UND-Verknüpfung)."""
-        if keyword_terms:
-            haystack = " ".join(
-                str(raw.get(field, "")) for field in ("title", "description", "company_name")
-            ).lower()
-            if not all(term in haystack for term in keyword_terms):
-                return False
-        if location_term:
-            offer_location = str(raw.get("location") or "").lower()
-            if location_term not in offer_location:
-                return False
-        return True
+    def _matches_location(raw: dict[str, Any], location_term: str | None) -> bool:
+        """Filtert client-seitig nach Ort, da die API keinen `location`-
+        Query-Parameter kennt (KTD9). Die frühere Stichwort-Hälfte dieser
+        Prüfung entfällt - sie läuft jetzt zentral für alle Quellen in
+        `JobSearchService._apply_relevance_filter` (R8/KTD9/KTD10)."""
+        if not location_term:
+            return True
+        offer_location = str(raw.get("location") or "").lower()
+        return location_term in offer_location
 
     # --- Mapping ----------------------------------------------------------
 
