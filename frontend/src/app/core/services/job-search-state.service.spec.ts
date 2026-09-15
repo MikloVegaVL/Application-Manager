@@ -95,4 +95,12 @@ describe('JobSearchStateService', () => {
 
     expect(service.applicationEmailResult(payload.source_url)).toBeNull();
   });
+
+  it('clearResults() resets the applied-hidden count', () => {
+    service.appliedHiddenCount.set(3);
+
+    service.clearResults();
+
+    expect(service.appliedHiddenCount()).toBe(0);
+  });
 });

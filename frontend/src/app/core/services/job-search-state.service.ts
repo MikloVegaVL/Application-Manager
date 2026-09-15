@@ -35,6 +35,14 @@ export class JobSearchStateService {
   readonly hasSearched = signal(false);
   readonly errorMessage = signal<string | null>(null);
 
+  /**
+   * Anzahl der Treffer, die als bereits beworben ausgeblendet wurden (R4).
+   * Aus der Suchantwort (`excluded_applied_count`) plus in-session entfernten
+   * Karten, damit der "alles schon beworben"-Leerzustand auch greift, wenn
+   * der Nutzer die letzte Karte selbst speichert.
+   */
+  readonly appliedHiddenCount = signal(0);
+
   /** Merkt sich bereits gespeicherte Jobs (source_url -> DB-ID), um Doppel-Saves zu vermeiden. */
   readonly savedJobIds = signal<Map<string, number>>(new Map());
 
@@ -90,6 +98,7 @@ export class JobSearchStateService {
     this.sourceStatuses.set([]);
     this.hasSearched.set(false);
     this.errorMessage.set(null);
+    this.appliedHiddenCount.set(0);
     this.applicationEmailResults.set(new Map());
   }
 }

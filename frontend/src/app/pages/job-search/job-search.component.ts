@@ -88,6 +88,13 @@ export class JobSearchComponent {
     () => this.sourceStatuses().length > 0 && this.unavailableSources().length === this.sourceStatuses().length,
   );
 
+  /** True, wenn die Liste leer ist, weil alle Treffer bereits beworben
+   * wurden - dann statt des generischen Leerzustands die eigene Meldung
+   * (R4/R6). */
+  protected readonly allResultsApplied = computed(
+    () => this.results().length === 0 && this.state.appliedHiddenCount() > 0,
+  );
+
   private readonly savedJobIds = this.state.savedJobIds;
   protected readonly savingSourceUrl = signal<string | null>(null);
   protected readonly generatingSourceUrl = signal<string | null>(null);
@@ -111,18 +118,22 @@ export class JobSearchComponent {
     this.sourceStatuses.set([]);
     // Ein Quellen-Filter der letzten Suche passt nicht zu den neuen Quellen.
     this.selectedSources.set([]);
+    // Der "bereits beworben"-Zähler der letzten Suche gilt nicht mehr.
+    this.state.appliedHiddenCount.set(0);
     this.hasSearched.set(true);
 
     this.jobService.searchJobs(keywords.trim(), location.trim() || undefined).subscribe({
       next: (response) => {
         this.results.set(response.results);
         this.sourceStatuses.set(response.sources);
+        this.state.appliedHiddenCount.set(response.excluded_applied_count ?? 0);
         this.loading.set(false);
       },
       error: (error: HttpErrorResponse) => {
         console.error('Jobsuche fehlgeschlagen', error);
         this.results.set([]);
         this.sourceStatuses.set([]);
+        this.state.appliedHiddenCount.set(0);
         this.loading.set(false);
         this.errorMessage.set('The job search failed. Please try again later.');
       },

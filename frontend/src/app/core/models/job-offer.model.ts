@@ -62,6 +62,12 @@ export interface SourceStatus {
 export interface JobSearchResponse {
   results: JobOffer[];
   sources: SourceStatus[];
+  /**
+   * Anzahl der Treffer, die als bereits beworben ausgeblendet wurden (R4).
+   * Optional, damit ältere Test-Fixtures ohne das Feld weiter kompilieren;
+   * fehlt der Wert, gilt 0.
+   */
+  excluded_applied_count?: number;
 }
 
 /**

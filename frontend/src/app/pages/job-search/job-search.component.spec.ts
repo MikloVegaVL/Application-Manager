@@ -110,6 +110,49 @@ describe('JobSearchComponent', () => {
     expect(chipText).toContain('unavailable');
   });
 
+  it('Covers R4/R6: shows the applied empty state when every result was already applied', () => {
+    triggerSearch();
+    flushSearch({
+      results: [],
+      sources: [{ platform: 'arbeitsagentur', status: 'ok', reason: null }],
+      excluded_applied_count: 2,
+    });
+
+    expect(component['allResultsApplied']()).toBeTrue();
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('already been applied');
+    expect(text).not.toContain('No job offers found');
+  });
+
+  it('keeps the generic empty state when nothing was excluded as applied', () => {
+    triggerSearch();
+    flushSearch({
+      results: [],
+      sources: [{ platform: 'arbeitsagentur', status: 'ok', reason: null }],
+      excluded_applied_count: 0,
+    });
+
+    expect(component['allResultsApplied']()).toBeFalse();
+    expect(fixture.nativeElement.textContent).toContain('No job offers found');
+  });
+
+  it('resets the applied state when a new search starts', () => {
+    triggerSearch();
+    flushSearch({
+      results: [],
+      sources: [{ platform: 'arbeitsagentur', status: 'ok', reason: null }],
+      excluded_applied_count: 2,
+    });
+    expect(component['allResultsApplied']()).toBeTrue();
+
+    triggerSearch('Backend');
+    expect(component['allResultsApplied']()).toBeFalse();
+
+    httpMock
+      .expectOne((request) => request.url === `${environment.apiBaseUrl}/jobs/search`)
+      .flush({ results: [], sources: [], excluded_applied_count: 0 });
+  });
+
   it('resets stale source statuses when a new search starts', () => {
     triggerSearch();
     flushSearch({
