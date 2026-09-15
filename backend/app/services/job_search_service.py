@@ -42,10 +42,9 @@ import requests
 
 from app.core.config import settings
 from app.schemas.job_offer import JobOfferCreate, JobSearchResponse, SourceStatus
-from app.services.job_sources.adzuna import AdzunaJobsClient
+from app.services.job_sources.arbeitnow import ArbeitnowJobsClient
 from app.services.job_sources.boards import BOARD_DESCRIPTORS, BoardSource
 from app.services.job_sources.devjobs import DevjobsScraper
-from app.services.job_sources.jooble import JoobleJobsClient
 from app.services.job_sources.linkedin import LinkedInJobsClient
 from app.services.job_sources.shared import (
     DEFAULT_USER_AGENT,
@@ -333,19 +332,24 @@ class JobSearchService:
         # KTD7/KTD9); als Locals, damit der Service sie nicht dauerhaft cachen
         # muss.
         source_enabled: dict[str, bool] = {
-            "kimeta": settings.JOB_SEARCH_KIMETA_ENABLED,
             "stepstone": settings.JOB_SEARCH_STEPSTONE_ENABLED,
             "germantechjobs": settings.JOB_SEARCH_GERMANTECHJOBS_ENABLED,
             "indeed": settings.JOB_SEARCH_INDEED_ENABLED,
             "programmiererjobboerse": settings.JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED,
-            "adzuna": settings.JOB_SEARCH_ADZUNA_ENABLED,
-            "jooble": settings.JOB_SEARCH_JOOBLE_ENABLED,
         }
-        adzuna_app_id = settings.ADZUNA_APP_ID
-        adzuna_app_key = settings.ADZUNA_APP_KEY
-        jooble_api_key = settings.JOOBLE_API_KEY
 
         registry: list[SourceRegistration] = [SourceRegistration(self._arbeitsagentur_client)]
+        # Arbeitnow ist wie Arbeitsagentur unconditionally registriert: eine
+        # offene, keyless API braucht weder Enable-Flag noch Zugangsdaten (R4,
+        # KTD2).
+        registry.append(
+            SourceRegistration(
+                ArbeitnowJobsClient(
+                    # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
+                    timeout=inner_timeout_for(self._deadline_seconds),
+                )
+            )
+        )
         if settings.JOB_SEARCH_LINKEDIN_ENABLED:
             registry.append(
                 SourceRegistration(
@@ -365,35 +369,6 @@ class JobSearchService:
             registry.append(
                 SourceRegistration(
                     DevjobsScraper(inner_timeout=inner_timeout_for(self._deadline_seconds))
-                )
-            )
-        if source_enabled["adzuna"]:
-            # Auch ohne Credentials registriert: `search()` wird vom Fan-out
-            # gar nicht erst aufgerufen (KTD9) - der Client meldet dann
-            # `is_configured() == False` und wird als "not-configured"
-            # gekennzeichnet, statt stillschweigend zu verschwinden (R9).
-            registry.append(
-                SourceRegistration(
-                    AdzunaJobsClient(
-                        app_id=adzuna_app_id,
-                        app_key=adzuna_app_key,
-                        # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
-                        timeout=inner_timeout_for(self._deadline_seconds),
-                    )
-                )
-            )
-        if source_enabled["jooble"]:
-            # Auch ohne API-Key registriert: der Fan-out ruft `search()` gar
-            # nicht erst auf (KTD9) - der Client meldet dann
-            # `is_configured() == False` und wird als "not-configured"
-            # gekennzeichnet, statt stillschweigend zu verschwinden (R9).
-            registry.append(
-                SourceRegistration(
-                    JoobleJobsClient(
-                        api_key=jooble_api_key,
-                        # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
-                        timeout=inner_timeout_for(self._deadline_seconds),
-                    )
                 )
             )
         # U6: die übrigen benannten HTML-Boards laufen alle über den geteilten

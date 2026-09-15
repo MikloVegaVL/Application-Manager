@@ -102,20 +102,18 @@ def test_search_returns_envelope_with_results_and_sources(client):
 
 _ALL_SOURCE_PLATFORMS = (
     "arbeitsagentur",
+    "arbeitnow",
     "linkedin",
     "xing",
     "devjobs",
-    "kimeta",
     "stepstone",
     "germantechjobs",
     "indeed",
     "programmiererjobboerse",
     "it-entwickler-jobs",
-    "adzuna",
-    "jooble",
 )
 
-_NOT_OK_PLATFORMS = {"xing", "indeed", "adzuna", "jooble"}
+_NOT_OK_PLATFORMS = {"xing", "indeed"}
 
 
 class _FakeSourceClient:
@@ -162,14 +160,15 @@ def _source_offer(platform: str) -> JobOfferCreate:
 
 
 def _mixed_multi_source_service(deadline_seconds: float = 5.0):
-    """Ein echter `JobSearchService` über alle 12 Quellen mit gemischten
-    Ergebnissen: ok / empty / error / not-configured (U8)."""
+    """Ein echter `JobSearchService` über alle Quellen mit gemischten
+    Ergebnissen: ok / empty / error (U8). Die `not-configured`-Kennzeichnung
+    (KTD9) ist quellen-unabhängig und wird generisch in
+    `test_job_search_service.py::test_unconfigured_source_yields_not_configured_without_a_search_call`
+    abgedeckt - keine der aktuellen Quellen braucht Zugangsdaten mehr."""
     registrations: list[SourceRegistration] = []
     clients: dict[str, _FakeSourceClient] = {}
     for platform in _ALL_SOURCE_PLATFORMS:
-        if platform in ("adzuna", "jooble"):
-            client = _FakeSourceClient(platform, configured=False)
-        elif platform == "xing":
+        if platform == "xing":
             client = _FakeSourceClient(platform, offers=[])
         elif platform == "indeed":
             client = _FakeSourceClient(platform, exc=RuntimeError("simulated source failure"))
@@ -180,7 +179,7 @@ def _mixed_multi_source_service(deadline_seconds: float = 5.0):
     return JobSearchService(sources=registrations, deadline_seconds=deadline_seconds), clients
 
 
-def test_real_service_fans_out_over_all_12_sources_with_per_source_status(client):
+def test_real_service_fans_out_over_all_10_sources_with_per_source_status(client):
     service, clients = _mixed_multi_source_service()
     app.dependency_overrides[get_job_search_service] = lambda: service
 
@@ -204,20 +203,6 @@ def test_real_service_fans_out_over_all_12_sources_with_per_source_status(client
         "status": "unavailable",
         "reason": "error",
     }
-    # The unconfigured Adzuna/Jooble pair appears as not-configured alongside
-    # the ok sources (KTD9/R9) - without ever calling `search()`.
-    assert by_platform["adzuna"] == {
-        "platform": "adzuna",
-        "status": "unavailable",
-        "reason": "not-configured",
-    }
-    assert by_platform["jooble"] == {
-        "platform": "jooble",
-        "status": "unavailable",
-        "reason": "not-configured",
-    }
-    assert clients["adzuna"].calls == []
-    assert clients["jooble"].calls == []
 
     ok_platforms = set(_ALL_SOURCE_PLATFORMS) - _NOT_OK_PLATFORMS
     assert {s["platform"] for s in body["sources"] if s["status"] == "ok"} == ok_platforms
@@ -235,11 +220,7 @@ def test_real_service_timeout_does_not_delay_response_beyond_deadline(client):
     back at the shared deadline, not after the slow source finishes."""
     registrations: list[SourceRegistration] = []
     for platform in _ALL_SOURCE_PLATFORMS:
-        if platform in ("adzuna", "jooble"):
-            registrations.append(
-                SourceRegistration(_FakeSourceClient(platform, configured=False))
-            )
-        elif platform == "indeed":
+        if platform == "indeed":
             registrations.append(SourceRegistration(_FakeSourceClient(platform, delay=2.0)))
         else:
             registrations.append(
