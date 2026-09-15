@@ -86,4 +86,13 @@ describe('JobSearchStateService', () => {
     expect(received).toEqual(refreshed);
     expect(service.applicationEmailResult(payload.source_url)).toEqual(refreshed);
   });
+
+  it('clearResults() also clears the cached application-email results', () => {
+    service.cacheApplicationEmailResult(payload.source_url, { status: 'found', email: 'a@b.c' });
+    expect(service.applicationEmailResult(payload.source_url)).not.toBeNull();
+
+    service.clearResults();
+
+    expect(service.applicationEmailResult(payload.source_url)).toBeNull();
+  });
 });

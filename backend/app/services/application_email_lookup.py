@@ -30,6 +30,7 @@ from __future__ import annotations
 import logging
 import re
 import socket
+import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
@@ -59,8 +60,38 @@ Fetcher = Callable[[str], str | None]
 EmailExtractor = Callable[[str], list[str]]
 Resolver = Callable[[str], list[str]]
 
-_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+# Zeichen, die Teil einer E-Mail-Adresse sind. Der Verbatim-Nachweis (R4) darf
+# eine Adresse nur an einer echten Grenze matchen, damit `kontakt@acme.de`
+# nicht in `kontakt@acme.development` "passt".
+_EMAIL_CHAR_CLASS = r"[A-Za-z0-9._%+\-@]"
 _EMAIL_TRIM_CHARS = ".,;:<>()[]{}\"'"
+
+# Prozessweit geteilter, begrenzter Executor statt eines Executors pro
+# Request: `shutdown(wait=False)` ließ hängende Worker (und damit den
+# prozessweiten Ollama-Lock) beliebig lange weiterlaufen. Der Cap begrenzt,
+# wie viele Lookups gleichzeitig laufen; ein `threading.Event` bricht die
+# noch wartende Arbeit nach der Deadline ab (KTD4).
+_LOOKUP_EXECUTOR_MAX_WORKERS = 4
+# Kleine Nachfrist, damit ein Worker, der seine Deadline selbst bemerkt,
+# einen bereits gefundenen Kandidaten noch als `found` zurückgeben kann,
+# statt vom äußeren Wait exakt an der Grenze abgeschnitten zu werden.
+_LOOKUP_DEADLINE_GRACE_SECONDS = 0.25
+_lookup_executor: ThreadPoolExecutor | None = None
+_lookup_executor_lock = threading.Lock()
+
+
+def _get_lookup_executor() -> ThreadPoolExecutor:
+    """Liefert den geteilten Lookup-Executor (lazy, einmal pro Prozess)."""
+    global _lookup_executor
+    with _lookup_executor_lock:
+        if _lookup_executor is None:
+            _lookup_executor = ThreadPoolExecutor(
+                max_workers=_LOOKUP_EXECUTOR_MAX_WORKERS,
+                thread_name_prefix="email-lookup",
+            )
+        return _lookup_executor
+
 
 # Lokale Teile, die anwendungsspezifisch sind und zuerst angeboten werden (R5).
 _APPLICATION_LOCALPART_PREFIXES = (
@@ -126,8 +157,48 @@ def _default_resolver(host: str) -> list[str]:
 
 
 def is_valid_email(value: str | None) -> bool:
-    """Grobe Formatprüfung einer E-Mail-Adresse."""
-    return bool(value) and _EMAIL_RE.match(value) is not None
+    """Grobe Formatprüfung einer E-Mail-Adresse.
+
+    `fullmatch` statt `^...$` mit `.match`: `$` passt auch vor einem
+    abschließenden `\\n`, `fullmatch` (bzw. `\\Z`) nicht - ein Wert mit
+    Trailing-Newline wird damit abgelehnt.
+    """
+    return bool(value) and _EMAIL_RE.fullmatch(value) is not None
+
+
+def _email_appears_verbatim(email: str, text: str) -> bool:
+    """Ob `email` wörtlich im `text` vorkommt - an Adressgrenzen (R4).
+
+    Reine Substring-Suche würde `kontakt@acme.de` fälschlich in
+    `kontakt@acme.development` finden; die Lookarounds verbieten ein
+    angrenzendes Adresszeichen.
+    """
+    pattern = re.compile(
+        rf"(?<!{_EMAIL_CHAR_CLASS}){re.escape(email)}(?!{_EMAIL_CHAR_CLASS})",
+        re.IGNORECASE,
+    )
+    return pattern.search(text) is not None
+
+
+def _collect_mailto_addresses(html: str) -> list[str]:
+    """Sammelt Adressen aus `a[href^="mailto:"]` vor dem HTML-Stripping.
+
+    `get_text()` verwirft `href`-Attribute, wodurch eine ausschließlich als
+    `mailto:`-Link vorhandene Adresse nie ans Modell oder an den
+    Verbatim-Nachweis gelangen würde.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    addresses: list[str] = []
+    for anchor in soup.find_all("a", href=True):
+        href = (anchor.get("href") or "").strip()
+        if not href.lower().startswith("mailto:"):
+            continue
+        raw = href[len("mailto:"):].split("?", 1)[0]
+        for part in raw.split(","):
+            address = part.strip()
+            if address and address not in addresses:
+                addresses.append(address)
+    return addresses
 
 
 def _clean_email(value: str) -> str:
@@ -159,6 +230,21 @@ def _company_host_candidates(company: str) -> list[str]:
     if len(slug) < 3:
         return []
     return [f"{slug}{tld}" for tld in _COMPANY_TLDS]
+
+
+def _registrable_domain(host: str) -> str:
+    """Grobe Registrable-Domain-Heuristik (ohne Public-Suffix-Liste).
+
+    Reicht, um Fremd-Hosts (Social/Tracking) von Arbeitgeber-Hosts zu
+    unterscheiden; eine vollständige PSL wäre für diesen Zweck Overkill.
+    """
+    normalized = (host or "").lower().strip(".")
+    parts = normalized.split(".")
+    if len(parts) <= 2:
+        return normalized
+    if parts[-2] in {"co", "com", "org", "net", "gov", "edu", "ac"} and len(parts[-1]) == 2:
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:])
 
 
 def _truncate_bytes(value: str, max_bytes: int) -> str:
@@ -223,34 +309,49 @@ class ApplicationEmailLookupService:
     def lookup(self, request: ApplicationEmailLookupRequest) -> ApplicationEmailLookupResult:
         """Führt die Suche mit harter Gesamt-Deadline aus.
 
-        Der eigentliche Lauf steckt in einem Worker-Thread, dessen Ergebnis
-        höchstens `deadline_seconds` wartet - so löst die Anfrage auch dann
-        auf, wenn ein Fetch oder der Ollama-Aufruf hängt (KTD4). Jeder Fehler
-        wird auf `failed` abgebildet, nie auf eine erratene Adresse (R6).
+        Der eigentliche Lauf steckt in einem Worker des geteilten, begrenzten
+        Executors, dessen Ergebnis höchstens `deadline_seconds` (plus kleiner
+        Nachfrist) wartet - so löst die Anfrage auch dann auf, wenn ein Fetch
+        oder der Ollama-Aufruf hängt (KTD4). Bei einem Timeout wird das
+        `cancel`-Event gesetzt, damit der Worker keine weitere Seite mehr
+        lädt/extrahiert; ein laufender Ollama-Aufruf kann ohne Änderung der
+        `llm_client`-API nicht unterbrochen werden, hält den Lock also nur bis
+        zum Ende genau dieses Aufrufs. Jeder Fehler wird auf `failed`
+        abgebildet, nie auf eine erratene Adresse (R6).
         """
-        executor = ThreadPoolExecutor(max_workers=1)
+        cancel = threading.Event()
         try:
-            future = executor.submit(self._lookup, request)
+            deadline = monotonic() + self._deadline_seconds
+            executor = _get_lookup_executor()
+            future = executor.submit(self._lookup, request, deadline, cancel)
             try:
-                return future.result(timeout=self._deadline_seconds)
+                return future.result(
+                    timeout=self._deadline_seconds + _LOOKUP_DEADLINE_GRACE_SECONDS
+                )
             except FuturesTimeoutError:
+                cancel.set()
                 logger.warning("Bewerbungs-E-Mail-Suche hat die Deadline überschritten.")
                 return ApplicationEmailLookupResult(status="failed")
             except Exception:  # noqa: BLE001 - jeder Fehler ist ein `failed`-Ergebnis
                 logger.exception("Bewerbungs-E-Mail-Suche ist fehlgeschlagen.")
                 return ApplicationEmailLookupResult(status="failed")
-        finally:
-            executor.shutdown(wait=False)
+        except Exception:  # noqa: BLE001 - auch ein Executor-Fehler darf kein 5xx werden
+            logger.exception("Bewerbungs-E-Mail-Suche konnte nicht gestartet werden.")
+            return ApplicationEmailLookupResult(status="failed")
 
     # --- Ablauf ------------------------------------------------------------
 
-    def _lookup(self, request: ApplicationEmailLookupRequest) -> ApplicationEmailLookupResult:
-        deadline = monotonic() + self._deadline_seconds
+    def _lookup(
+        self,
+        request: ApplicationEmailLookupRequest,
+        deadline: float,
+        cancel: threading.Event,
+    ) -> ApplicationEmailLookupResult:
         candidates: list[_Candidate] = []
         order = 0
         any_page_processed = False
 
-        posting_html = self._fetch_page(request.source_url, deadline)
+        posting_html = self._fetch_page(request.source_url, deadline, cancel)
         employer_urls = self._candidate_urls(posting_html, request.source_url, request.company)
 
         employer_urls = list(dict.fromkeys(employer_urls))
@@ -264,14 +365,19 @@ class ApplicationEmailLookupService:
         fetched: dict[str, str | None] = {request.source_url: posting_html}
 
         for page_url in pages:
+            if cancel.is_set():
+                break
             if self._deadline_exceeded(deadline):
                 logger.warning("Bewerbungs-E-Mail-Suche: Deadline vor %s erreicht.", sanitize_url_for_log(page_url))
+                # Ein bereits gefundener Kandidat darf nicht verworfen werden.
+                if candidates:
+                    return self._best_result(candidates)
                 return ApplicationEmailLookupResult(status="failed")
 
             if page_url in fetched:
                 html = fetched[page_url]
             else:
-                html = self._fetch_page(page_url, deadline)
+                html = self._fetch_page(page_url, deadline, cancel)
             if html is None:
                 continue
 
@@ -279,6 +385,13 @@ class ApplicationEmailLookupService:
             if not text:
                 any_page_processed = True
                 continue
+
+            # Vor der (nicht unterbrechbaren) LLM-Extraktion prüfen: nach
+            # Deadline/Abbruch keine weitere Extraktion mehr starten.
+            if cancel.is_set() or self._deadline_exceeded(deadline):
+                if candidates:
+                    return self._best_result(candidates)
+                return ApplicationEmailLookupResult(status="failed")
 
             try:
                 emails = self._extract_emails(text)
@@ -289,12 +402,11 @@ class ApplicationEmailLookupService:
                 continue
             any_page_processed = True
 
-            text_lower = text.lower()
             for raw_email in emails:
                 cleaned = _clean_email(raw_email)
                 if not is_valid_email(cleaned):
                     continue
-                if cleaned.lower() not in text_lower:
+                if not _email_appears_verbatim(cleaned, text):
                     # R4: nur wörtlich auf der geladenen Seite gefundene Adressen.
                     continue
                 candidates.append(
@@ -308,19 +420,25 @@ class ApplicationEmailLookupService:
                 order += 1
 
         if candidates:
-            best = min(candidates, key=lambda candidate: (candidate.rank, candidate.order))
-            return ApplicationEmailLookupResult(
-                status="found",
-                email=best.email,
-                source_url=best.source_url,
-            )
+            return self._best_result(candidates)
         if any_page_processed:
             return ApplicationEmailLookupResult(status="not-found")
         return ApplicationEmailLookupResult(status="failed")
 
+    @staticmethod
+    def _best_result(candidates: list[_Candidate]) -> ApplicationEmailLookupResult:
+        best = min(candidates, key=lambda candidate: (candidate.rank, candidate.order))
+        return ApplicationEmailLookupResult(
+            status="found",
+            email=best.email,
+            source_url=best.source_url,
+        )
+
     # --- Seitentext --------------------------------------------------------
 
-    def _fetch_page(self, url: str, deadline: float) -> str | None:
+    def _fetch_page(self, url: str, deadline: float, cancel: threading.Event) -> str | None:
+        if cancel.is_set():
+            return None
         if not self._is_public_url(url):
             logger.warning("Bewerbungs-E-Mail-Suche: unsichere URL abgelehnt.")
             return None
@@ -334,12 +452,22 @@ class ApplicationEmailLookupService:
 
     def _fetch_html(self, url: str) -> str | None:
         # KTD3: Weiterleitungen sind deaktiviert - sonst könnte ein öffentlich
-        # validierter Host auf eine interne Adresse umleiten.
-        return fetch_html(url, timeout=self._fetch_timeout, allow_redirects=False)
+        # validierter Host auf eine interne Adresse umleiten. Der Body-Cap
+        # begrenzt den Download selbst (nicht nur die Textaufbereitung).
+        return fetch_html(
+            url,
+            timeout=self._fetch_timeout,
+            allow_redirects=False,
+            max_bytes=self._max_body_bytes,
+        )
 
     def _page_text(self, html: str) -> str | None:
         truncated = _truncate_bytes(html, self._max_body_bytes)
+        mailto_addresses = _collect_mailto_addresses(truncated)
         text = strip_html(truncated)
+        if mailto_addresses:
+            joined = " ".join(mailto_addresses)
+            text = f"{text} {joined}" if text else joined
         if not text:
             return None
         return text[: self._max_page_text_chars]
@@ -354,8 +482,12 @@ class ApplicationEmailLookupService:
         if not host:
             return False
         try:
+            # `socket.getaddrinfo` hat kein Timeout-Parameter; die Auflösung
+            # ist damit nur durch die Gesamt-Deadline des Lookups begrenzt.
+            # Breiter Catch, weil ein Hostname auch Unicode-/Parsing-Fehler
+            # auslösen kann (UnicodeError/ValueError), nicht nur OSError.
             addresses = self._resolver(host)
-        except OSError:
+        except (OSError, UnicodeError, ValueError):
             return False
         if not addresses:
             return False
@@ -363,7 +495,7 @@ class ApplicationEmailLookupService:
             try:
                 if not is_public_ip(address):
                     return False
-            except ValueError:
+            except (ValueError, UnicodeError):
                 return False
         return True
 
@@ -384,6 +516,16 @@ class ApplicationEmailLookupService:
         other_hosts: list[str] = []
         posting_host = urlparse(posting_url).hostname
 
+        # Nur Hosts, deren Registrable-Domain zur Anzeigenseite oder zum
+        # Firmennamen passt, gelten als Arbeitgeber-Hosts. Sonst würden
+        # beliebige verlinkte Fremd-Hosts (Social/Tracking) als Arbeitgeber
+        # gescrapt und persistiert.
+        allowed_domains: set[str] = set()
+        if posting_host:
+            allowed_domains.add(_registrable_domain(posting_host))
+        for candidate in _company_host_candidates(company):
+            allowed_domains.add(_registrable_domain(candidate))
+
         if posting_html:
             soup = BeautifulSoup(posting_html, "html.parser")
             for anchor in soup.find_all("a", href=True):
@@ -402,7 +544,10 @@ class ApplicationEmailLookupService:
                     urls.append(full)
                     if host not in hinted_hosts:
                         hinted_hosts.append(host)
-                elif host not in other_hosts:
+                elif (
+                    host not in other_hosts
+                    and _registrable_domain(host) in allowed_domains
+                ):
                     other_hosts.append(host)
 
         employer_hosts = hinted_hosts + other_hosts

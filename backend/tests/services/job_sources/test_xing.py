@@ -279,7 +279,7 @@ def test_non_german_filter_does_not_false_positive_on_similar_german_names(mocke
     html = f"""
     <html><body>
       <article class="job-teaser-card">
-        <a class="job-teaser-card__overlay-link" href="/stellenangebote/1-{name}"></a>
+        <a class="job-teaser-card__overlay-link" href="/stellenangebote/1-{name.replace(' ', '-')}"></a>
         <div class="job-teaser-card__body">
           <h2>Backend Engineer {name}</h2>
           <span class="company-name">Acme GmbH</span>

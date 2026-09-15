@@ -72,16 +72,27 @@ export interface JobSearchResponse {
 export interface ApplicationEmailLookupRequest {
   source_url: string;
   company: string;
+  /**
+   * `true` lässt das Backend die Persistiert-zuerst-Auslese überspringen und
+   * den Scraper erneut laufen (R11-Re-Run). Muss mitgeschickt werden, sonst
+   * liefert ein gespeicherter Job nur die persistierte Adresse zurück.
+   */
+  force?: boolean;
 }
 
 /**
  * Baut den Lookup-Payload aus einem `JobOffer` - beide Oberflächen (Job-
- * Suchkarte und Sendedialog) senden denselben Payload (KTD1).
+ * Suchkarte und Sendedialog) senden denselben Payload (KTD1). `force` wird
+ * für den Re-Run (R11) mitgegeben und ans Backend durchgereicht.
  */
-export function toApplicationEmailLookupRequest(job: JobOffer): ApplicationEmailLookupRequest {
+export function toApplicationEmailLookupRequest(
+  job: JobOffer,
+  force = false,
+): ApplicationEmailLookupRequest {
   return {
     source_url: job.source_url,
     company: job.company,
+    force,
   };
 }
 

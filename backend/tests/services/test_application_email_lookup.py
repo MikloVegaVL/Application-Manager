@@ -9,8 +9,10 @@ Nur der SSRF-Redirect-Test nutzt den echten `requests`-Pfad über
 from __future__ import annotations
 
 import re
+import threading
 import time
 
+import pytest
 from requests_mock import ANY
 
 from app.core.config import settings
@@ -157,6 +159,19 @@ def test_ranking_prefers_named_contact_over_generic():
     assert result.email == "max.mustermann@acme.de"
 
 
+def test_mailto_only_address_is_extracted():
+    """Covers R4: eine nur als `mailto:`-Link vorhandene Adresse wird vor dem
+    HTML-Stripping eingesammelt und besteht den Verbatim-Nachweis."""
+    posting = '<html><a href="mailto:bewerbung@acme.de">Jetzt bewerben</a></html>'
+    fetch = _FakeFetcher({"https://jobs.example.com/1": posting})
+    service = _service(fetch, _RegexExtractor())
+
+    result = service.lookup(_request(company=""))
+
+    assert result.status == "found"
+    assert result.email == "bewerbung@acme.de"
+
+
 # --- Verbatim-only (R4) ----------------------------------------------------
 
 
@@ -178,6 +193,20 @@ def test_only_unverifiable_addresses_yield_not_found():
     page = "Keine echte Adresse hier."
     fetch = _FakeFetcher({"https://jobs.example.com/1": page})
     extractor = _FixedExtractor(["ghost@nowhere.de"])
+    service = _service(fetch, extractor)
+
+    result = service.lookup(_request(company=""))
+
+    assert result.status == "not-found"
+    assert result.email is None
+
+
+def test_verbatim_boundary_rejects_truncated_address_match():
+    """Covers R4: `kontakt@acme.de` darf nicht als wörtlicher Treffer in
+    `kontakt@acme.development` gelten (Substring-Fehlpass)."""
+    page = "Kontakt: kontakt@acme.development"
+    fetch = _FakeFetcher({"https://jobs.example.com/1": page})
+    extractor = _FixedExtractor(["kontakt@acme.de"])
     service = _service(fetch, extractor)
 
     result = service.lookup(_request(company=""))
@@ -257,6 +286,103 @@ def test_deadline_exceedance_returns_failed_promptly():
     assert elapsed < 0.8
 
 
+def test_deadline_with_existing_candidate_returns_found():
+    """Covers KTD4: eine überschrittene Deadline verwirft einen bereits
+    gefundenen Kandidaten nicht, sondern liefert ihn als `found`."""
+    posting = '<html><a href="https://acme.de/karriere">Karriere</a></html>'
+    karriere = "<html>Bewerbung an bewerbung@acme.de</html>"
+
+    def _fetch(url: str) -> str | None:
+        if url == "https://acme.de/karriere":
+            return karriere
+        if url == "https://acme.de/jobs":
+            time.sleep(0.4)
+            return "<html>Kein Kontakt.</html>"
+        return None
+
+    service = _service(_fetch, _RegexExtractor(), deadline_seconds=0.3)
+
+    result = service.lookup(_request())
+
+    assert result.status == "found"
+    assert result.email == "bewerbung@acme.de"
+    assert result.source_url == "https://acme.de/karriere"
+
+
+def test_cancellation_stops_further_page_fetches_after_timeout():
+    """Covers KTD4: nach einem Timeout setzt der Worker keine weitere Seite
+    mehr ab (das `cancel`-Event stoppt die restlichen Seiten)."""
+    posting = (
+        '<html><a href="https://acme.de/karriere">K</a>'
+        '<a href="https://acme.de/jobs">J</a></html>'
+    )
+
+    class _SlowExtractor:
+        def __call__(self, text: str) -> list[str]:
+            time.sleep(0.4)
+            return []
+
+    fetch = _FakeFetcher(
+        {
+            "https://jobs.example.com/1": posting,
+            "https://acme.de/karriere": "Seite 1",
+            "https://acme.de/jobs": "Seite 2",
+        }
+    )
+    service = _service(fetch, _SlowExtractor(), deadline_seconds=0.05)
+
+    result = service.lookup(_request())
+
+    time.sleep(0.5)
+    assert result.status == "failed"
+    assert not any("acme.de/jobs" in call for call in fetch.calls)
+
+
+def test_repeated_timed_out_lookups_do_not_spawn_unbounded_threads():
+    """Covers KTD4: wiederholte getimeoutete Lookups lassen dank geteiltem,
+    begrenztem Executor nicht beliebig viele Extraktionen gleichzeitig
+    laufen - ein per-Request-Executor würde hier unbegrenzt Threads starten."""
+    import app.services.application_email_lookup as lookup_module
+
+    counter_lock = threading.Lock()
+    release = threading.Event()
+    state = {"active": 0, "max_active": 0}
+
+    class _BlockingExtractor:
+        def __call__(self, text: str) -> list[str]:
+            with counter_lock:
+                state["active"] += 1
+                state["max_active"] = max(state["max_active"], state["active"])
+            release.wait(timeout=5.0)
+            with counter_lock:
+                state["active"] -= 1
+            return []
+
+    fetch = _FakeFetcher({"https://jobs.example.com/1": "bewerbung@acme.de"})
+    service = _service(fetch, _BlockingExtractor(), deadline_seconds=0.02)
+
+    for _ in range(6):
+        assert service.lookup(_request(company="")).status == "failed"
+
+    release.set()
+    time.sleep(0.3)
+
+    assert state["max_active"] <= lookup_module._LOOKUP_EXECUTOR_MAX_WORKERS
+
+
+def test_lookup_executor_is_shared_and_bounded():
+    """Covers KTD4: der Lookup nutzt einen prozessweit geteilten Executor mit
+    kleinem Worker-Cap statt eines Executors pro Request."""
+    import app.services.application_email_lookup as lookup_module
+
+    first = lookup_module._get_lookup_executor()
+    second = lookup_module._get_lookup_executor()
+
+    assert first is second
+    assert first._max_workers == lookup_module._LOOKUP_EXECUTOR_MAX_WORKERS
+    assert lookup_module._LOOKUP_EXECUTOR_MAX_WORKERS <= 8
+
+
 # --- SSRF (KTD3) -----------------------------------------------------------
 
 
@@ -272,19 +398,65 @@ def test_candidate_url_resolving_to_private_address_is_never_fetched():
     assert result.status == "not-found"
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:52050\\@example.com/",
+        "http://169.254.169.254\\@example.com/",
+        "http://127.0.0.1\\@example.com/",
+    ],
+)
+def test_backslash_parser_differential_urls_are_rejected_and_never_fetched(url):
+    """Covers R3/KTD3: eine URL, die `urlsplit` als öffentlichen Host liest,
+    die `requests`/`urllib3` aber intern verbindet (Backslash-Parser-
+    Differential), wird abgelehnt und nie abgerufen."""
+    fetch = _FakeFetcher({"https://jobs.example.com/1": "<html>ok</html>"})
+    service = _service(fetch, _RegexExtractor())
+
+    result = service.lookup(_request(source_url=url, company=""))
+
+    assert result.status == "failed"
+    assert result.email is None
+    assert fetch.calls == []
+
+
+def test_unrelated_linked_host_is_not_treated_as_employer():
+    """Covers R3: ein verlinkter Fremd-Host (Social/Tracking) ohne Karriere-/
+    Kontakt-Pfad und ohne passende Registrable-Domain wird nicht gescrapt."""
+    posting = '<html><a href="https://facebook.com/acme">Facebook</a></html>'
+    fetch = _FakeFetcher({"https://jobs.example.com/1": posting})
+    service = _service(fetch, _RegexExtractor())
+
+    result = service.lookup(_request(company="Acme"))
+
+    assert not any("facebook.com" in call for call in fetch.calls)
+    assert result.status == "not-found"
+
+
 def test_redirect_to_loopback_is_not_followed(requests_mock):
     """Covers R3: eine öffentliche URL, die auf Loopback umleitet, wird nicht
-    verfolgt (Weiterleitungen sind deaktiviert)."""
+    verfolgt (Weiterleitungen sind deaktiviert). Das Loopback-Ziel liefert
+    eine Adresse - sie darf weder zurückkommen noch angefragt werden.
+
+    Der Fallback-Matcher wird ZUERST registriert: `requests_mock` prüft die
+    zuletzt registrierten Matcher zuerst, ein danach registriertes `ANY`-404
+    würde den spezifischen 302-Matcher verdecken und den Redirect nie
+    auslösen (False Positive).
+    """
+    requests_mock.get(ANY, status_code=404)
+    requests_mock.get(
+        "http://127.0.0.1/secret",
+        text="<html>bewerbung@evil.internal</html>",
+    )
     requests_mock.get(
         "https://jobs.example.com/redirect",
         status_code=302,
         headers={"Location": "http://127.0.0.1/secret"},
     )
-    requests_mock.get(ANY, status_code=404)
 
     service = ApplicationEmailLookupService(
         resolver=_resolver,
-        extract_emails=_FixedExtractor([]),
+        extract_emails=_RegexExtractor(),
         deadline_seconds=5.0,
     )
 
@@ -292,7 +464,8 @@ def test_redirect_to_loopback_is_not_followed(requests_mock):
         _request(source_url="https://jobs.example.com/redirect", company="")
     )
 
-    assert result.status == "failed"
+    assert result.status in ("failed", "not-found")
+    assert result.email is None
     requested_urls = [request.url for request in requests_mock.request_history]
     assert not any("127.0.0.1" in url for url in requested_urls)
 
@@ -353,3 +526,6 @@ def test_is_valid_email_accepts_and_rejects():
     assert not is_valid_email("keine-adresse")
     assert not is_valid_email("a@b")
     assert not is_valid_email(None)
+    # Trailing-Newline: `$` hätte das früher akzeptiert, `fullmatch` nicht.
+    assert not is_valid_email("bewerbung@acme.de\n")
+    assert not is_valid_email("bewerbung@acme.de\nBcc: evil@example.com")

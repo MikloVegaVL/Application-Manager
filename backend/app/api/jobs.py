@@ -1,4 +1,6 @@
 """API-Router für die Jobsuche und das Speichern von Stellenangeboten."""
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
@@ -17,6 +19,8 @@ from app.services.application_email_lookup import (
 )
 from app.services.job_search_service import JobSearchService, get_job_search_service
 from app.services.job_sources.shared import validate_source_url
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
@@ -105,29 +109,41 @@ def lookup_application_email(
     """Sucht on-demand eine Bewerbungs-E-Mail für einen Job-Payload (R1).
 
     Persistiert-zuerst (KTD1): hat ein gespeichertes `JobOffer` mit dieser
-    `source_url` bereits eine Adresse, wird sie ohne jeden Abruf zurückgegeben.
-    Sonst läuft die Suche; ein gefundenes Ergebnis wird auf dem passenden
-    gespeicherten Job gespeichert (R10), ein unsauberer/unsaved Payload wird
-    nicht persistiert. Ein Lookup-Fehler ist ein `failed`-Ergebnis, kein 5xx.
+    `source_url` bereits eine Adresse, wird sie ohne jeden Abruf zurückgegeben
+    - außer `force=True`, dann läuft der Scraper erneut. Sonst läuft die Suche;
+    ein gefundenes Ergebnis wird auf dem passenden gespeicherten Job
+    gespeichert (R10), ein unsauberer/unsaved Payload wird nicht persistiert.
+    Jeder Lookup-Fehler ist ein `failed`-Ergebnis, kein 5xx.
     """
     existing = db.query(JobOffer).filter(JobOffer.source_url == payload.source_url).first()
-    if existing is not None and existing.application_email:
+    if not payload.force and existing is not None and existing.application_email:
         return ApplicationEmailLookupResult(
             status="found",
             email=existing.application_email,
             source_url=existing.application_email_source_url,
         )
 
-    result = service.lookup(payload)
+    try:
+        result = service.lookup(payload)
+    except Exception:  # noqa: BLE001 - nie ein 5xx aus dem Lookup-Pfad
+        logger.exception("Bewerbungs-E-Mail-Suche ist unerwartet fehlgeschlagen.")
+        return ApplicationEmailLookupResult(status="failed")
 
     if (
         result.status == "found"
         and result.email
+        and is_valid_email(result.email)
+        and len(result.email) <= 320
         and existing is not None
     ):
         existing.application_email = result.email
         existing.application_email_source_url = result.source_url
-        db.commit()
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001 - ein Persistenzfehler darf kein 5xx werden
+            logger.exception("Speichern der Bewerbungs-E-Mail ist fehlgeschlagen.")
+            db.rollback()
+            return ApplicationEmailLookupResult(status="failed")
 
     return result
 

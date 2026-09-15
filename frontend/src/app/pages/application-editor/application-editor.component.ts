@@ -307,10 +307,14 @@ export class ApplicationEditorComponent implements OnInit {
 
     // Persistierte Adresse schlägt die Extraktion aus dem Anzeigentext
     // (R10/AE4); ein in-session gefundenes Ergebnis der Karte kommt davor,
-    // damit ein frisch gesuchter Job beim Öffnen nicht leer startet.
-    const cachedLookupEmail = jobOffer
-      ? (this.jobSearchState.applicationEmailResult(jobOffer.source_url)?.email ?? null)
+    // damit ein frisch gesuchter Job beim Öffnen nicht leer startet. Nur ein
+    // `found`-Ergebnis liefert eine Adresse - `not-found`/`failed` dürfen
+    // nicht als (leerer) Vorschlag durchschlagen.
+    const cachedLookupResult = jobOffer
+      ? this.jobSearchState.applicationEmailResult(jobOffer.source_url)
       : null;
+    const cachedLookupEmail =
+      cachedLookupResult?.status === 'found' ? (cachedLookupResult.email ?? null) : null;
 
     const dialogRef = this.dialog.open(SendApplicationDialogComponent, {
       width: '520px',
@@ -327,7 +331,7 @@ export class ApplicationEditorComponent implements OnInit {
         findApplicationEmail: jobOffer
           ? (force: boolean) =>
               this.jobSearchState.lookupApplicationEmail(
-                toApplicationEmailLookupRequest(jobOffer),
+                toApplicationEmailLookupRequest(jobOffer, force),
                 { force },
               )
           : undefined,

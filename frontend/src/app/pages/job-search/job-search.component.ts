@@ -202,18 +202,18 @@ export class JobSearchComponent {
   /**
    * Startet die On-Demand-Suche (R1/R2). Die Karte übergibt denselben Payload
    * wie der Editor (KTD1); `force` wird gesetzt, sobald bereits ein Ergebnis
-   * vorliegt, damit der Re-Run-Affordance (R11) tatsächlich neu sucht.
+   * vorliegt, damit der Re-Run-Affordance (R11) tatsächlich neu sucht - und
+   * im Payload ans Backend mitgeschickt, sonst liefert ein gespeicherter Job
+   * nur die persistierte Adresse zurück.
    */
   onFindApplicationEmail(job: JobOffer): void {
     if (this.isLookingUp(job)) {
       return;
     }
+    const force = this.lookupResult(job) !== null;
     this.setLookupLoading(job.source_url, true);
     this.state
-      .lookupApplicationEmail(
-        toApplicationEmailLookupRequest(job),
-        { force: this.lookupResult(job) !== null },
-      )
+      .lookupApplicationEmail(toApplicationEmailLookupRequest(job, force), { force })
       .subscribe({
         next: () => {
           // Das Ergebnis ist im State-Service bereits gecacht (KTD7).

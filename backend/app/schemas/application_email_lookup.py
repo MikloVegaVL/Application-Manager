@@ -20,6 +20,9 @@ class ApplicationEmailLookupRequest(BaseModel):
 
     source_url: str = Field(..., max_length=1024)
     company: str = Field(..., max_length=255)
+    # `force=True` überspringt die Persistiert-zuerst-Auslese im Endpoint und
+    # lässt den Scraper tatsächlich erneut laufen (Default unverändert `False`).
+    force: bool = False
 
 
 class ApplicationEmailLookupResult(BaseModel):

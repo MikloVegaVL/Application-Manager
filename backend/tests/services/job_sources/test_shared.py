@@ -216,12 +216,42 @@ def test_json_ld_unsafe_url_is_dropped(unsafe_url):
         "http://192.168.0.10/jobs",
         "http://10.0.0.5/jobs",
         "http://169.254.0.1/jobs",
+        # CGNAT (100.64.0.0/10) ist nicht global routbar.
+        "http://100.64.0.1/jobs",
+        # Parser-Differential: urlsplit liest example.com, requests verbindet
+        # 127.0.0.1 / 169.254.169.254 (Backslash bzw. Steuerzeichen).
+        "http://127.0.0.1:52050\\@example.com/",
+        "http://169.254.169.254\\@example.com/",
+        "https://example.com/jobs\n",
+        "https://example.com/jo bs",
         "",
         None,
     ],
 )
 def test_validate_source_url_rejects_non_http_and_private_hosts(url):
     assert shared_module.validate_source_url(url) is False
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("93.184.216.34", True),
+        ("8.8.8.8", True),
+        ("127.0.0.1", False),
+        ("10.0.0.5", False),
+        ("169.254.0.1", False),
+        # CGNAT - von der alten Deny-Liste durchgelassen, muss abgelehnt werden.
+        ("100.64.0.1", False),
+        ("100.127.255.255", False),
+        ("not-an-ip", None),
+    ],
+)
+def test_is_public_ip_covers_cgnat_and_global_ranges(value, expected):
+    if expected is None:
+        with pytest.raises(ValueError):
+            shared_module.is_public_ip(value)
+    else:
+        assert shared_module.is_public_ip(value) is expected
 
 
 @pytest.mark.parametrize(
@@ -281,6 +311,27 @@ def test_fetch_failure_log_strips_url_credentials_and_query(mocker, caplog):
     assert "secret" not in logs
     assert "abc123" not in logs
     assert "https://example.com/jobs" in logs
+
+
+# --- fetch_with_requests() body cap ----------------------------------------
+
+
+def test_fetch_with_requests_respects_max_bytes_cap(requests_mock):
+    """Ein `max_bytes`-Cap begrenzt den heruntergeladenen Body."""
+    requests_mock.get("https://example.com/big", text="x" * 10_000)
+
+    result = shared_module.fetch_with_requests("https://example.com/big", max_bytes=100)
+
+    assert result == "x" * 100
+
+
+def test_fetch_with_requests_without_cap_returns_full_body(requests_mock):
+    """Ohne Cap bleibt das bisherige Verhalten (voller Body) erhalten."""
+    requests_mock.get("https://example.com/full", text="y" * 5_000)
+
+    result = shared_module.fetch_with_requests("https://example.com/full")
+
+    assert result == "y" * 5_000
 
 
 def test_render_failure_log_strips_url_credentials_and_query(mocker, caplog):

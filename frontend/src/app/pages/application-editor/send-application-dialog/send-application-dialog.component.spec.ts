@@ -1,8 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { HttpErrorResponse } from '@angular/common/http';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
 import { By } from '@angular/platform-browser';
-import { Subject, of } from 'rxjs';
+import { Subject, of, throwError } from 'rxjs';
 
 import {
   SendApplicationDialogComponent,
@@ -133,6 +134,26 @@ describe('SendApplicationDialogComponent', () => {
     expect(findSpy.calls.argsFor(0)).toEqual([false]);
     expect(findSpy.calls.argsFor(1)).toEqual([true]);
     expect(component['form'].controls.to_email.value).toBe('jobs@acme.example');
+  });
+
+  it('Covers A5: an HTTP error maps to the distinct failure copy and re-enables the action', () => {
+    setup({
+      findApplicationEmail: () =>
+        throwError(
+          () => new HttpErrorResponse({ status: 500, statusText: 'Internal Server Error' }),
+        ),
+    });
+
+    component['onFindApplicationEmail']();
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain("Couldn't reach the employer's site — try again");
+    expect(text).not.toContain('No application email found');
+
+    const button = fixture.debugElement.query(By.css('.dialog-form__find-email-btn'))
+      .nativeElement as HTMLButtonElement;
+    expect(button.disabled).toBeFalse();
   });
 
   it('Loading: the action is disabled and an inline spinner shows while in flight', () => {
