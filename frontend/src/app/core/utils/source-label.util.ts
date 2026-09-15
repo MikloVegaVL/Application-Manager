@@ -6,6 +6,7 @@
  */
 const SOURCE_LABELS: Record<string, string> = {
   arbeitsagentur: 'Arbeitsagentur',
+  arbeitnow: 'Arbeitnow',
   linkedin: 'LinkedIn',
   xing: 'Xing',
   adzuna: 'Adzuna',

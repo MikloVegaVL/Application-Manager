@@ -42,6 +42,7 @@ import requests
 
 from app.core.config import settings
 from app.schemas.job_offer import JobOfferCreate, JobSearchResponse, SourceStatus
+from app.services.job_sources.arbeitnow import ArbeitnowJobsClient
 from app.services.job_sources.boards import BOARD_DESCRIPTORS, BoardSource
 from app.services.job_sources.devjobs import DevjobsScraper
 from app.services.job_sources.linkedin import LinkedInJobsClient
@@ -338,6 +339,17 @@ class JobSearchService:
         }
 
         registry: list[SourceRegistration] = [SourceRegistration(self._arbeitsagentur_client)]
+        # Arbeitnow ist wie Arbeitsagentur unconditionally registriert: eine
+        # offene, keyless API braucht weder Enable-Flag noch Zugangsdaten (R4,
+        # KTD2).
+        registry.append(
+            SourceRegistration(
+                ArbeitnowJobsClient(
+                    # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
+                    timeout=inner_timeout_for(self._deadline_seconds),
+                )
+            )
+        )
         if settings.JOB_SEARCH_LINKEDIN_ENABLED:
             registry.append(
                 SourceRegistration(

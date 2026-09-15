@@ -405,6 +405,7 @@ def test_default_registry_is_built_from_settings_without_injection():
     assert platforms[0] == "arbeitsagentur"
     assert set(platforms) <= {
         "arbeitsagentur",
+        "arbeitnow",
         "linkedin",
         "xing",
         "devjobs",
@@ -413,6 +414,9 @@ def test_default_registry_is_built_from_settings_without_injection():
         "indeed",
         "programmiererjobboerse",
     }
+    # KTD2: Arbeitnow ist wie Arbeitsagentur unconditionally registriert -
+    # kein Enable-Flag, keine Zugangsdaten.
+    assert "arbeitnow" in platforms
     # U6: alle HTML-Boards (inkl. des eigens registrierten devjobs, siehe
     # job_sources/devjobs.py) sind standardmäßig registriert und tragen je
     # einen eigenen Plattform-Schlüssel - keiner ist "web-scraper" (R4/R6).
