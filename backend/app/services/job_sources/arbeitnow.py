@@ -46,17 +46,14 @@ class ArbeitnowJobsClient(CooldownMixin):
 
     SOURCE_PLATFORM = "arbeitnow"
     BASE_URL = "https://www.arbeitnow.com/api/job-board-api"
-    _DEFAULT_RESULT_CAP = 25
     _DEFAULT_COOLDOWN_SECONDS = 300.0
 
     def __init__(
         self,
         timeout: float = 10.0,
-        result_cap: int = _DEFAULT_RESULT_CAP,
         cooldown_seconds: float = _DEFAULT_COOLDOWN_SECONDS,
     ) -> None:
         self._timeout = timeout
-        self._result_cap = result_cap
         self._cooldown_seconds = cooldown_seconds
         self._headers = {
             "Accept": "application/json",
@@ -116,6 +113,13 @@ class ArbeitnowJobsClient(CooldownMixin):
         raw_results = payload.get("data") or []
         location_term = location.strip().lower() if location and location.strip() else None
 
+        # Kein `result_cap`-Abbruch mehr (anders als vor diesem Plan): die
+        # Seite hat kein serverseitiges Keyword-Relevanz-Ranking, also würde
+        # ein früher Abbruch nach den ersten N Treffern in API-Reihenfolge
+        # - VOR dem zentralen Relevanzfilter (R6/R7) - echte Treffer aus dem
+        # Rest der Seite verlieren, statt nur die uninteressantesten zu
+        # verwerfen. Adzuna/Jooble dürfen weiterhin serverseitig cappen, weil
+        # deren Suche bereits relevanzsortiert antwortet.
         offers: list[JobOfferCreate] = []
         for raw in raw_results:
             if not self._matches_location(raw, location_term):
@@ -127,8 +131,6 @@ class ArbeitnowJobsClient(CooldownMixin):
                 continue
             if offer is not None:
                 offers.append(offer)
-            if len(offers) >= self._result_cap:
-                break
         return offers
 
     # --- Client-seitige Location-Filterung ---------------------------------

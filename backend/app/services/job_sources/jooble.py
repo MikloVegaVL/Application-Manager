@@ -111,10 +111,10 @@ class JoobleJobsClient(CooldownMixin):
         }
         # Nur die redigierte URL loggen - die rohe URL enthält den API-Key im
         # Pfad.
-        logger.debug(
-            "Jooble-Anfrage: POST %s",
-            redact_credentials(self._redacted_endpoint()),
-        )
+        # `_redacted_endpoint()` maskiert den Key bereits selbst (er sitzt im
+        # Pfad, nicht in einem Query-Parameter) - `redact_credentials()` hätte
+        # hier nichts mehr zu tun.
+        logger.debug("Jooble-Anfrage: POST %s", self._redacted_endpoint())
 
         try:
             response = requests.post(
