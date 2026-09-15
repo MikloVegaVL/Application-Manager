@@ -15,11 +15,10 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 import {
   ApplicationEmailLookupResult,
   JobOffer,
-  JobSaveConflictDetail,
   toApplicationEmailLookupRequest,
 } from '../../core/models/job-offer.model';
 import { JobSearchStateService } from '../../core/services/job-search-state.service';
-import { JobService } from '../../core/services/job.service';
+import { JobService, jobSaveConflictId } from '../../core/services/job.service';
 import { extractEmail } from '../../core/utils/email-extraction.util';
 import { sourceLabel as getSourceLabel } from '../../core/utils/source-label.util';
 
@@ -279,7 +278,7 @@ export class JobSearchComponent {
       },
       error: (error: HttpErrorResponse) => {
         this.savingSourceUrl.set(null);
-        const conflictId = this.conflictJobOfferId(error);
+        const conflictId = jobSaveConflictId(error);
         if (conflictId !== null) {
           // Job existiert bereits serverseitig (z. B. nach einem Reload,
           // siehe JobSearchStateService) - Cache nachziehen statt nur zu
@@ -316,7 +315,7 @@ export class JobSearchComponent {
       },
       error: (error: HttpErrorResponse) => {
         this.generatingSourceUrl.set(null);
-        const conflictId = this.conflictJobOfferId(error);
+        const conflictId = jobSaveConflictId(error);
         if (conflictId !== null) {
           // Job existiert bereits (z. B. aus einer früheren Session) - statt
           // in einer Sackgasse zu enden, direkt zum bestehenden Editor
@@ -334,16 +333,5 @@ export class JobSearchComponent {
 
   private navigateToEditor(jobOfferId: number): void {
     void this.router.navigate(['/editor', jobOfferId]);
-  }
-
-  /** Liest `job_offer_id` aus dem 409-Detail von `POST /jobs/save` (siehe
-   * `JobSaveConflictDetail` und das Backend-Backfill in `save_job`) -
-   * `null`, wenn der Fehler kein solcher Konflikt war. */
-  private conflictJobOfferId(error: HttpErrorResponse): number | null {
-    if (error.status !== 409) {
-      return null;
-    }
-    const detail = error.error?.detail as JobSaveConflictDetail | undefined;
-    return typeof detail?.job_offer_id === 'number' ? detail.job_offer_id : null;
   }
 }
