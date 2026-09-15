@@ -121,6 +121,19 @@
           </td>
         </ng-container>
 
+        <ng-container matColumnDef="ad_url">
+          <th mat-header-cell *matHeaderCellDef>Ad</th>
+          <td mat-cell *matCellDef="let entry" [class.sent-emails__unknown]="!entry.ad_url">
+            @if (entry.ad_url) {
+              <a [href]="entry.ad_url" target="_blank" rel="noopener noreferrer">
+                <mat-icon>open_in_new</mat-icon>
+              </a>
+            } @else {
+              —
+            }
+          </td>
+        </ng-container>
+
         <ng-container matColumnDef="source_platform">
           <th mat-header-cell *matHeaderCellDef>Source</th>
           <td mat-cell *matCellDef="let entry" [class.sent-emails__unknown]="!entry.source_platform">
@@ -156,6 +169,26 @@
           <th mat-header-cell *matHeaderCellDef>Attachment</th>
           <td mat-cell *matCellDef="let entry" [class.sent-emails__unknown]="!entry.attachment_filename">
             {{ entry.attachment_filename ?? '—' }}
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let entry">
+            <button
+              mat-icon-button
+              color="warn"
+              type="button"
+              [disabled]="isDeleting(entry)"
+              (click)="onDelete(entry)"
+              aria-label="Delete log entry"
+            >
+              @if (isDeleting(entry)) {
+                <mat-progress-spinner mode="indeterminate" diameter="18" />
+              } @else {
+                <mat-icon>delete</mat-icon>
+              }
+            </button>
           </td>
         </ng-container>
 

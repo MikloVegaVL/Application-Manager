@@ -40,6 +40,11 @@ export class SentEmailService {
     });
   }
 
+  /** Löscht einen einzelnen Log-Eintrag. */
+  deleteById(sentEmailId: number): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${sentEmailId}`);
+  }
+
   private buildParams(filter: SentEmailFilterParams): HttpParams {
     let params = new HttpParams();
     if (filter.company) {

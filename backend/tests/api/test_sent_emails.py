@@ -255,6 +255,97 @@ def test_entry_with_existing_application_exposes_job_offer_id_for_link_through(
     assert entry["job_offer_id"] == job_offer_id
 
 
+def test_entry_with_existing_application_exposes_ad_url_for_link_through(
+    client, db_session_local
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = JobOffer(
+            title="Backend Engineer", company="Acme GmbH",
+            source_url="https://example.com/job/x", source_platform="test",
+        )
+        session.add(job_offer)
+        session.commit()
+        session.refresh(job_offer)
+
+        application = Application(job_offer_id=job_offer.id, status=ApplicationStatus.SENT)
+        session.add(application)
+        session.commit()
+        session.refresh(application)
+
+        _insert_sent_email(session, application_id=application.id)
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails")
+
+    assert response.status_code == 200
+    entry = response.json()[0]
+    assert entry["ad_url"] == "https://example.com/job/x"
+
+
+def test_entry_with_deleted_application_returns_null_ad_url(client, db_session_local) -> None:
+    session = db_session_local()
+    try:
+        _insert_sent_email(session, application_id=None)
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails")
+
+    assert response.status_code == 200
+    assert response.json()[0]["ad_url"] is None
+
+
+# --- DELETE /sent-emails/{id} ------------------------------------------
+
+
+def test_delete_sent_email_removes_it(client, db_session_local) -> None:
+    session = db_session_local()
+    try:
+        entry_id = _insert_sent_email(session, application_id=None).id
+    finally:
+        session.close()
+
+    response = client.delete(f"/api/sent-emails/{entry_id}")
+
+    assert response.status_code == 204
+    assert client.get("/api/sent-emails").json() == []
+
+
+def test_delete_sent_email_returns_404_for_unknown_id(client) -> None:
+    response = client.delete("/api/sent-emails/999")
+
+    assert response.status_code == 404
+
+
+def test_delete_sent_email_does_not_delete_the_linked_application(client, db_session_local) -> None:
+    session = db_session_local()
+    try:
+        job_offer = JobOffer(
+            title="Backend Engineer", company="Acme GmbH",
+            source_url="https://example.com/job/y", source_platform="test",
+        )
+        session.add(job_offer)
+        session.commit()
+        session.refresh(job_offer)
+
+        application = Application(job_offer_id=job_offer.id, status=ApplicationStatus.SENT)
+        session.add(application)
+        session.commit()
+        session.refresh(application)
+        application_id = application.id
+
+        entry_id = _insert_sent_email(session, application_id=application_id).id
+    finally:
+        session.close()
+
+    response = client.delete(f"/api/sent-emails/{entry_id}")
+
+    assert response.status_code == 204
+    assert client.get(f"/api/applications/{application_id}").status_code == 200
+
+
 # --- PDF export endpoints (U4) ----------------------------------------
 
 

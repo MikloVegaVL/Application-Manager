@@ -69,6 +69,13 @@ class SentEmail(Base):
         auf eine dann ohnehin nicht mehr erreichbare Seite zu verweisen."""
         return self.application.job_offer_id if self.application is not None else None
 
+    @property
+    def ad_url(self) -> str | None:
+        """Live-Link zur ursprünglichen Stellenanzeige (`JobOffer.source_url`)
+        - wie `job_offer_id` kein Snapshot, wird `None` sobald die Application
+        gelöscht ist."""
+        return self.application.job_offer.source_url if self.application is not None else None
+
     def __repr__(self) -> str:  # pragma: no cover - Debug-Hilfe
         return (
             f"<SentEmail id={self.id} application_id={self.application_id} "

@@ -4,6 +4,8 @@ export interface SentEmail {
   application_id: number | null;
   /** Live (kein Snapshot) - `null`, sobald die Application gelöscht ist; steuert den Link-through (R5). */
   job_offer_id: number | null;
+  /** Live (kein Snapshot) - URL der ursprünglichen Stellenanzeige, `null` sobald die Application gelöscht ist. */
+  ad_url: string | null;
   company: string | null;
   job_title: string | null;
   source_platform: string | null;

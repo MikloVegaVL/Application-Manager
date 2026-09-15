@@ -11,6 +11,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Query, Session, joinedload
 
 from app.db.database import get_db
+from app.models.application import Application
 from app.models.sent_email import SentEmail
 from app.schemas.sent_email import SentEmailFilter, SentEmailRead
 from app.services.pdf_service import PdfRenderError, render_sent_emails_pdf
@@ -42,12 +43,17 @@ def _base_query(db: Session, filters: SentEmailFilter) -> Query:
 
 
 def _query_entries_for_list(db: Session, filters: SentEmailFilter) -> list[SentEmail]:
-    # `joinedload`: `SentEmailRead.job_offer_id` liest `entry.application.
-    # job_offer_id` (siehe `SentEmail.job_offer_id`-Property) - ohne Eager-
-    # Load würde das pro Zeile eine eigene Nachlade-Query auslösen (N+1).
-    # Nur hier nötig: die PDF-Exports (`_query_entries_for_export`) lesen
-    # `job_offer_id` nie, der Join würde dort nur unnötig mitlaufen.
-    return _base_query(db, filters).options(joinedload(SentEmail.application)).all()
+    # `joinedload`: `SentEmailRead.job_offer_id`/`ad_url` lesen `entry.
+    # application.job_offer_id`/`.job_offer.source_url` (siehe die gleich-
+    # namigen `SentEmail`-Properties) - ohne Eager-Load würde das pro Zeile
+    # eigene Nachlade-Queries auslösen (N+1). Nur hier nötig: die PDF-Exports
+    # (`_query_entries_for_export`) lesen beides nie, der Join würde dort nur
+    # unnötig mitlaufen.
+    return (
+        _base_query(db, filters)
+        .options(joinedload(SentEmail.application).joinedload(Application.job_offer))
+        .all()
+    )
 
 
 def _query_entries_for_export(db: Session, filters: SentEmailFilter) -> list[SentEmail]:
@@ -99,3 +105,14 @@ def export_all_sent_emails(db: Session = Depends(get_db)) -> StreamingResponse:
     ggf. aktiven Filterung im Frontend (R9)."""
     entries = _query_entries_for_export(db, SentEmailFilter())
     return _pdf_response(entries, filtered=False, filename="sent-emails-full-log.pdf")
+
+
+@router.delete("/{sent_email_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_sent_email(sent_email_id: int, db: Session = Depends(get_db)) -> None:
+    """Löscht einen einzelnen Protokoll-Eintrag (nur den Log-Eintrag, nicht
+    die verknüpfte Application/JobOffer)."""
+    entry = db.get(SentEmail, sent_email_id)
+    if entry is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Log-Eintrag wurde nicht gefunden.")
+    db.delete(entry)
+    db.commit()
