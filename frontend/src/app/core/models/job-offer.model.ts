@@ -11,6 +11,13 @@ export interface JobOffer {
   source_url: string;
   description_text: string | null;
   source_platform: string;
+  /**
+   * Discovery-Cache einer per Bewerbungs-E-Mail-Suche gefundenen Adresse und
+   * ihrer Quellseite (siehe `ApplicationEmailLookupResult`, R10/KTD5). Beide
+   * optional, weil Suchtreffer ohne Adresse sie auslassen.
+   */
+  application_email?: string | null;
+  application_email_source_url?: string | null;
 }
 
 /** Entspricht `JobOfferRead`: ein bereits in der DB persistiertes Stellenangebot. */
@@ -55,4 +62,29 @@ export interface SourceStatus {
 export interface JobSearchResponse {
   results: JobOffer[];
   sources: SourceStatus[];
+}
+
+/**
+ * Payload für `POST /jobs/application-email-lookup` - spiegelt
+ * `ApplicationEmailLookupRequest` im Backend. Beide Oberflächen (Job-Suchkarte
+ * und Sendedialog) senden denselben Job-Payload (KTD1).
+ */
+export interface ApplicationEmailLookupRequest {
+  source_url: string;
+  company: string;
+  title: string;
+  description_text: string | null;
+}
+
+/**
+ * Ergebnis der Bewerbungs-E-Mail-Suche - spiegelt
+ * `ApplicationEmailLookupResult`. Genau einer von drei Status: `found`
+ * (Adresse gefunden), `not-found` (Suche abgeschlossen, keine Adresse) oder
+ * `failed` (Fetch-/LLM-/Deadline-Fehler). `not-found` und `failed` werden im
+ * UI bewusst unterschiedlich dargestellt (A5/KTD4).
+ */
+export interface ApplicationEmailLookupResult {
+  status: 'found' | 'not-found' | 'failed';
+  email?: string | null;
+  source_url?: string | null;
 }

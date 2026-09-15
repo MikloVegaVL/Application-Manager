@@ -3,7 +3,10 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { JobService } from './job.service';
-import { JobSearchResponse } from '../models/job-offer.model';
+import {
+  ApplicationEmailLookupResult,
+  JobSearchResponse,
+} from '../models/job-offer.model';
 import { environment } from '../../../environments/environment';
 
 describe('JobService', () => {
@@ -56,5 +59,32 @@ describe('JobService', () => {
 
     expect(received).toEqual(mockResponse);
     expect(received?.sources.length).toBe(3);
+  });
+
+  it('Covers R1: findApplicationEmail POSTs the job payload and maps the result', () => {
+    const payload = {
+      source_url: 'https://example.com/job/1',
+      company: 'Acme',
+      title: 'Angular Developer',
+      description_text: null,
+    };
+    const mockResult: ApplicationEmailLookupResult = {
+      status: 'found',
+      email: 'bewerbung@acme.example',
+      source_url: 'https://acme.example/karriere',
+    };
+
+    let received: ApplicationEmailLookupResult | undefined;
+    service.findApplicationEmail(payload).subscribe((result) => (received = result));
+
+    const req = httpMock.expectOne(
+      (request) => request.url === `${environment.apiBaseUrl}/jobs/application-email-lookup`,
+    );
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual(payload);
+
+    req.flush(mockResult);
+
+    expect(received).toEqual(mockResult);
   });
 });
