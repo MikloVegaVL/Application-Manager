@@ -103,4 +103,30 @@ describe('JobSearchStateService', () => {
 
     expect(service.appliedHiddenCount()).toBe(0);
   });
+
+  it('Covers R5: removeResult() drops the result, its lookup cache, and counts it as applied', () => {
+    const job = {
+      title: 'Angular Developer',
+      company: 'Acme',
+      location: null,
+      source_url: 'https://example.com/job/remove',
+      description_text: null,
+      source_platform: 'linkedin',
+    };
+    service.results.set([job]);
+    service.cacheApplicationEmailResult(job.source_url, { status: 'found', email: 'a@b.c' });
+
+    service.removeResult(job.source_url);
+
+    expect(service.results()).toEqual([]);
+    expect(service.applicationEmailResult(job.source_url)).toBeNull();
+    expect(service.appliedHiddenCount()).toBe(1);
+  });
+
+  it('removeResult() leaves the list and the count untouched for an unknown source_url', () => {
+    service.removeResult('https://example.com/job/unknown');
+
+    expect(service.results()).toEqual([]);
+    expect(service.appliedHiddenCount()).toBe(0);
+  });
 });

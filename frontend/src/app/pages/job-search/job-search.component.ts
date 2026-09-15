@@ -273,6 +273,7 @@ export class JobSearchComponent {
     this.jobService.saveJob(this.withCachedApplicationEmail(job)).subscribe({
       next: (saved) => {
         this.state.cacheSavedJob(job.source_url, saved.id);
+        this.state.removeResult(job.source_url);
         this.savingSourceUrl.set(null);
         this.snackBar.open(`"${job.title}" was saved.`, 'OK', { duration: 3000 });
       },
@@ -284,6 +285,7 @@ export class JobSearchComponent {
           // siehe JobSearchStateService) - Cache nachziehen statt nur zu
           // melden, sonst bliebe der Button dauerhaft im "speichern"-Zustand.
           this.state.cacheSavedJob(job.source_url, conflictId);
+          this.state.removeResult(job.source_url);
           this.snackBar.open('This job has already been saved.', 'OK', { duration: 3000 });
           return;
         }
@@ -296,6 +298,7 @@ export class JobSearchComponent {
   onGenerateApplication(job: JobOffer): void {
     const cachedId = this.savedJobIds().get(job.source_url);
     if (cachedId !== undefined) {
+      this.state.removeResult(job.source_url);
       this.navigateToEditor(cachedId);
       return;
     }
@@ -307,6 +310,7 @@ export class JobSearchComponent {
     this.jobService.saveJob(this.withCachedApplicationEmail(job)).subscribe({
       next: (saved) => {
         this.state.cacheSavedJob(job.source_url, saved.id);
+        this.state.removeResult(job.source_url);
         this.generatingSourceUrl.set(null);
         this.navigateToEditor(saved.id);
       },
@@ -319,6 +323,7 @@ export class JobSearchComponent {
           // weiterleiten (ce-debug-Fix, 2026-08-24: der Job tauchte vorher
           // nirgends mehr auf, siehe der `save_job`-Backfill im Backend).
           this.state.cacheSavedJob(job.source_url, conflictId);
+          this.state.removeResult(job.source_url);
           this.navigateToEditor(conflictId);
           return;
         }

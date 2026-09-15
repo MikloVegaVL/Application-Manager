@@ -71,6 +71,27 @@ export class JobSearchStateService {
   }
 
   /**
+   * Entfernt eine Karte sofort aus der aktuellen Trefferliste, nachdem ihr
+   * Speichern erfolgreich war oder der Server sie als bereits gespeichert
+   * gemeldet hat (R5). Der an `source_url` gekoppelte E-Mail-Lookup-Cache
+   * wird mit entfernt, und der Zähler wird erhöht, damit der "alles schon
+   * beworben"-Leerzustand auch nach rein clientseitigem Entfernen greift
+   * (KTD5). Ein unbekannter `source_url` ändert nichts.
+   */
+  removeResult(sourceUrl: string): void {
+    const current = this.results();
+    const remaining = current.filter((job) => job.source_url !== sourceUrl);
+    if (remaining.length === current.length) {
+      return;
+    }
+    this.results.set(remaining);
+    const updated = new Map(this.applicationEmailResults());
+    updated.delete(sourceUrl);
+    this.applicationEmailResults.set(updated);
+    this.appliedHiddenCount.update((count) => count + 1);
+  }
+
+  /**
    * Führt die Bewerbungs-E-Mail-Suche aus und teilt das Ergebnis zwischen
    * Karte und Dialog. Ein bereits gecachtes Ergebnis wird ohne erneuten
    * Request zurückgegeben; `force` erzwingt einen neuen Lookup (R11-Re-Run).
