@@ -87,12 +87,10 @@
     </div>
   }
 
-  @if (!loading() && hasSearched() && !errorMessage() && allResultsApplied()) {
-    <p class="job-search__empty">All matching job offers have already been applied to.</p>
-  }
-
-  @if (!loading() && hasSearched() && !errorMessage() && results().length === 0 && !allResultsApplied()) {
-    @if (allSourcesUnavailable()) {
+  @if (!loading() && hasSearched() && !errorMessage() && results().length === 0) {
+    @if (allResultsApplied()) {
+      <p class="job-search__empty">All matching job offers have already been applied to.</p>
+    } @else if (allSourcesUnavailable()) {
       <p class="job-search__empty">
         All sources were unreachable just now. Please try again in a few minutes.
       </p>
