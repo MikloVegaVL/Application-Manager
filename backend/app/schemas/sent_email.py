@@ -30,7 +30,7 @@ class SentEmailRead(BaseModel):
     sent_at: datetime
     sender_email: str | None
     subject: str | None
-    attachment_filename: str | None
+    attachment_filenames: list[str]
 
 
 class SentEmailFilter(BaseModel):

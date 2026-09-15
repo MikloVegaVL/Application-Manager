@@ -14,7 +14,7 @@ durch eine spätere Löschung verschwinden.
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -49,7 +49,16 @@ class SentEmail(Base):
     # versendete Bewerbungen) unbekannt, da nie erfasst.
     sender_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    attachment_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Alle tatsächlich mitgeschickten Dateinamen in Versandreihenfolge
+    # (Lebenslauf zuerst, danach die zusätzlichen Profil-Anhänge) - als Liste
+    # statt eines einzelnen Feldes, damit das Protokoll zeigt, was wirklich
+    # angehängt wurde, nicht nur den Lebenslauf. JSON wie die strukturierten
+    # Listen in `MasterProfile` (identisch unter SQLite und PostgreSQL).
+    # Leer, wenn für Altbestand nie erfasst (Backfill).
+    attachment_filenames: Mapped[list[str]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

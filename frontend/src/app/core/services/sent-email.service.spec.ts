@@ -16,6 +16,7 @@ describe('SentEmailService', () => {
     id: 1,
     application_id: 1,
     job_offer_id: 1,
+    ad_url: 'https://example.com/job/1',
     company: 'Acme GmbH',
     job_title: 'Backend Engineer',
     source_platform: 'linkedin',
@@ -23,7 +24,7 @@ describe('SentEmailService', () => {
     sent_at: '2026-09-01T10:00:00Z',
     sender_email: 'absender@example.com',
     subject: 'Bewerbung',
-    attachment_filename: 'lebenslauf.pdf',
+    attachment_filenames: ['lebenslauf.pdf'],
   };
 
   beforeEach(() => {

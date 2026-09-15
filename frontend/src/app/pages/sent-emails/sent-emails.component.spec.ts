@@ -19,6 +19,7 @@ describe('SentEmailsComponent', () => {
     id: 1,
     application_id: 1,
     job_offer_id: 42,
+    ad_url: 'https://example.com/job/42',
     company: 'Acme GmbH',
     job_title: 'Backend Engineer',
     source_platform: 'linkedin',
@@ -26,13 +27,14 @@ describe('SentEmailsComponent', () => {
     sent_at: new Date('2026-09-01T10:00:00Z').toISOString(),
     sender_email: 'absender@example.com',
     subject: 'Bewerbung',
-    attachment_filename: 'lebenslauf.pdf',
+    attachment_filenames: ['lebenslauf.pdf', 'zeugnis.pdf'],
   };
 
   const backfilledEntry: SentEmail = {
     id: 2,
     application_id: null,
     job_offer_id: null,
+    ad_url: null,
     company: 'Globex',
     job_title: 'QA Engineer',
     source_platform: null,
@@ -40,7 +42,7 @@ describe('SentEmailsComponent', () => {
     sent_at: new Date('2026-08-01T10:00:00Z').toISOString(),
     sender_email: null,
     subject: null,
-    attachment_filename: null,
+    attachment_filenames: [],
   };
 
   beforeEach(async () => {
@@ -104,11 +106,29 @@ describe('SentEmailsComponent', () => {
     expect(link).toBeNull();
   });
 
-  it('renders no resend/edit/delete control on any row', () => {
+  it('renders a delete control on each row', () => {
     flushList([sampleEntry]);
 
     const buttons: HTMLElement[] = Array.from(fixture.nativeElement.querySelectorAll('table button'));
-    expect(buttons.length).toBe(0);
+    expect(buttons.length).toBe(1);
+  });
+
+  it('renders every attachment filename, not just the CV', () => {
+    flushList([sampleEntry]);
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('lebenslauf.pdf');
+    expect(text).toContain('zeugnis.pdf');
+  });
+
+  it('lets table cells wrap instead of clipping long content (no overflow hiding)', () => {
+    flushList([sampleEntry]);
+
+    const cell = fixture.nativeElement.querySelector('td.mat-mdc-cell') as HTMLElement | null;
+    expect(cell).not.toBeNull();
+    // Material's `.mdc-data-table__table` sets `white-space: nowrap`; the
+    // component must override it so long subjects/filenames wrap.
+    expect(getComputedStyle(cell as HTMLElement).whiteSpace).toBe('normal');
   });
 
   it('Covers AE5: a backfilled entry renders its unknown fields as an em dash, not blank or "null"', () => {

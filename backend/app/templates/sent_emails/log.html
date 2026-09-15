@@ -99,7 +99,7 @@
         <td>{{ entry.sent_at }}</td>
         <td{% if not entry.sender_email %} class="unknown"{% endif %}>{{ entry.sender_email or "unknown" }}</td>
         <td{% if not entry.subject %} class="unknown"{% endif %}>{{ entry.subject or "unknown" }}</td>
-        <td{% if not entry.attachment_filename %} class="unknown"{% endif %}>{{ entry.attachment_filename or "unknown" }}</td>
+        <td{% if not entry.attachment_filenames %} class="unknown"{% endif %}>{{ entry.attachment_filenames | join(", ") if entry.attachment_filenames else "unknown" }}</td>
       </tr>
       {% endfor %}
     </tbody>

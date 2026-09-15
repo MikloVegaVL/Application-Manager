@@ -13,7 +13,8 @@ export interface SentEmail {
   sent_at: string;
   sender_email: string | null;
   subject: string | null;
-  attachment_filename: string | null;
+  /** Alle tatsächlich mitgeschickten Anhänge in Versandreihenfolge (Lebenslauf zuerst); leer für Altbestand. */
+  attachment_filenames: string[];
 }
 
 /** Entspricht `SentEmailFilter` - gemeinsamer Filter-Vertrag von Liste und Export (KTD4). */

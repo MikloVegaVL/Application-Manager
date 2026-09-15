@@ -67,7 +67,7 @@ export class SentEmailsComponent implements OnInit {
     'sent_at',
     'sender_email',
     'subject',
-    'attachment_filename',
+    'attachment_filenames',
     'actions',
   ];
 

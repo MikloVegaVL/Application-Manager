@@ -232,6 +232,11 @@ def send_application(
         for attachment in profile.attachments
         if Path(attachment.file_path).exists()
     ]
+    # Die vollständige Anhang-Liste in tatsächlicher Versandreihenfolge
+    # (Lebenslauf zuerst, danach die zusätzlichen Profil-Anhänge) - für den
+    # SentEmail-Log-Eintrag, damit das Protokoll alle Anhänge zeigt, nicht
+    # nur den Lebenslauf.
+    attachment_filenames = [attachment_filename, *(filename for _, filename in extra_attachments)]
 
     try:
         used_from_email = send_application_email(
@@ -264,7 +269,7 @@ def send_application(
             sent_at=application.sent_at,
             sender_email=used_from_email,
             subject=subject,
-            attachment_filename=attachment_filename,
+            attachment_filenames=attachment_filenames,
         )
     )
     db.commit()

@@ -59,7 +59,7 @@ def _insert_sent_email(session, **overrides) -> SentEmail:
         sent_at=datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc),
         sender_email="absender@example.com",
         subject="Bewerbung",
-        attachment_filename="lebenslauf.pdf",
+        attachment_filenames=["lebenslauf.pdf"],
     )
     defaults.update(overrides)
     entry = SentEmail(**defaults)
@@ -191,7 +191,7 @@ def test_backfilled_entry_returns_null_fields_not_omitted_or_erroring(client, db
             application_id=1,
             sender_email=None,
             subject=None,
-            attachment_filename=None,
+            attachment_filenames=[],
         )
     finally:
         session.close()
@@ -202,7 +202,29 @@ def test_backfilled_entry_returns_null_fields_not_omitted_or_erroring(client, db
     entry = response.json()[0]
     assert entry["sender_email"] is None
     assert entry["subject"] is None
-    assert entry["attachment_filename"] is None
+    assert entry["attachment_filenames"] == []
+
+
+def test_entry_returns_all_attachment_filenames_not_just_the_cv(client, db_session_local) -> None:
+    """Regression: the log records every attachment actually sent (CV plus
+    extra profile attachments), so the API must expose the whole list."""
+    session = db_session_local()
+    try:
+        _insert_sent_email(
+            session,
+            attachment_filenames=["lebenslauf.pdf", "zeugnis.pdf", "anschreiben.pdf"],
+        )
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails")
+
+    assert response.status_code == 200
+    assert response.json()[0]["attachment_filenames"] == [
+        "lebenslauf.pdf",
+        "zeugnis.pdf",
+        "anschreiben.pdf",
+    ]
 
 
 def test_entry_with_deleted_application_is_still_returned_with_snapshot_intact(

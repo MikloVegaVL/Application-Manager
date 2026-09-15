@@ -589,6 +589,15 @@ def test_send_application_includes_profile_attachments_alongside_cv(
     assert call_kwargs["attachment_filename"] == "lebenslauf.pdf"
     assert call_kwargs["extra_attachments"] == [(b"%PDF-1.4 fake-zeugnis", "zeugnis.pdf")]
 
+    # Der Log-Eintrag protokolliert ALLE mitgeschickten Anhänge, nicht nur
+    # den Lebenslauf (Regression: die Tabelle zeigte vorher nur den CV).
+    session = db_session_local()
+    try:
+        row = session.query(SentEmail).filter_by(application_id=application_id).one()
+    finally:
+        session.close()
+    assert row.attachment_filenames == ["lebenslauf.pdf", "zeugnis.pdf"]
+
 
 def test_send_application_skips_missing_attachment_files(
     client: TestClient, db_session_local, tmp_path, monkeypatch
@@ -663,7 +672,7 @@ def test_send_application_creates_one_sent_email_log_entry(
     assert row.recipient_email == "recruiter@example.com"
     assert row.sender_email == "absender@example.com"
     assert row.subject == "Meine Bewerbung"
-    assert row.attachment_filename == "mein-lebenslauf.pdf"
+    assert row.attachment_filenames == ["mein-lebenslauf.pdf"]
     assert row.company == "Acme GmbH"
     assert row.job_title == "Backend Engineer"
     assert row.source_platform == "arbeitsagentur"
