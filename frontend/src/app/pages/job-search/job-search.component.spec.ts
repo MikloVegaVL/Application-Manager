@@ -12,6 +12,7 @@ import {
   ApplicationEmailLookupResult,
   JobSearchResponse,
 } from '../../core/models/job-offer.model';
+import { JobSearchStateService } from '../../core/services/job-search-state.service';
 import { environment } from '../../../environments/environment';
 
 describe('JobSearchComponent', () => {
@@ -108,6 +109,49 @@ describe('JobSearchComponent', () => {
     const chipText = fixture.nativeElement.textContent as string;
     expect(chipText).toContain('LinkedIn');
     expect(chipText).toContain('unavailable');
+  });
+
+  it('Covers R4/R6: shows the applied empty state when every result was already applied', () => {
+    triggerSearch();
+    flushSearch({
+      results: [],
+      sources: [{ platform: 'arbeitsagentur', status: 'ok', reason: null }],
+      excluded_applied_count: 2,
+    });
+
+    expect(component['allResultsApplied']()).toBeTrue();
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('already been applied');
+    expect(text).not.toContain('No job offers found');
+  });
+
+  it('keeps the generic empty state when nothing was excluded as applied', () => {
+    triggerSearch();
+    flushSearch({
+      results: [],
+      sources: [{ platform: 'arbeitsagentur', status: 'ok', reason: null }],
+      excluded_applied_count: 0,
+    });
+
+    expect(component['allResultsApplied']()).toBeFalse();
+    expect(fixture.nativeElement.textContent).toContain('No job offers found');
+  });
+
+  it('resets the applied state when a new search starts', () => {
+    triggerSearch();
+    flushSearch({
+      results: [],
+      sources: [{ platform: 'arbeitsagentur', status: 'ok', reason: null }],
+      excluded_applied_count: 2,
+    });
+    expect(component['allResultsApplied']()).toBeTrue();
+
+    triggerSearch('Backend');
+    expect(component['allResultsApplied']()).toBeFalse();
+
+    httpMock
+      .expectOne((request) => request.url === `${environment.apiBaseUrl}/jobs/search`)
+      .flush({ results: [], sources: [], excluded_applied_count: 0 });
   });
 
   it('resets stale source statuses when a new search starts', () => {
@@ -232,6 +276,152 @@ describe('JobSearchComponent', () => {
 
     expect(navigateSpy).toHaveBeenCalledWith(['/editor', 42]);
     expect(component.isSaved(job)).toBeTrue();
+    expect(component['results']().length).toBe(0);
+  });
+
+  it('Covers R5: removes the card via the cached-id generate path', () => {
+    triggerSearch();
+    flushSearch({
+      results: [
+        {
+          title: 'Angular Developer',
+          company: 'Acme',
+          location: 'Berlin',
+          source_url: 'https://example.com/job/cached',
+          description_text: null,
+          source_platform: 'linkedin',
+        },
+      ],
+      sources: [{ platform: 'linkedin', status: 'ok', reason: null }],
+    });
+    const job = component['results']()[0];
+    const router = TestBed.inject(Router);
+    const navigateSpy = spyOn(router, 'navigate').and.resolveTo(true);
+    TestBed.inject(JobSearchStateService).cacheSavedJob(job.source_url, 77);
+
+    component.onGenerateApplication(job);
+
+    expect(navigateSpy).toHaveBeenCalledWith(['/editor', 77]);
+    expect(component['results']().length).toBe(0);
+  });
+
+  it('Covers R6/KTD5: an in-session save that empties the list shows the applied empty state', () => {
+    triggerSearch();
+    flushSearch({
+      results: [
+        {
+          title: 'Angular Developer',
+          company: 'Acme',
+          location: 'Berlin',
+          source_url: 'https://example.com/job/last',
+          description_text: null,
+          source_platform: 'linkedin',
+        },
+      ],
+      sources: [{ platform: 'linkedin', status: 'ok', reason: null }],
+    });
+    const job = component['results']()[0];
+
+    component.onSaveJob(job);
+
+    httpMock
+      .expectOne((request) => request.url === `${environment.apiBaseUrl}/jobs/save`)
+      .flush({ ...job, id: 5, created_at: new Date().toISOString(), is_processed: false });
+
+    fixture.detectChanges();
+    expect(component['allResultsApplied']()).toBeTrue();
+    expect(fixture.nativeElement.textContent).toContain('already been applied');
+  });
+
+  it('Covers R5: removes the card immediately after a successful save', () => {
+    triggerSearch();
+    flushSearch({
+      results: [
+        {
+          title: 'Angular Developer',
+          company: 'Acme',
+          location: 'Berlin',
+          source_url: 'https://example.com/job/keep',
+          description_text: null,
+          source_platform: 'linkedin',
+        },
+        {
+          title: 'Angular Engineer',
+          company: 'Beta AG',
+          location: 'Berlin',
+          source_url: 'https://example.com/job/remove',
+          description_text: null,
+          source_platform: 'linkedin',
+        },
+      ],
+      sources: [{ platform: 'linkedin', status: 'ok', reason: null }],
+    });
+    const [keep, remove] = component['results']();
+
+    component.onSaveJob(remove);
+
+    httpMock
+      .expectOne((request) => request.url === `${environment.apiBaseUrl}/jobs/save`)
+      .flush({ ...remove, id: 1, created_at: new Date().toISOString(), is_processed: false });
+
+    expect(component['results']().map((job) => job.source_url)).toEqual([keep.source_url]);
+  });
+
+  it('Covers R5: removes the card when a save reports it was already saved (409)', () => {
+    triggerSearch();
+    flushSearch({
+      results: [
+        {
+          title: 'Angular Developer',
+          company: 'Acme',
+          location: 'Berlin',
+          source_url: 'https://example.com/job/already-saved',
+          description_text: null,
+          source_platform: 'linkedin',
+        },
+      ],
+      sources: [{ platform: 'linkedin', status: 'ok', reason: null }],
+    });
+    const job = component['results']()[0];
+
+    component.onSaveJob(job);
+
+    httpMock
+      .expectOne((request) => request.url === `${environment.apiBaseUrl}/jobs/save`)
+      .flush(
+        { detail: { message: 'already saved', job_offer_id: 42 } },
+        { status: 409, statusText: 'Conflict' },
+      );
+
+    expect(component['results']().length).toBe(0);
+  });
+
+  it('Covers R5: removes the card when generating an application', () => {
+    triggerSearch();
+    flushSearch({
+      results: [
+        {
+          title: 'Angular Developer',
+          company: 'Acme',
+          location: 'Berlin',
+          source_url: 'https://example.com/job/generate',
+          description_text: null,
+          source_platform: 'linkedin',
+        },
+      ],
+      sources: [{ platform: 'linkedin', status: 'ok', reason: null }],
+    });
+    const job = component['results']()[0];
+    const router = TestBed.inject(Router);
+    spyOn(router, 'navigate').and.resolveTo(true);
+
+    component.onGenerateApplication(job);
+
+    httpMock
+      .expectOne((request) => request.url === `${environment.apiBaseUrl}/jobs/save`)
+      .flush({ ...job, id: 9, created_at: new Date().toISOString(), is_processed: false });
+
+    expect(component['results']().length).toBe(0);
   });
 
   it('a full request failure still shows the error message and clears results', () => {

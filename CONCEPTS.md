@@ -17,3 +17,8 @@ The optional job title shown beneath the profile name in a CV template, set inde
 
 ### Skill category
 The domain a skill belongs to, used to group skills into compact sections in a rendered CV instead of listing every skill individually. A skill without a category falls into a catch-all group, so grouping never drops a skill.
+
+## Job Search
+
+### Applied
+A saved job offer is considered applied: saving creates a draft application immediately, so "saved", "on the Applications page", and "applied" describe the same set of job offers. A job offer stops being applied only when its application is deleted, which also removes the job offer.

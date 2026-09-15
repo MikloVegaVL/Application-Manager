@@ -35,6 +35,14 @@ export class JobSearchStateService {
   readonly hasSearched = signal(false);
   readonly errorMessage = signal<string | null>(null);
 
+  /**
+   * Anzahl der Treffer, die als bereits beworben ausgeblendet wurden (R4).
+   * Aus der Suchantwort (`excluded_applied_count`) plus in-session entfernten
+   * Karten, damit der "alles schon beworben"-Leerzustand auch greift, wenn
+   * der Nutzer die letzte Karte selbst speichert.
+   */
+  readonly appliedHiddenCount = signal(0);
+
   /** Merkt sich bereits gespeicherte Jobs (source_url -> DB-ID), um Doppel-Saves zu vermeiden. */
   readonly savedJobIds = signal<Map<string, number>>(new Map());
 
@@ -60,6 +68,27 @@ export class JobSearchStateService {
     const updated = new Map(this.applicationEmailResults());
     updated.set(sourceUrl, result);
     this.applicationEmailResults.set(updated);
+  }
+
+  /**
+   * Entfernt eine Karte sofort aus der aktuellen Trefferliste, nachdem ihr
+   * Speichern erfolgreich war oder der Server sie als bereits gespeichert
+   * gemeldet hat (R5). Der an `source_url` gekoppelte E-Mail-Lookup-Cache
+   * wird mit entfernt, und der Zähler wird erhöht, damit der "alles schon
+   * beworben"-Leerzustand auch nach rein clientseitigem Entfernen greift
+   * (KTD5). Ein unbekannter `source_url` ändert nichts.
+   */
+  removeResult(sourceUrl: string): void {
+    const current = this.results();
+    const remaining = current.filter((job) => job.source_url !== sourceUrl);
+    if (remaining.length === current.length) {
+      return;
+    }
+    this.results.set(remaining);
+    const updated = new Map(this.applicationEmailResults());
+    updated.delete(sourceUrl);
+    this.applicationEmailResults.set(updated);
+    this.appliedHiddenCount.update((count) => count + 1);
   }
 
   /**
@@ -90,6 +119,7 @@ export class JobSearchStateService {
     this.sourceStatuses.set([]);
     this.hasSearched.set(false);
     this.errorMessage.set(null);
+    this.appliedHiddenCount.set(0);
     this.applicationEmailResults.set(new Map());
   }
 }

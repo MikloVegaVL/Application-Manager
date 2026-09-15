@@ -64,7 +64,14 @@ class SourceStatus(BaseModel):
 class JobSearchResponse(BaseModel):
     """Antwort von `GET /jobs/search`: zusammengeführte Ergebnisse aller
     Quellen plus ein Status-Eintrag pro Quelle (KTD2) - ersetzt die frühere
-    bare `list[JobOfferCreate]`-Antwort."""
+    bare `list[JobOfferCreate]`-Antwort.
+
+    `excluded_applied_count` nennt, wie viele Treffer der Bewerbungsfilter
+    ausgeblendet hat (bereits beworbene Stellen), damit die Oberfläche den
+    "alles schon beworben"-Leerzustand vom generischen Leerzustand
+    unterscheiden kann (R4/KTD2 im Plan:
+    `docs/plans/2026-09-15-004-feat-job-search-hide-applied-plan.md`)."""
 
     results: list[JobOfferCreate]
     sources: list[SourceStatus]
+    excluded_applied_count: int = 0
