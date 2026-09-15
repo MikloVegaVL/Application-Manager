@@ -116,12 +116,11 @@ class Settings(BaseSettings):
     # --- Bewerbungs-E-Mail-Suche (On-Demand, KTD3/KTD4) ---
     # Die Suche ist eine synchrone Live-Scrape-Anfrage und muss laut KTD4
     # strikt begrenzt sein: Seitenanzahl, Per-Fetch-Timeout, maximale
-    # Body-Größe, an das Modell gegebener Seitentext und eine Gesamt-Deadline.
-    # Die Deadline liegt bewusst deutlich unter `frontend/nginx.conf`s
-    # `proxy_read_timeout` (2000s, siehe dort), damit die Anfrage immer
-    # auflöst statt in einen Proxy-Timeout zu laufen. Das Extraktionsmodell
-    # ist auf das kleine CV-Parsing-Modell gepinnt (`OLLAMA_MODEL_CV_PARSING`),
-    # nicht auf das Default-Chat-Modell.
+    # Body-Größe, an die Extraktion gegebener Seitentext und eine
+    # Gesamt-Deadline. Die Deadline liegt bewusst deutlich unter
+    # `frontend/nginx.conf`s `proxy_read_timeout` (2000s, siehe dort), damit
+    # die Anfrage immer auflöst statt in einen Proxy-Timeout zu laufen. Die
+    # Adressen liest eine Regex (kein LLM - siehe Service-Docstring).
     APPLICATION_EMAIL_LOOKUP_MAX_PAGES: int = 6
     APPLICATION_EMAIL_LOOKUP_FETCH_TIMEOUT_SECONDS: float = 10.0
     APPLICATION_EMAIL_LOOKUP_MAX_BODY_BYTES: int = 400_000

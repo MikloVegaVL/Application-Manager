@@ -15,11 +15,7 @@ import time
 import pytest
 from requests_mock import ANY
 
-from app.core.config import settings
-from app.schemas.application_email_lookup import (
-    ApplicationEmailLookupRequest,
-    ExtractedEmails,
-)
+from app.schemas.application_email_lookup import ApplicationEmailLookupRequest
 from app.services import llm_client
 from app.services.application_email_lookup import (
     ApplicationEmailLookupService,
@@ -433,6 +429,162 @@ def test_unrelated_linked_host_is_not_treated_as_employer():
     assert result.status == "not-found"
 
 
+def test_job_board_footer_links_are_not_treated_as_employer_pages():
+    """Covers R3 (Regression): die eigenen Karriere-/Kontakt-Links einer
+    Jobbörse (XINGs Mutter `new-work.se`, `corporate.xing.com`, LinkedIn)
+    sind keine Arbeitgeber-Hosts und dürfen nicht gescrapt werden. Genau
+    das ließ die Suche zuvor 45 s in die Deadline laufen."""
+    posting = (
+        '<html>'
+        '<a href="https://www.new-work.se/de/karriere">Karriere</a>'
+        '<a href="https://corporate.xing.com/de/Newsroom/pressekontakt/x">Pressekontakt</a>'
+        '<a href="https://www.linkedin.com/karriere">Karriere</a>'
+        "</html>"
+    )
+    fetch = _FakeFetcher({"https://www.xing.com/jobs/1": posting})
+    service = _service(fetch, _RegexExtractor())
+
+    result = service.lookup(_request(source_url="https://www.xing.com/jobs/1", company=""))
+
+    assert not any("new-work.se" in call for call in fetch.calls)
+    assert not any("corporate.xing.com" in call for call in fetch.calls)
+    assert not any("linkedin.com" in call for call in fetch.calls)
+    assert result.status in ("not-found", "failed")
+
+
+def test_known_job_board_host_is_never_scraped_even_with_career_path():
+    """Covers R3: ein bekannter Jobbörsen-Host wird auch dann nicht als
+    Arbeitgeber behandelt, wenn der Link auf einen Karriere-Pfad zeigt."""
+    posting = '<html><a href="https://www.stepstone.de/karriere">K</a></html>'
+    fetch = _FakeFetcher({"https://jobs.example.com/1": posting})
+    service = _service(fetch, _RegexExtractor())
+
+    service.lookup(_request(company=""))
+
+    assert not any("stepstone.de" in call for call in fetch.calls)
+
+
+@pytest.mark.parametrize(
+    ("company", "expected_host"),
+    [
+        ("Deutsche Bausparkasse Badenia AG", "badenia.de"),
+        ("Klangio GmbH", "klangio.de"),
+        ("FERCHAU GmbH Niederlassung Karlsruhe City", "ferchau.de"),
+        ("Hays AG", "hays.de"),
+        ("hyrUP GmbH", "hyrup.de"),
+        ("isento", "isento.de"),
+        ("HUK-COBURG VVaG", "huk-coburg.de"),
+        ("G&S IT Group", "gs-it.de"),
+    ],
+)
+def test_company_name_yields_brand_domain_candidate(company, expected_host):
+    """Covers R3/A2: der Firmenname wird nicht nur als Ganzes slugifiziert
+    (`deutschebausparkassebadenia.de`, löst nie auf), sondern auch in seine
+    Marken-Tokens zerlegt - sonst findet die Suche die Arbeitgeber-Domain
+    praktisch nie."""
+    from app.services.application_email_lookup import _company_host_candidates
+
+    assert expected_host in _company_host_candidates(company)
+
+
+def test_xing_posting_falls_back_to_company_brand_site_and_finds_email():
+    """Covers R3/R5: eine XING-Anzeige, deren Seite nur Jobbörsen-Links
+    trägt, nutzt die aus dem Firmennamen abgeleitete Marken-Domain und
+    findet dort die Adresse (statt XINGs Muttergesellschaft zu scrapen)."""
+    posting = (
+        '<html>'
+        '<a href="https://www.new-work.se/de/karriere">Karriere</a>'
+        '<a href="https://corporate.xing.com/de/Newsroom/pressekontakt/x">Pressekontakt</a>'
+        "</html>"
+    )
+    impressum = "<html>Deutsche Bausparkasse Badenia AG - service@badenia.de</html>"
+    fetch = _FakeFetcher(
+        {
+            "https://www.xing.com/jobs/1": posting,
+            "https://badenia.de/impressum": impressum,
+        }
+    )
+    service = _service(fetch, _RegexExtractor())
+
+    result = service.lookup(
+        _request(
+            source_url="https://www.xing.com/jobs/1",
+            company="Deutsche Bausparkasse Badenia AG",
+        )
+    )
+
+    assert result.status == "found"
+    assert result.email == "service@badenia.de"
+    assert result.source_url == "https://badenia.de/impressum"
+    assert not any("new-work.se" in call for call in fetch.calls)
+
+
+def test_linked_host_without_company_affinity_is_not_scraped():
+    """Covers R3: ein verlinkter Host mit Karriere-Pfad, dessen Domain den
+    Firmennamen nicht enthält (Partner-/Börsen-Link), ist kein Arbeitgeber."""
+    posting = '<html><a href="https://jobs.partner.de/karriere">K</a></html>'
+    fetch = _FakeFetcher({"https://jobs.example.com/1": posting})
+    service = _service(fetch, _RegexExtractor())
+
+    service.lookup(_request(company="Acme"))
+
+    assert not any("partner.de" in call for call in fetch.calls)
+
+
+def test_partner_job_board_link_does_not_supply_its_own_address():
+    """Covers R3 (Regression): ein XING-Partnerlink (`yourfirm.de/...`) liefert
+    nicht die Adresse der Jobbörse selbst, sondern es wird die Marken-Domain
+    des Arbeitgebers gesucht."""
+    posting = (
+        '<html><a href="https://www.yourfirm.de/job/detail/YF-1?x=1">Job</a></html>'
+    )
+    impressum = "<html>Klangio GmbH - bewerbung@klangio.de</html>"
+    fetch = _FakeFetcher(
+        {
+            "https://www.xing.com/jobs/2": posting,
+            "https://klangio.de/impressum": impressum,
+        }
+    )
+    service = _service(fetch, _RegexExtractor())
+
+    result = service.lookup(
+        _request(source_url="https://www.xing.com/jobs/2", company="Klangio GmbH")
+    )
+
+    assert not any("yourfirm.de" in call for call in fetch.calls)
+    assert result.status == "found"
+    assert result.email == "bewerbung@klangio.de"
+
+
+def test_job_board_own_address_on_posting_page_is_discarded():
+    """Covers R4/R5: die Support-/Footer-Adresse der Jobbörse selbst ist keine
+    Bewerbungsadresse, auch wenn sie wörtlich auf der Anzeigenseite steht."""
+    posting = "<html>Kontakt: support@xing.com - Bewerbung: bewerbung@acme.de</html>"
+    fetch = _FakeFetcher({"https://www.xing.com/jobs/3": posting})
+    service = _service(fetch, _RegexExtractor())
+
+    result = service.lookup(
+        _request(source_url="https://www.xing.com/jobs/3", company="Acme")
+    )
+
+    assert result.email == "bewerbung@acme.de"
+
+
+def test_employer_domain_address_beats_other_company_on_board_page():
+    """Covers R5: eine Adresse auf der Arbeitgeber-Domain schlägt eine
+    anwendungsspezifisch aussehende Adresse eines *fremden* Unternehmens, die
+    im Anzeigentext eingebettet ist."""
+    posting = "<html>bewerbung@other.de - Kontakt des Arbeitgebers: info@acme.de</html>"
+    fetch = _FakeFetcher({"https://www.xing.com/jobs/4": posting})
+    service = _service(fetch, _RegexExtractor())
+
+    result = service.lookup(
+        _request(source_url="https://www.xing.com/jobs/4", company="Acme")
+    )
+
+    assert result.email == "info@acme.de"
+
+
 def test_redirect_to_loopback_is_not_followed(requests_mock):
     """Covers R3: eine öffentliche URL, die auf Loopback umleitet, wird nicht
     verfolgt (Weiterleitungen sind deaktiviert). Das Loopback-Ziel liefert
@@ -489,18 +641,15 @@ def test_body_byte_cap_truncates_text_before_the_model():
     assert all("bewerbung@acme.de" not in text for text in extractor.seen_texts)
 
 
-# --- Geteilter LLM-Pfad (KTD2) ---------------------------------------------
+# --- Default-Extraktor (KTD2, überarbeitet) --------------------------------
 
 
-def test_default_extractor_pins_cv_parsing_model_and_filters_verbatim(mocker):
-    """KTD2: der Default-Extraktor läuft über `llm_client.generate_structured`
-    mit flachem Schema und dem CV-Parsing-Modell; nicht belegte Adressen
-    werden anschließend verworfen."""
-    mock = mocker.patch.object(
-        llm_client,
-        "generate_structured",
-        return_value=ExtractedEmails(emails=["real@acme.de", "ghost@nowhere.de"]),
-    )
+def test_default_extractor_uses_regex_without_calling_the_llm(mocker):
+    """Der Default-Extraktor liest Adressen per Regex aus dem Seitentext,
+    statt pro Seite einen 7-40 s teuren Ollama-Aufruf zu machen. Da R4
+    ohnehin nur wörtlich belegte Adressen zulässt, kann das LLM nie mehr
+    gültige Kandidaten liefern - es kostete nur die Deadline."""
+    llm_mock = mocker.patch.object(llm_client, "generate_structured")
     fetch = _FakeFetcher({"https://jobs.example.com/1": "Kontakt: real@acme.de"})
     service = ApplicationEmailLookupService(
         fetch=fetch,
@@ -512,9 +661,7 @@ def test_default_extractor_pins_cv_parsing_model_and_filters_verbatim(mocker):
 
     assert result.status == "found"
     assert result.email == "real@acme.de"
-    called_model_cls, _ = mock.call_args[0]
-    assert called_model_cls is ExtractedEmails
-    assert mock.call_args.kwargs["model"] == settings.OLLAMA_MODEL_CV_PARSING
+    llm_mock.assert_not_called()
 
 
 # --- Format-Helfer ---------------------------------------------------------

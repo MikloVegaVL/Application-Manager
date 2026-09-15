@@ -174,7 +174,7 @@ def render_html(url: str, timeout: float) -> str | None:
             return None
 
 
-def _read_capped_body(response: requests.Response, max_bytes: int) -> str:
+def read_capped_body(response: requests.Response, max_bytes: int) -> str:
     """Liest höchstens `max_bytes` aus dem (bereits entpackten) Body.
 
     Wird nur für den `max_bytes`-Pfad genutzt: `requests` entpackt gzip/deflate
@@ -228,7 +228,7 @@ def fetch_with_requests(
             response.raise_for_status()
             if max_bytes is None:
                 return response.text
-            return _read_capped_body(response, max_bytes)
+            return read_capped_body(response, max_bytes)
         finally:
             response.close()
     except requests.RequestException as exc:
