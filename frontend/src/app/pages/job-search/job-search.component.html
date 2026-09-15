@@ -122,6 +122,13 @@
             <mat-chip-set>
               <mat-chip>{{ job.source_platform }}</mat-chip>
             </mat-chip-set>
+            <div class="job-card__recipient">
+              <mat-icon>mail_outline</mat-icon>
+              <span>
+                <span class="job-card__recipient-label"> Recipient: </span>
+                {{ recipientEmail(job) || '—' }}
+              </span>
+            </div>
           </mat-card-content>
 
           <mat-card-actions align="end">

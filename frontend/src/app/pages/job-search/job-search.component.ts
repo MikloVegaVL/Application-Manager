@@ -15,6 +15,7 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 import { JobOffer, JobSaveConflictDetail } from '../../core/models/job-offer.model';
 import { JobSearchStateService } from '../../core/services/job-search-state.service';
 import { JobService } from '../../core/services/job.service';
+import { extractEmail } from '../../core/utils/email-extraction.util';
 import { sourceLabel as getSourceLabel } from '../../core/utils/source-label.util';
 
 @Component({
@@ -141,6 +142,13 @@ export class JobSearchComponent {
 
   sourceLabel(platform: string): string {
     return getSourceLabel(platform);
+  }
+
+  /** Empfängeradresse aus dem Anzeigentext - dieselbe Extraktion wie im
+   * Editor (siehe `email-extraction.util`). `null`, wenn die Anzeige keine
+   * E-Mail nennt; die Karte zeigt dann einen Platzhalter. */
+  recipientEmail(job: JobOffer): string | null {
+    return extractEmail(job.description_text);
   }
 
   isSaved(job: JobOffer): boolean {

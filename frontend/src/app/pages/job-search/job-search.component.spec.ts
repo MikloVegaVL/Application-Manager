@@ -242,6 +242,50 @@ describe('JobSearchComponent', () => {
     expect(component['sourceStatuses']().length).toBe(0);
   });
 
+  describe('recipient email on the result card', () => {
+    it('shows the recipient email extracted from the job description', () => {
+      triggerSearch();
+      flushSearch({
+        results: [
+          {
+            title: 'Angular Developer',
+            company: 'Acme',
+            location: 'Berlin',
+            source_url: 'https://example.com/job/1',
+            description_text: 'Bitte sende deine Bewerbung an bewerbung@acme.example.',
+            source_platform: 'arbeitsagentur',
+          },
+        ],
+        sources: [{ platform: 'arbeitsagentur', status: 'ok', reason: null }],
+      });
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('Recipient');
+      expect(text).toContain('bewerbung@acme.example');
+    });
+
+    it('shows a placeholder when the description has no email address', () => {
+      triggerSearch();
+      flushSearch({
+        results: [
+          {
+            title: 'Angular Developer',
+            company: 'Acme',
+            location: 'Berlin',
+            source_url: 'https://example.com/job/1',
+            description_text: 'Wir suchen eine Softwareentwicklerin (m/w/d).',
+            source_platform: 'arbeitsagentur',
+          },
+        ],
+        sources: [{ platform: 'arbeitsagentur', status: 'ok', reason: null }],
+      });
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('Recipient');
+      expect(text).toContain('—');
+    });
+  });
+
   describe('onClearResults()', () => {
     it('empties the results list without touching the search form', () => {
       triggerSearch('Angular', 'Berlin');

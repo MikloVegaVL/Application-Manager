@@ -106,6 +106,32 @@
     gap: 6px;
   }
 
+  &__recipient {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    margin-top: 8px;
+    color: var(--app-secondary-text);
+    font-size: 0.8125rem;
+
+    mat-icon {
+      flex-shrink: 0;
+      width: 16px;
+      height: 16px;
+      font-size: 16px;
+      color: var(--app-muted-text);
+    }
+
+    span {
+      overflow-wrap: anywhere;
+    }
+  }
+
+  &__recipient-label {
+    color: var(--app-muted-text);
+  }
+
   mat-card-content {
     flex: 1;
   }
