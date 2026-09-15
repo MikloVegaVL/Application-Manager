@@ -72,8 +72,17 @@ export interface JobSearchResponse {
 export interface ApplicationEmailLookupRequest {
   source_url: string;
   company: string;
-  title: string;
-  description_text: string | null;
+}
+
+/**
+ * Baut den Lookup-Payload aus einem `JobOffer` - beide Oberflächen (Job-
+ * Suchkarte und Sendedialog) senden denselben Payload (KTD1).
+ */
+export function toApplicationEmailLookupRequest(job: JobOffer): ApplicationEmailLookupRequest {
+  return {
+    source_url: job.source_url,
+    company: job.company,
+  };
 }
 
 /**

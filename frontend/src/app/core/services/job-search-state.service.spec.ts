@@ -16,8 +16,6 @@ describe('JobSearchStateService', () => {
   const payload: ApplicationEmailLookupRequest = {
     source_url: 'https://example.com/job/1',
     company: 'Acme',
-    title: 'Angular Developer',
-    description_text: null,
   };
 
   const lookupUrl = `${environment.apiBaseUrl}/jobs/application-email-lookup`;

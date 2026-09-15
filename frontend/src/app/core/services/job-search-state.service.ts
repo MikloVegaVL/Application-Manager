@@ -19,6 +19,10 @@ import { JobService } from './job.service';
  * bleiben Trefferliste, Quellen-Status und bereits gespeicherte Jobs
  * erhalten. Überlebt keinen vollständigen Seiten-Reload (bewusst kein
  * localStorage - siehe ce-debug-Feature, 2026-08-20).
+ *
+ * Neben dem reinen Zustandshalten führt der Service auch die
+ * Bewerbungs-E-Mail-Suche aus (mit Cache pro `source_url`) und delegiert
+ * sie an den `JobService` - siehe `lookupApplicationEmail`.
  */
 @Injectable({ providedIn: 'root' })
 export class JobSearchStateService {
@@ -78,11 +82,14 @@ export class JobSearchStateService {
 
   /** Leert die Trefferliste für eine neue Suche - `savedJobIds` bleibt
    * bewusst bestehen: ein bereits gespeicherter Job ist weiterhin
-   * gespeichert, unabhängig davon, ob die aktuelle Liste geleert wird. */
+   * gespeichert, unabhängig davon, ob die aktuelle Liste geleert wird.
+   * Der an die Trefferliste gekoppelte E-Mail-Lookup-Cache wird mit
+   * geleert, damit keine Ergebnisse geleerter Karten stehenbleiben. */
   clearResults(): void {
     this.results.set([]);
     this.sourceStatuses.set([]);
     this.hasSearched.set(false);
     this.errorMessage.set(null);
+    this.applicationEmailResults.set(new Map());
   }
 }

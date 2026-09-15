@@ -65,8 +65,6 @@ describe('JobService', () => {
     const payload = {
       source_url: 'https://example.com/job/1',
       company: 'Acme',
-      title: 'Angular Developer',
-      description_text: null,
     };
     const mockResult: ApplicationEmailLookupResult = {
       status: 'found',

@@ -280,6 +280,24 @@ def _safe_error_text(exc: BaseException, url: str | None) -> str:
 # --- URL-Validierung --------------------------------------------------------
 
 
+def is_public_ip(value: str) -> bool:
+    """Ob `value` eine öffentliche IP-Adresse ist (KTD10/R3).
+
+    Eine Adresse gilt als öffentlich, wenn sie weder privat, noch Loopback-,
+    Link-Local-, reserviert, Multicast- oder unspecified ist. Ein Nicht-IP-
+    String löst wie `ipaddress.ip_address` eine `ValueError` aus.
+    """
+    ip = ipaddress.ip_address(value)
+    return not (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    )
+
+
 def validate_source_url(url: str | None) -> bool:
     """Erlaubt nur `http`/`https` auf öffentliche Hosts (KTD10/R3).
 
@@ -306,18 +324,9 @@ def validate_source_url(url: str | None) -> bool:
         return False
 
     try:
-        ip = ipaddress.ip_address(host)
+        return is_public_ip(host)
     except ValueError:
         return True  # regulärer Domainname
-
-    return not (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_reserved
-        or ip.is_multicast
-        or ip.is_unspecified
-    )
 
 
 # --- Salary/Homeoffice-Prosa ------------------------------------------------

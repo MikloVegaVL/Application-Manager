@@ -77,13 +77,10 @@ class _FixedExtractor:
 def _request(
     source_url: str = "https://jobs.example.com/1",
     company: str = "Acme",
-    title: str = "Backend Developer",
 ) -> ApplicationEmailLookupRequest:
     return ApplicationEmailLookupRequest(
         source_url=source_url,
         company=company,
-        title=title,
-        description_text=None,
     )
 
 

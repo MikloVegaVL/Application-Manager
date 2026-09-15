@@ -27,7 +27,6 @@ patchen; `get_application_email_lookup_service()` ist der FastAPI-Provider.
 """
 from __future__ import annotations
 
-import ipaddress
 import logging
 import re
 import socket
@@ -48,6 +47,7 @@ from app.schemas.application_email_lookup import (
 from app.services import llm_client
 from app.services.job_sources.shared import (
     fetch_html,
+    is_public_ip,
     sanitize_url_for_log,
     strip_html,
     validate_source_url,
@@ -248,22 +248,17 @@ class ApplicationEmailLookupService:
         deadline = monotonic() + self._deadline_seconds
         candidates: list[_Candidate] = []
         order = 0
-        any_extraction_succeeded = False
+        any_page_processed = False
 
         posting_html = self._fetch_page(request.source_url, deadline)
         employer_urls = self._candidate_urls(posting_html, request.source_url, request.company)
 
-        pages: list[str] = []
-        seen: set[str] = set()
-        for url in employer_urls:
-            if url not in seen:
-                seen.add(url)
-                pages.append(url)
+        employer_urls = list(dict.fromkeys(employer_urls))
+        pages = employer_urls[: max(0, self._max_pages - 1)]
         # Die Anzeigenseite ist der Fallback (R3) und muss immer Platz im
         # Seitenbudget haben - sonst verdrängen die aus dem Firmennamen
         # erratenen Hosts sie (KTD4).
-        pages = pages[: max(0, self._max_pages - 1)]
-        if request.source_url not in seen:
+        if request.source_url not in employer_urls:
             pages.append(request.source_url)
 
         fetched: dict[str, str | None] = {request.source_url: posting_html}
@@ -282,7 +277,7 @@ class ApplicationEmailLookupService:
 
             text = self._page_text(html)
             if not text:
-                any_extraction_succeeded = True
+                any_page_processed = True
                 continue
 
             try:
@@ -292,13 +287,14 @@ class ApplicationEmailLookupService:
                     "LLM-Extraktion für %s fehlgeschlagen.", sanitize_url_for_log(page_url)
                 )
                 continue
-            any_extraction_succeeded = True
+            any_page_processed = True
 
+            text_lower = text.lower()
             for raw_email in emails:
                 cleaned = _clean_email(raw_email)
                 if not is_valid_email(cleaned):
                     continue
-                if cleaned.lower() not in text.lower():
+                if cleaned.lower() not in text_lower:
                     # R4: nur wörtlich auf der geladenen Seite gefundene Adressen.
                     continue
                 candidates.append(
@@ -318,7 +314,7 @@ class ApplicationEmailLookupService:
                 email=best.email,
                 source_url=best.source_url,
             )
-        if any_extraction_succeeded:
+        if any_page_processed:
             return ApplicationEmailLookupResult(status="not-found")
         return ApplicationEmailLookupResult(status="failed")
 
@@ -365,17 +361,9 @@ class ApplicationEmailLookupService:
             return False
         for address in addresses:
             try:
-                ip = ipaddress.ip_address(address)
+                if not is_public_ip(address):
+                    return False
             except ValueError:
-                return False
-            if (
-                ip.is_private
-                or ip.is_loopback
-                or ip.is_link_local
-                or ip.is_reserved
-                or ip.is_multicast
-                or ip.is_unspecified
-            ):
                 return False
         return True
 
@@ -426,13 +414,7 @@ class ApplicationEmailLookupService:
             for path in _EMPLOYER_PATH_CANDIDATES:
                 urls.append(urljoin(base, path))
 
-        deduped: list[str] = []
-        seen: set[str] = set()
-        for url in urls:
-            if url not in seen:
-                seen.add(url)
-                deduped.append(url)
-        return deduped
+        return list(dict.fromkeys(urls))
 
 
 def _extract_emails_via_llm(text: str) -> list[str]:

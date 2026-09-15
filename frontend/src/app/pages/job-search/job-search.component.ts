@@ -16,6 +16,7 @@ import {
   ApplicationEmailLookupResult,
   JobOffer,
   JobSaveConflictDetail,
+  toApplicationEmailLookupRequest,
 } from '../../core/models/job-offer.model';
 import { JobSearchStateService } from '../../core/services/job-search-state.service';
 import { JobService } from '../../core/services/job.service';
@@ -210,12 +211,7 @@ export class JobSearchComponent {
     this.setLookupLoading(job.source_url, true);
     this.state
       .lookupApplicationEmail(
-        {
-          source_url: job.source_url,
-          company: job.company,
-          title: job.title,
-          description_text: job.description_text,
-        },
+        toApplicationEmailLookupRequest(job),
         { force: this.lookupResult(job) !== null },
       )
       .subscribe({

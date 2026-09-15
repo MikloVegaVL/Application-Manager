@@ -20,8 +20,6 @@ class ApplicationEmailLookupRequest(BaseModel):
 
     source_url: str = Field(..., max_length=1024)
     company: str = Field(..., max_length=255)
-    title: str = Field(..., max_length=255)
-    description_text: str | None = None
 
 
 class ApplicationEmailLookupResult(BaseModel):

@@ -26,7 +26,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { HttpErrorResponse } from '@angular/common/http';
 import { Application } from '../../core/models/application.model';
-import { JobOfferRead } from '../../core/models/job-offer.model';
+import { JobOfferRead, toApplicationEmailLookupRequest } from '../../core/models/job-offer.model';
 import { ApplicationService } from '../../core/services/application.service';
 import { JobSearchStateService } from '../../core/services/job-search-state.service';
 import { JobService } from '../../core/services/job.service';
@@ -327,12 +327,7 @@ export class ApplicationEditorComponent implements OnInit {
         findApplicationEmail: jobOffer
           ? (force: boolean) =>
               this.jobSearchState.lookupApplicationEmail(
-                {
-                  source_url: jobOffer.source_url,
-                  company: jobOffer.company,
-                  title: jobOffer.title,
-                  description_text: jobOffer.description_text,
-                },
+                toApplicationEmailLookupRequest(jobOffer),
                 { force },
               )
           : undefined,

@@ -469,8 +469,6 @@ def _lookup_payload(source_url: str = "https://example.com/job/lookup") -> dict:
     return {
         "source_url": source_url,
         "company": "Acme",
-        "title": "Angular Developer",
-        "description_text": None,
     }
 
 

@@ -128,7 +128,6 @@ def lookup_application_email(
         existing.application_email = result.email
         existing.application_email_source_url = result.source_url
         db.commit()
-        db.refresh(existing)
 
     return result
 
