@@ -113,6 +113,22 @@ class Settings(BaseSettings):
     JOB_SEARCH_INDEED_ENABLED: bool = True
     JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED: bool = True
 
+    # --- Bewerbungs-E-Mail-Suche (On-Demand, KTD3/KTD4) ---
+    # Die Suche ist eine synchrone Live-Scrape-Anfrage und muss laut KTD4
+    # strikt begrenzt sein: Seitenanzahl, Per-Fetch-Timeout, maximale
+    # Body-Größe, an das Modell gegebener Seitentext und eine Gesamt-Deadline.
+    # Die Deadline liegt bewusst deutlich unter `frontend/nginx.conf`s
+    # `proxy_read_timeout` (2000s, siehe dort), damit die Anfrage immer
+    # auflöst statt in einen Proxy-Timeout zu laufen. Das Extraktionsmodell
+    # ist auf das kleine CV-Parsing-Modell gepinnt (`OLLAMA_MODEL_CV_PARSING`),
+    # nicht auf das Default-Chat-Modell.
+    APPLICATION_EMAIL_LOOKUP_MAX_PAGES: int = 6
+    APPLICATION_EMAIL_LOOKUP_FETCH_TIMEOUT_SECONDS: float = 10.0
+    APPLICATION_EMAIL_LOOKUP_MAX_BODY_BYTES: int = 400_000
+    # Spiegelt `ai_generator._MAX_JOB_DESCRIPTION_CHARS` (Token-/Kosten-Schutz).
+    APPLICATION_EMAIL_LOOKUP_MAX_PAGE_TEXT_CHARS: int = 6_000
+    APPLICATION_EMAIL_LOOKUP_DEADLINE_SECONDS: float = 45.0
+
     # --- Generierte/hochgeladene Dateien ---
     # Ablageort der vom Nutzer hochgeladenen Lebenslauf-Anhang-Datei (siehe
     # `app.api.profile`). Es gibt keine serverseitig generierten Bewerbungs-

@@ -174,13 +174,20 @@ def render_html(url: str, timeout: float) -> str | None:
             return None
 
 
-def fetch_with_requests(url: str, timeout: float = 15.0) -> str | None:
-    """Lädt `url` per HTTP GET und liefert den HTML-Text (oder `None`)."""
+def fetch_with_requests(url: str, timeout: float = 15.0, *, allow_redirects: bool = True) -> str | None:
+    """Lädt `url` per HTTP GET und liefert den HTML-Text (oder `None`).
+
+    `allow_redirects=False` erlaubt der SSRF-gehärteten Aufrufstelle
+    (`ApplicationEmailLookupService`, KTD3), Weiterleitungen zu unterbinden,
+    statt sie ungeprüft zu verfolgen - der Aufrufer validiert jede Ziel-URL
+    vorher selbst. Der Default bleibt unverändert `True`.
+    """
     try:
         response = requests.get(
             url,
             timeout=timeout,
             headers={"User-Agent": DEFAULT_USER_AGENT},
+            allow_redirects=allow_redirects,
         )
         response.raise_for_status()
         return response.text
@@ -193,19 +200,29 @@ def fetch_with_requests(url: str, timeout: float = 15.0) -> str | None:
         return None
 
 
-def fetch_html(url: str, *, use_playwright: bool = False, timeout: float = 15.0) -> str | None:
+def fetch_html(
+    url: str,
+    *,
+    use_playwright: bool = False,
+    timeout: float = 15.0,
+    allow_redirects: bool = True,
+) -> str | None:
     """Beschafft den HTML-Inhalt einer Seite - optional per Playwright.
 
     Ist Playwright angefordert, aber nicht installiert, wird auf einen
     einfachen HTTP-Abruf zurückgefallen (wie bisher im generischen Scraper).
     Schlägt das Rendering dagegen fehl, wird `None` geliefert.
+
+    `allow_redirects` wird nur an den `requests`-Pfad durchgereicht; der
+    Playwright-Pfad folgt Navigations-Redirects weiterhin selbst (der
+    SSRF-gehärtete Aufrufer nutzt ausschließlich den `requests`-Pfad).
     """
     if use_playwright:
         if not playwright_available():
             logger.warning("Playwright ist nicht installiert - Fallback auf requests.")
-            return fetch_with_requests(url, timeout=timeout)
+            return fetch_with_requests(url, timeout=timeout, allow_redirects=allow_redirects)
         return render_html(url, timeout=timeout)
-    return fetch_with_requests(url, timeout=timeout)
+    return fetch_with_requests(url, timeout=timeout, allow_redirects=allow_redirects)
 
 
 # --- HTML-Stripping / Credential-Redaktion ---------------------------------

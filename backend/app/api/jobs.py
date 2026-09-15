@@ -5,8 +5,18 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.application import Application
 from app.models.job_offer import JobOffer
+from app.schemas.application_email_lookup import (
+    ApplicationEmailLookupRequest,
+    ApplicationEmailLookupResult,
+)
 from app.schemas.job_offer import JobOfferCreate, JobOfferRead, JobSearchResponse
+from app.services.application_email_lookup import (
+    ApplicationEmailLookupService,
+    get_application_email_lookup_service,
+    is_valid_email,
+)
 from app.services.job_search_service import JobSearchService, get_job_search_service
+from app.services.job_sources.shared import validate_source_url
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
@@ -57,7 +67,17 @@ def save_job(payload: JobOfferCreate, db: Session = Depends(get_db)) -> JobOffer
             },
         )
 
-    job_offer = JobOffer(**payload.model_dump())
+    job_data = payload.model_dump()
+    # Discovery-Cache nur persistieren, wenn er plausibel ist: eine
+    # offensichtlich ungültige E-Mail wird ebenso verworfen wie eine
+    # Quell-URL, die die geteilte Host-Validierung nicht besteht (R10/KTD5).
+    if not is_valid_email(job_data.get("application_email")):
+        job_data["application_email"] = None
+        job_data["application_email_source_url"] = None
+    elif not validate_source_url(job_data.get("application_email_source_url")):
+        job_data["application_email_source_url"] = None
+
+    job_offer = JobOffer(**job_data)
     db.add(job_offer)
     db.flush()  # weist job_offer.id zu, ohne die Transaktion schon zu committen
 
@@ -74,6 +94,43 @@ def save_job(payload: JobOfferCreate, db: Session = Depends(get_db)) -> JobOffer
     db.refresh(job_offer)
 
     return job_offer
+
+
+@router.post("/application-email-lookup", response_model=ApplicationEmailLookupResult)
+def lookup_application_email(
+    payload: ApplicationEmailLookupRequest,
+    db: Session = Depends(get_db),
+    service: ApplicationEmailLookupService = Depends(get_application_email_lookup_service),
+) -> ApplicationEmailLookupResult:
+    """Sucht on-demand eine Bewerbungs-E-Mail für einen Job-Payload (R1).
+
+    Persistiert-zuerst (KTD1): hat ein gespeichertes `JobOffer` mit dieser
+    `source_url` bereits eine Adresse, wird sie ohne jeden Abruf zurückgegeben.
+    Sonst läuft die Suche; ein gefundenes Ergebnis wird auf dem passenden
+    gespeicherten Job gespeichert (R10), ein unsauberer/unsaved Payload wird
+    nicht persistiert. Ein Lookup-Fehler ist ein `failed`-Ergebnis, kein 5xx.
+    """
+    existing = db.query(JobOffer).filter(JobOffer.source_url == payload.source_url).first()
+    if existing is not None and existing.application_email:
+        return ApplicationEmailLookupResult(
+            status="found",
+            email=existing.application_email,
+            source_url=existing.application_email_source_url,
+        )
+
+    result = service.lookup(payload)
+
+    if (
+        result.status == "found"
+        and result.email
+        and existing is not None
+    ):
+        existing.application_email = result.email
+        existing.application_email_source_url = result.source_url
+        db.commit()
+        db.refresh(existing)
+
+    return result
 
 
 @router.get("/{job_offer_id}", response_model=JobOfferRead)
