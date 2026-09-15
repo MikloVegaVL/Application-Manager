@@ -61,15 +61,6 @@ def _stepstone_search_url(keywords: str, location: str | None) -> str:
 # zu `xing.py`).
 BOARD_DESCRIPTORS: tuple[BoardDescriptor, ...] = (
     BoardDescriptor(
-        source_platform="kimeta",
-        # Bestätigtes Muster nicht verfügbar - best-known Query-Parameter.
-        build_search_url=make_search_url_builder(
-            "https://www.kimeta.de/stellenangebote",
-            keyword_param="q",
-            location_param="l",
-        ),
-    ),
-    BoardDescriptor(
         source_platform="stepstone",
         build_search_url=_stepstone_search_url,
     ),

@@ -15,9 +15,9 @@ from app.api.sent_emails import router as sent_emails_router
 from app.core.config import settings
 from app.db.init_db import init_db
 
-# Adzuna/Jooble tragen ihre API-Keys in der Request-URL. `urllib3`/`requests`
-# loggen die vollständige URL auf DEBUG-Ebene und würden die Keys damit
-# preisgeben - prozessweit unterdrücken.
+# `urllib3`/`requests` loggen vollständige Request-URLs auf DEBUG-Ebene, was
+# credential-tragende URLs künftiger Job-Quellen preisgeben könnte -
+# prozessweit unterdrücken.
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("requests").setLevel(logging.WARNING)
 

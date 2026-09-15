@@ -407,23 +407,17 @@ def test_default_registry_is_built_from_settings_without_injection():
         "arbeitsagentur",
         "linkedin",
         "xing",
-        "adzuna",
-        "jooble",
         "devjobs",
-        "kimeta",
         "stepstone",
         "germantechjobs",
         "indeed",
         "programmiererjobboerse",
     }
-    assert "adzuna" in platforms
-    assert "jooble" in platforms
     # U6: alle HTML-Boards (inkl. des eigens registrierten devjobs, siehe
     # job_sources/devjobs.py) sind standardmäßig registriert und tragen je
     # einen eigenen Plattform-Schlüssel - keiner ist "web-scraper" (R4/R6).
     for board in (
         "devjobs",
-        "kimeta",
         "stepstone",
         "germantechjobs",
         "indeed",
@@ -619,13 +613,10 @@ def test_enrich_description_is_a_no_op_for_unsupported_sources():
 
 _NEW_SOURCE_FLAGS = (
     "JOB_SEARCH_DEVJOBS_ENABLED",
-    "JOB_SEARCH_KIMETA_ENABLED",
     "JOB_SEARCH_STEPSTONE_ENABLED",
     "JOB_SEARCH_GERMANTECHJOBS_ENABLED",
     "JOB_SEARCH_INDEED_ENABLED",
     "JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED",
-    "JOB_SEARCH_ADZUNA_ENABLED",
-    "JOB_SEARCH_JOOBLE_ENABLED",
 )
 
 
@@ -641,22 +632,6 @@ def test_new_source_enable_flags_resolve_and_default_to_true(monkeypatch):
 
     for flag in _NEW_SOURCE_FLAGS:
         assert getattr(fresh, flag) is True
-
-
-def test_api_credentials_default_to_empty_strings(monkeypatch):
-    """U3 edge: ungesetzte Zugangsdaten lösen zu einem leeren String auf -
-    die Grundlage dafür, dass Adzuna/Jooble `not-configured` melden, ohne
-    die Suche fehlschlagen zu lassen (R9/KD7)."""
-    from app.core.config import Settings
-
-    for var in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY", "JOOBLE_API_KEY"):
-        monkeypatch.delenv(var, raising=False)
-
-    fresh = Settings(_env_file=None)
-
-    assert fresh.ADZUNA_APP_ID == ""
-    assert fresh.ADZUNA_APP_KEY == ""
-    assert fresh.JOOBLE_API_KEY == ""
 
 
 def test_source_status_accepts_not_configured_reason():

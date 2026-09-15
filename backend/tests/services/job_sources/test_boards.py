@@ -1,4 +1,4 @@
-"""Tests für die fünf generisch gelesenen HTML-Board-Quellen (U6).
+"""Tests für die vier generisch gelesenen HTML-Board-Quellen (U6).
 
 devjobs.de ist NICHT Teil dieser Deskriptoren-Liste mehr (eigener
 Playwright-Client in `job_sources/devjobs.py`, siehe dessen Docstring) und
@@ -26,7 +26,6 @@ from app.services.job_search_service import JobSearchService, SourceRegistration
 from app.services.job_sources.boards import BOARD_DESCRIPTORS, BoardSource
 
 BOARD_KEYS = (
-    "kimeta",
     "stepstone",
     "germantechjobs",
     "indeed",
@@ -35,7 +34,6 @@ BOARD_KEYS = (
 
 # Die zugehörigen Enable-Flags aus U3 (KTD7).
 BOARD_FLAGS = (
-    "JOB_SEARCH_KIMETA_ENABLED",
     "JOB_SEARCH_STEPSTONE_ENABLED",
     "JOB_SEARCH_GERMANTECHJOBS_ENABLED",
     "JOB_SEARCH_INDEED_ENABLED",
@@ -118,13 +116,13 @@ NO_RESULTS_HTML = """
 # --- Deskriptoren -----------------------------------------------------------
 
 
-def test_five_distinct_board_platform_keys():
-    """Verification: alle fünf Plattform-Schlüssel sind eindeutig und keiner
+def test_four_distinct_board_platform_keys():
+    """Verification: alle vier Plattform-Schlüssel sind eindeutig und keiner
     ist der generische "web-scraper" (R4/R6)."""
     keys = [descriptor.source_platform for descriptor in BOARD_DESCRIPTORS]
 
-    assert len(keys) == 5
-    assert len(set(keys)) == 5
+    assert len(keys) == 4
+    assert len(set(keys)) == 4
     assert set(keys) == set(BOARD_KEYS)
     assert "web-scraper" not in keys
 
@@ -278,7 +276,7 @@ def test_one_board_fetch_failure_leaves_the_others_unaffected(requests_mock):
     assert indeed_status.status == "unavailable"
     assert indeed_status.reason == "empty"
 
-    # Nur die sechs gesunden Boards tragen zu den Ergebnissen bei.
+    # Nur die drei gesunden Boards tragen zu den Ergebnissen bei.
     assert {offer.source_platform for offer in response.results} == ok_platforms
     assert "web-scraper" not in {offer.source_platform for offer in response.results}
 
@@ -286,7 +284,7 @@ def test_one_board_fetch_failure_leaves_the_others_unaffected(requests_mock):
 # --- Registry-Wiring (KTD7) -------------------------------------------------
 
 
-def test_registry_registers_all_five_boards_with_distinct_platforms(monkeypatch):
+def test_registry_registers_all_four_boards_with_distinct_platforms(monkeypatch):
     for flag in BOARD_FLAGS:
         monkeypatch.setattr(settings, flag, True)
 
