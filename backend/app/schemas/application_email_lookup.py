@@ -3,12 +3,8 @@
 `ApplicationEmailLookupRequest` ist der Job-Payload, den beide Oberflächen
 (Job-Suchkarte und Sendedialog) senden (KTD1). `ApplicationEmailLookupResult`
 ist das Ergebnis mit genau einem von drei Status: `found`, `not-found` oder
-`failed` (A5/KTD4) - `failed` (Fetch-/LLM-/Deadline-Fehler) wird von
+`failed` (A5/KTD4) - `failed` (Fetch-/Deadline-Fehler) wird von
 `not-found` (Suche abgeschlossen, keine Adresse) unterschieden.
-
-`ExtractedEmails` ist bewusst ein flaches `emails: list[str]`-Schema: die
-bekannte `$defs`/`$ref`-Schwäche von Ollama betrifft verschachtelte
-Listen von Objekten, ein flaches String-Array umgeht sie (KTD2).
 """
 from typing import Literal
 
@@ -32,9 +28,3 @@ class ApplicationEmailLookupResult(BaseModel):
     status: Literal["found", "not-found", "failed"]
     email: str | None = None
     source_url: str | None = None
-
-
-class ExtractedEmails(BaseModel):
-    """Flaches Antwort-Schema für den LLM-Extraktor (KTD2)."""
-
-    emails: list[str] = Field(default_factory=list)
