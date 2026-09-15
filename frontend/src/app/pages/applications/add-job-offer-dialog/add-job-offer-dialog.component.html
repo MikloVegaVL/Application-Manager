@@ -1,0 +1,58 @@
+<h2 mat-dialog-title>Add a directly-found job offer</h2>
+
+<mat-dialog-content>
+  <form [formGroup]="form" class="dialog-form">
+    <mat-form-field appearance="outline" class="dialog-form__field">
+      <mat-label>Job title</mat-label>
+      <input matInput formControlName="title" />
+      @if (form.controls.title.hasError('required') && form.controls.title.touched) {
+        <mat-error>Please enter a job title.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="dialog-form__field">
+      <mat-label>Company</mat-label>
+      <input matInput formControlName="company" />
+      @if (form.controls.company.hasError('required') && form.controls.company.touched) {
+        <mat-error>Please enter a company.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="dialog-form__field">
+      <mat-label>Source / reference</mat-label>
+      <input
+        matInput
+        formControlName="source_url"
+        placeholder="Paste the job posting link, or describe where you found it"
+      />
+      @if (form.controls.source_url.hasError('required') && form.controls.source_url.touched) {
+        <mat-error>Please enter a source or reference.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="dialog-form__field">
+      <mat-label>Job description</mat-label>
+      <textarea
+        matInput
+        formControlName="description_text"
+        rows="5"
+        placeholder="Optional - improves the generated cover letter"
+      ></textarea>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="dialog-form__field">
+      <mat-label>Application email</mat-label>
+      <input matInput type="email" formControlName="application_email" placeholder="Optional" />
+      @if (form.controls.application_email.hasError('email') && form.controls.application_email.touched) {
+        <mat-error>Please enter a valid email address.</mat-error>
+      }
+    </mat-form-field>
+  </form>
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-button type="button" (click)="onCancel()">Cancel</button>
+  <button mat-raised-button color="primary" type="button" (click)="onConfirm()">
+    Generate application
+  </button>
+</mat-dialog-actions>
