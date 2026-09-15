@@ -11,5 +11,55 @@
   &__field {
     width: 100%;
   }
+
+  &__lookup {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  &__find-email-btn {
+    align-self: flex-start;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    mat-progress-spinner {
+      display: inline-block;
+      margin-right: 8px;
+    }
+  }
+
+  &__lookup-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8125rem;
+    color: var(--app-muted-text);
+
+    &--failed {
+      color: var(--app-error);
+    }
+  }
+
+  &__lookup-source {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--app-secondary-text);
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+
+    mat-icon {
+      width: 16px;
+      height: 16px;
+      font-size: 16px;
+    }
+  }
 }
 

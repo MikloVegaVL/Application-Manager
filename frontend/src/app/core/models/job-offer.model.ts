@@ -11,6 +11,13 @@ export interface JobOffer {
   source_url: string;
   description_text: string | null;
   source_platform: string;
+  /**
+   * Discovery-Cache einer per Bewerbungs-E-Mail-Suche gefundenen Adresse und
+   * ihrer Quellseite (siehe `ApplicationEmailLookupResult`, R10/KTD5). Beide
+   * optional, weil Suchtreffer ohne Adresse sie auslassen.
+   */
+  application_email?: string | null;
+  application_email_source_url?: string | null;
 }
 
 /** Entspricht `JobOfferRead`: ein bereits in der DB persistiertes Stellenangebot. */
@@ -55,4 +62,49 @@ export interface SourceStatus {
 export interface JobSearchResponse {
   results: JobOffer[];
   sources: SourceStatus[];
+}
+
+/**
+ * Payload für `POST /jobs/application-email-lookup` - spiegelt
+ * `ApplicationEmailLookupRequest` im Backend. Beide Oberflächen (Job-Suchkarte
+ * und Sendedialog) senden denselben Job-Payload (KTD1).
+ */
+export interface ApplicationEmailLookupRequest {
+  source_url: string;
+  company: string;
+  /**
+   * `true` lässt das Backend die Persistiert-zuerst-Auslese überspringen und
+   * den Scraper erneut laufen (R11-Re-Run). Muss mitgeschickt werden, sonst
+   * liefert ein gespeicherter Job nur die persistierte Adresse zurück.
+   */
+  force?: boolean;
+}
+
+/**
+ * Baut den Lookup-Payload aus einem `JobOffer` - beide Oberflächen (Job-
+ * Suchkarte und Sendedialog) senden denselben Payload (KTD1). `force` wird
+ * für den Re-Run (R11) mitgegeben und ans Backend durchgereicht.
+ */
+export function toApplicationEmailLookupRequest(
+  job: JobOffer,
+  force = false,
+): ApplicationEmailLookupRequest {
+  return {
+    source_url: job.source_url,
+    company: job.company,
+    force,
+  };
+}
+
+/**
+ * Ergebnis der Bewerbungs-E-Mail-Suche - spiegelt
+ * `ApplicationEmailLookupResult`. Genau einer von drei Status: `found`
+ * (Adresse gefunden), `not-found` (Suche abgeschlossen, keine Adresse) oder
+ * `failed` (Fetch-/LLM-/Deadline-Fehler). `not-found` und `failed` werden im
+ * UI bewusst unterschiedlich dargestellt (A5/KTD4).
+ */
+export interface ApplicationEmailLookupResult {
+  status: 'found' | 'not-found' | 'failed';
+  email?: string | null;
+  source_url?: string | null;
 }

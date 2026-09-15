@@ -12,7 +12,12 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar } from '@angular/material/snack-bar';
 
-import { JobOffer, JobSaveConflictDetail } from '../../core/models/job-offer.model';
+import {
+  ApplicationEmailLookupResult,
+  JobOffer,
+  JobSaveConflictDetail,
+  toApplicationEmailLookupRequest,
+} from '../../core/models/job-offer.model';
 import { JobSearchStateService } from '../../core/services/job-search-state.service';
 import { JobService } from '../../core/services/job.service';
 import { extractEmail } from '../../core/utils/email-extraction.util';
@@ -86,6 +91,8 @@ export class JobSearchComponent {
   private readonly savedJobIds = this.state.savedJobIds;
   protected readonly savingSourceUrl = signal<string | null>(null);
   protected readonly generatingSourceUrl = signal<string | null>(null);
+  /** Per Row laufende E-Mail-Suchen, gekeyt nach `source_url` (KTD7/R1). */
+  private readonly lookupLoadingUrls = signal<Set<string>>(new Set());
 
   onSearch(): void {
     if (this.searchForm.invalid) {
@@ -163,13 +170,96 @@ export class JobSearchComponent {
     return this.generatingSourceUrl() === job.source_url;
   }
 
+  isLookingUp(job: JobOffer): boolean {
+    return this.lookupLoadingUrls().has(job.source_url);
+  }
+
+  /** Ergebnis der letzten Suche für diesen Job (oder `null`) - steuert die
+   * Status-Anzeige (`not-found` vs. `failed`, siehe A5/KTD4). */
+  lookupResult(job: JobOffer): ApplicationEmailLookupResult | null {
+    return this.state.applicationEmailResult(job.source_url);
+  }
+
+  /** Gefundene Bewerbungs-E-Mail aus dem Lookup-Cache - `null`, solange kein
+   * `found`-Ergebnis vorliegt. */
+  applicationEmail(job: JobOffer): string | null {
+    const result = this.lookupResult(job);
+    return result?.status === 'found' ? (result.email ?? null) : null;
+  }
+
+  applicationEmailSourceUrl(job: JobOffer): string | null {
+    const result = this.lookupResult(job);
+    return result?.status === 'found' ? (result.source_url ?? null) : null;
+  }
+
+  /** Empfängeradresse für die Karte: zuerst das Lookup-Ergebnis, dann die
+   * Extraktion aus dem Anzeigentext (R12 - die bestehende Extraktion bleibt
+   * unverändert). */
+  displayedRecipient(job: JobOffer): string | null {
+    return this.applicationEmail(job) ?? this.recipientEmail(job);
+  }
+
+  /**
+   * Startet die On-Demand-Suche (R1/R2). Die Karte übergibt denselben Payload
+   * wie der Editor (KTD1); `force` wird gesetzt, sobald bereits ein Ergebnis
+   * vorliegt, damit der Re-Run-Affordance (R11) tatsächlich neu sucht - und
+   * im Payload ans Backend mitgeschickt, sonst liefert ein gespeicherter Job
+   * nur die persistierte Adresse zurück.
+   */
+  onFindApplicationEmail(job: JobOffer): void {
+    if (this.isLookingUp(job)) {
+      return;
+    }
+    const force = this.lookupResult(job) !== null;
+    this.setLookupLoading(job.source_url, true);
+    this.state
+      .lookupApplicationEmail(toApplicationEmailLookupRequest(job, force), { force })
+      .subscribe({
+        next: () => {
+          // Das Ergebnis ist im State-Service bereits gecacht (KTD7).
+          this.setLookupLoading(job.source_url, false);
+        },
+        error: (error: HttpErrorResponse) => {
+          // Ein echter HTTP-Fehler ist laut A5 ein `failed`-Ergebnis, kein
+          // stiller No-Op - sonst bliebe die Karte ohne Rückmeldung.
+          console.error('Application-email lookup failed', error);
+          this.state.cacheApplicationEmailResult(job.source_url, { status: 'failed' });
+          this.setLookupLoading(job.source_url, false);
+        },
+      });
+  }
+
+  private setLookupLoading(sourceUrl: string, loading: boolean): void {
+    const updated = new Set(this.lookupLoadingUrls());
+    if (loading) {
+      updated.add(sourceUrl);
+    } else {
+      updated.delete(sourceUrl);
+    }
+    this.lookupLoadingUrls.set(updated);
+  }
+
+  /** Reicht eine gecachte, gefundene Adresse beim Speichern mit, damit sie
+   * persistiert wird (KTD7/A1). */
+  private withCachedApplicationEmail(job: JobOffer): JobOffer {
+    const email = this.applicationEmail(job);
+    if (!email) {
+      return job;
+    }
+    return {
+      ...job,
+      application_email: email,
+      application_email_source_url: this.applicationEmailSourceUrl(job),
+    };
+  }
+
   onSaveJob(job: JobOffer): void {
     if (this.isSaved(job) || this.isSaving(job)) {
       return;
     }
     this.savingSourceUrl.set(job.source_url);
 
-    this.jobService.saveJob(job).subscribe({
+    this.jobService.saveJob(this.withCachedApplicationEmail(job)).subscribe({
       next: (saved) => {
         this.state.cacheSavedJob(job.source_url, saved.id);
         this.savingSourceUrl.set(null);
@@ -203,7 +293,7 @@ export class JobSearchComponent {
     }
     this.generatingSourceUrl.set(job.source_url);
 
-    this.jobService.saveJob(job).subscribe({
+    this.jobService.saveJob(this.withCachedApplicationEmail(job)).subscribe({
       next: (saved) => {
         this.state.cacheSavedJob(job.source_url, saved.id);
         this.generatingSourceUrl.set(null);

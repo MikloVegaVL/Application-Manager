@@ -15,6 +15,10 @@ class JobOfferBase(BaseModel):
     source_url: str = Field(..., max_length=1024)
     description_text: str | None = None
     source_platform: str = Field(..., max_length=100)
+    # Discovery-Cache der Bewerbungs-E-Mail und ihrer Quellseite (R10/KTD5).
+    # Beide optional, damit Suchtreffer ohne Adresse sie auslassen können.
+    application_email: str | None = Field(default=None, max_length=320)
+    application_email_source_url: str | None = Field(default=None, max_length=1024)
 
 
 class JobOfferCreate(JobOfferBase):

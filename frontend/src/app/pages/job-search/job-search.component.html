@@ -126,9 +126,38 @@
               <mat-icon>mail_outline</mat-icon>
               <span>
                 <span class="job-card__recipient-label"> Recipient: </span>
-                {{ recipientEmail(job) || '—' }}
+                {{ displayedRecipient(job) || '—' }}
               </span>
+              @if (applicationEmailSourceUrl(job); as sourceUrl) {
+                <a
+                  class="job-card__recipient-source"
+                  [href]="sourceUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <mat-icon>open_in_new</mat-icon>
+                  Source of this address
+                </a>
+              }
             </div>
+
+            @if (lookupResult(job); as result) {
+              <p class="job-card__lookup-status" aria-live="polite">
+                @switch (result.status) {
+                  @case ('found') {
+                    Application email found
+                  }
+                  @case ('not-found') {
+                    No application email found
+                  }
+                  @case ('failed') {
+                    <span class="job-card__lookup-status--failed">
+                      Couldn't reach the employer's site — try again
+                    </span>
+                  }
+                }
+              </p>
+            }
           </mat-card-content>
 
           <mat-card-actions align="end">
@@ -166,6 +195,23 @@
               }
               Generate application
             </button>
+
+            @if (!recipientEmail(job)) {
+              <button
+                mat-button
+                type="button"
+                class="job-card__find-email-btn"
+                [disabled]="isLookingUp(job)"
+                (click)="onFindApplicationEmail(job)"
+              >
+                @if (isLookingUp(job)) {
+                  <mat-progress-spinner mode="indeterminate" diameter="18" />
+                } @else {
+                  <mat-icon>travel_explore</mat-icon>
+                }
+                {{ lookupResult(job) ? 'Find email again' : 'Find email' }}
+              </button>
+            }
           </mat-card-actions>
         </mat-card>
       }

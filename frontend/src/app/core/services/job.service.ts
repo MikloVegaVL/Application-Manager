@@ -3,7 +3,13 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
-import { JobOffer, JobOfferRead, JobSearchResponse } from '../models/job-offer.model';
+import {
+  ApplicationEmailLookupRequest,
+  ApplicationEmailLookupResult,
+  JobOffer,
+  JobOfferRead,
+  JobSearchResponse,
+} from '../models/job-offer.model';
 
 /**
  * Kommuniziert mit den Job-Endpunkten des Backends
@@ -39,5 +45,19 @@ export class JobService {
   /** Lädt ein einzelnes gespeichertes Stellenangebot (z. B. für den Editor). */
   getJob(jobOfferId: number): Observable<JobOfferRead> {
     return this.http.get<JobOfferRead>(`${this.baseUrl}/${jobOfferId}`);
+  }
+
+  /**
+   * Stößt die On-Demand-Suche nach einer Bewerbungs-E-Mail an (R1). Der
+   * Endpunkt liefert `found`/`not-found`/`failed` immer mit HTTP 200; ein
+   * echter HTTP-Fehler wird von den Aufrufern wie `failed` behandelt.
+   */
+  findApplicationEmail(
+    payload: ApplicationEmailLookupRequest,
+  ): Observable<ApplicationEmailLookupResult> {
+    return this.http.post<ApplicationEmailLookupResult>(
+      `${this.baseUrl}/application-email-lookup`,
+      payload,
+    );
   }
 }

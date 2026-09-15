@@ -8,7 +8,10 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MatChipOption } from '@angular/material/chips';
 
 import { JobSearchComponent } from './job-search.component';
-import { JobSearchResponse } from '../../core/models/job-offer.model';
+import {
+  ApplicationEmailLookupResult,
+  JobSearchResponse,
+} from '../../core/models/job-offer.model';
 import { environment } from '../../../environments/environment';
 
 describe('JobSearchComponent', () => {
@@ -507,6 +510,176 @@ describe('JobSearchComponent', () => {
 
       expect(byValue.get('linkedin')?.disabled).toBeTrue();
       expect(byValue.get('arbeitsagentur')?.disabled).toBeFalse();
+    });
+  });
+
+  describe('application-email lookup action', () => {
+    const lookupUrl = `${environment.apiBaseUrl}/jobs/application-email-lookup`;
+
+    function flushJobSearch(descriptionText: string | null): void {
+      triggerSearch();
+      flushSearch({
+        results: [
+          {
+            title: 'Angular Developer',
+            company: 'Acme',
+            location: 'Berlin',
+            source_url: 'https://example.com/job/1',
+            description_text: descriptionText,
+            source_platform: 'arbeitsagentur',
+          },
+        ],
+        sources: [{ platform: 'arbeitsagentur', status: 'ok', reason: null }],
+      });
+    }
+
+    function findEmailButton() {
+      return fixture.debugElement.query(By.css('.job-card__find-email-btn'));
+    }
+
+    function clickFindEmail(): void {
+      (findEmailButton().nativeElement as HTMLButtonElement).click();
+      fixture.detectChanges();
+    }
+
+    function flushLookup(result: ApplicationEmailLookupResult) {
+      const req = httpMock.expectOne((request) => request.url === lookupUrl);
+      expect(req.request.method).toBe('POST');
+      req.flush(result);
+      fixture.detectChanges();
+      return req;
+    }
+
+    it('Covers R1, R7: renders the returned address and its source link', () => {
+      flushJobSearch('Wir suchen eine Softwareentwicklerin (m/w/d).');
+      expect(findEmailButton()).toBeTruthy();
+
+      clickFindEmail();
+      flushLookup({
+        status: 'found',
+        email: 'bewerbung@acme.example',
+        source_url: 'https://acme.example/karriere',
+      });
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('bewerbung@acme.example');
+      expect(text).toContain('Source of this address');
+
+      const link = fixture.debugElement.query(By.css('.job-card__recipient-source'));
+      expect(link.nativeElement.getAttribute('href')).toBe('https://acme.example/karriere');
+      expect(link.nativeElement.getAttribute('target')).toBe('_blank');
+      expect(link.nativeElement.getAttribute('rel')).toBe('noopener noreferrer');
+    });
+
+    it('Covers R2, R12: the action is absent when the posting text already yields an address', () => {
+      flushJobSearch('Bitte sende deine Bewerbung an bewerbung@acme.example.');
+
+      expect(findEmailButton()).toBeFalsy();
+      httpMock.expectNone((request) => request.url === lookupUrl);
+    });
+
+    it('Covers R9: a not-found result renders the not-found state and keeps the placeholder', () => {
+      flushJobSearch('Wir suchen eine Softwareentwicklerin (m/w/d).');
+      clickFindEmail();
+      flushLookup({ status: 'not-found' });
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('No application email found');
+      expect(text).toContain('—');
+      expect(text).not.toContain("Couldn't reach the employer's site");
+    });
+
+    it('Covers R9: a failed result renders the distinct failure copy', () => {
+      flushJobSearch('Wir suchen eine Softwareentwicklerin (m/w/d).');
+      clickFindEmail();
+      flushLookup({ status: 'failed' });
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain("Couldn't reach the employer's site — try again");
+      expect(text).not.toContain('No application email found');
+    });
+
+    it('Covers A5: an HTTP error on the lookup maps to the distinct failure copy and re-enables the action', () => {
+      flushJobSearch('Wir suchen eine Softwareentwicklerin (m/w/d).');
+      clickFindEmail();
+
+      const req = httpMock.expectOne((request) => request.url === lookupUrl);
+      req.flush(null, { status: 500, statusText: 'Internal Server Error' });
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain("Couldn't reach the employer's site — try again");
+      expect(text).not.toContain('No application email found');
+      expect((findEmailButton().nativeElement as HTMLButtonElement).disabled).toBeFalse();
+    });
+
+    it('Covers R11: a re-run can be triggered after an address is already displayed', () => {
+      flushJobSearch('Wir suchen eine Softwareentwicklerin (m/w/d).');
+      clickFindEmail();
+      flushLookup({
+        status: 'found',
+        email: 'bewerbung@acme.example',
+        source_url: 'https://acme.example/karriere',
+      });
+
+      expect(findEmailButton().nativeElement.textContent).toContain('Find email again');
+
+      clickFindEmail();
+      flushLookup({
+        status: 'found',
+        email: 'jobs@acme.example',
+        source_url: 'https://acme.example/jobs',
+      });
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('jobs@acme.example');
+      expect(text).not.toContain('bewerbung@acme.example');
+    });
+
+    it('Covers R11: a re-run sends force=true in the lookup payload so the backend re-scrapes', () => {
+      flushJobSearch('Wir suchen eine Softwareentwicklerin (m/w/d).');
+      clickFindEmail();
+      const firstReq = flushLookup({ status: 'not-found' });
+      expect(firstReq.request.body.force).toBeFalse();
+
+      clickFindEmail();
+      const rerunReq = flushLookup({
+        status: 'found',
+        email: 'jobs@acme.example',
+        source_url: 'https://acme.example/jobs',
+      });
+      expect(rerunReq.request.body.force).toBeTrue();
+    });
+
+    it('Covers KTD7/A1: saving after a successful lookup sends the cached address and its source url', () => {
+      flushJobSearch('Wir suchen eine Softwareentwicklerin (m/w/d).');
+      clickFindEmail();
+      flushLookup({
+        status: 'found',
+        email: 'bewerbung@acme.example',
+        source_url: 'https://acme.example/karriere',
+      });
+
+      const job = component['results']()[0];
+      component.onSaveJob(job);
+
+      const saveReq = httpMock.expectOne((request) => request.url === `${environment.apiBaseUrl}/jobs/save`);
+      expect(saveReq.request.body.application_email).toBe('bewerbung@acme.example');
+      expect(saveReq.request.body.application_email_source_url).toBe('https://acme.example/karriere');
+      saveReq.flush({ ...job, id: 1, created_at: new Date().toISOString(), is_processed: false });
+    });
+
+    it('Loading: the action is disabled and a spinner shows while the request is in flight', () => {
+      flushJobSearch('Wir suchen eine Softwareentwicklerin (m/w/d).');
+      clickFindEmail();
+
+      const button = findEmailButton().nativeElement as HTMLButtonElement;
+      expect(button.disabled).toBeTrue();
+      expect(button.querySelector('mat-progress-spinner')).toBeTruthy();
+
+      flushLookup({ status: 'not-found' });
+
+      expect((findEmailButton().nativeElement as HTMLButtonElement).disabled).toBeFalse();
     });
   });
 });

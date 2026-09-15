@@ -26,7 +26,7 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Callable
-from urllib.parse import urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import urlencode, urljoin, urlparse, urlsplit, urlunparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -174,16 +174,63 @@ def render_html(url: str, timeout: float) -> str | None:
             return None
 
 
-def fetch_with_requests(url: str, timeout: float = 15.0) -> str | None:
-    """Lädt `url` per HTTP GET und liefert den HTML-Text (oder `None`)."""
+def _read_capped_body(response: requests.Response, max_bytes: int) -> str:
+    """Liest höchstens `max_bytes` aus dem (bereits entpackten) Body.
+
+    Wird nur für den `max_bytes`-Pfad genutzt: `requests` entpackt gzip/deflate
+    transparent in `iter_content`, der Cap begrenzt also die tatsächlich
+    dekodierte Menge - nicht die rohe Übertragungsgröße.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    for chunk in response.iter_content(chunk_size=8192):
+        if not chunk:
+            continue
+        remaining = max_bytes - total
+        if remaining <= 0:
+            break
+        chunks.append(chunk[:remaining])
+        total += min(len(chunk), remaining)
+        if total >= max_bytes:
+            break
+    encoding = response.encoding or "utf-8"
+    return b"".join(chunks).decode(encoding, errors="replace")
+
+
+def fetch_with_requests(
+    url: str,
+    timeout: float = 15.0,
+    *,
+    allow_redirects: bool = True,
+    max_bytes: int | None = None,
+) -> str | None:
+    """Lädt `url` per HTTP GET und liefert den HTML-Text (oder `None`).
+
+    `allow_redirects=False` erlaubt der SSRF-gehärteten Aufrufstelle
+    (`ApplicationEmailLookupService`, KTD3), Weiterleitungen zu unterbinden,
+    statt sie ungeprüft zu verfolgen - der Aufrufer validiert jede Ziel-URL
+    vorher selbst. Der Default bleibt unverändert `True`.
+
+    `max_bytes` begrenzt optional den heruntergeladenen (entpackten) Body:
+    dann wird gestreamt und nach `max_bytes` abgebrochen, statt die ganze
+    Antwort in den Speicher zu laden. `None` (Default) erhält das bisherige
+    Verhalten für die Jobsuche unverändert.
+    """
     try:
         response = requests.get(
             url,
             timeout=timeout,
             headers={"User-Agent": DEFAULT_USER_AGENT},
+            allow_redirects=allow_redirects,
+            stream=max_bytes is not None,
         )
-        response.raise_for_status()
-        return response.text
+        try:
+            response.raise_for_status()
+            if max_bytes is None:
+                return response.text
+            return _read_capped_body(response, max_bytes)
+        finally:
+            response.close()
     except requests.RequestException as exc:
         logger.warning(
             "Abruf von %s fehlgeschlagen: %s",
@@ -193,19 +240,35 @@ def fetch_with_requests(url: str, timeout: float = 15.0) -> str | None:
         return None
 
 
-def fetch_html(url: str, *, use_playwright: bool = False, timeout: float = 15.0) -> str | None:
+def fetch_html(
+    url: str,
+    *,
+    use_playwright: bool = False,
+    timeout: float = 15.0,
+    allow_redirects: bool = True,
+    max_bytes: int | None = None,
+) -> str | None:
     """Beschafft den HTML-Inhalt einer Seite - optional per Playwright.
 
     Ist Playwright angefordert, aber nicht installiert, wird auf einen
     einfachen HTTP-Abruf zurückgefallen (wie bisher im generischen Scraper).
     Schlägt das Rendering dagegen fehl, wird `None` geliefert.
+
+    `allow_redirects` und `max_bytes` werden nur an den `requests`-Pfad
+    durchgereicht; der Playwright-Pfad folgt Navigations-Redirects weiterhin
+    selbst (der SSRF-gehärtete Aufrufer nutzt ausschließlich den
+    `requests`-Pfad).
     """
     if use_playwright:
         if not playwright_available():
             logger.warning("Playwright ist nicht installiert - Fallback auf requests.")
-            return fetch_with_requests(url, timeout=timeout)
+            return fetch_with_requests(
+                url, timeout=timeout, allow_redirects=allow_redirects, max_bytes=max_bytes
+            )
         return render_html(url, timeout=timeout)
-    return fetch_with_requests(url, timeout=timeout)
+    return fetch_with_requests(
+        url, timeout=timeout, allow_redirects=allow_redirects, max_bytes=max_bytes
+    )
 
 
 # --- HTML-Stripping / Credential-Redaktion ---------------------------------
@@ -263,17 +326,58 @@ def _safe_error_text(exc: BaseException, url: str | None) -> str:
 # --- URL-Validierung --------------------------------------------------------
 
 
+def is_public_ip(value: str) -> bool:
+    """Ob `value` eine öffentliche IP-Adresse ist (KTD10/R3).
+
+    Eine Adresse gilt als öffentlich, wenn sie global routbar ist
+    (`ipaddress.is_global`) UND nicht auf der expliziten Deny-Liste steht.
+    `is_global` deckt neben privat/Loopback/Link-Local/reserviert/Multicast/
+    unspecified auch CGNAT (`100.64.0.0/10`) ab, das die reine Deny-Liste
+    zuvor durchgelassen hätte. Ein Nicht-IP-String löst wie
+    `ipaddress.ip_address` eine `ValueError` aus.
+    """
+    ip = ipaddress.ip_address(value)
+    if not ip.is_global:
+        return False
+    return not (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    )
+
+
+# Steuerzeichen, Whitespace und Backslashes können die Host-Erkennung von
+# `urlparse`/`urlsplit` von der tatsächlichen Verbindungsziel-Erkennung von
+# `requests`/`urllib3` abweichen lassen (Parser-Differential-Bypass, z. B.
+# `http://127.0.0.1:52050\@example.com/`, das `urlsplit` als `example.com`
+# liest, `requests` aber mit `127.0.0.1` verbindet). Solche URLs werden vor
+# jeder Host-Prüfung komplett verworfen.
+_URL_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f\s\\]")
+
+
 def validate_source_url(url: str | None) -> bool:
     """Erlaubt nur `http`/`https` auf öffentliche Hosts (KTD10/R3).
 
     Weist `javascript:`/`data:`/andere Schemata sowie Loopback-, private,
     Link-Local- und reservierte IP-Hosts ab. Wird vor dem Persistieren einer
     `source_url` und vor jedem serverseitigen Abruf angewendet.
+
+    Zusätzlich werden URLs mit Backslash, Whitespace oder Steuerzeichen
+    abgelehnt: `requests`/`urllib3` parsen solche Eingaben anders als
+    `urlsplit` und können trotz scheinbar öffentlichem Host eine interne
+    Adresse verbinden (Parser-Differential-SSRF).
     """
     if not url:
         return False
+    if _URL_CONTROL_CHARS_RE.search(url):
+        return False
     try:
-        parsed = urlparse(url)
+        # `urlsplit` statt `urlparse`: derselbe Parser-Typ, den auch
+        # `urllib3` (und damit `requests`) für die Autorität verwendet.
+        parsed = urlsplit(url)
     except ValueError:
         return False
 
@@ -289,18 +393,9 @@ def validate_source_url(url: str | None) -> bool:
         return False
 
     try:
-        ip = ipaddress.ip_address(host)
+        return is_public_ip(host)
     except ValueError:
         return True  # regulärer Domainname
-
-    return not (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_reserved
-        or ip.is_multicast
-        or ip.is_unspecified
-    )
 
 
 # --- Salary/Homeoffice-Prosa ------------------------------------------------
