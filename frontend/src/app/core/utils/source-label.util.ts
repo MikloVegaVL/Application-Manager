@@ -14,6 +14,7 @@ const SOURCE_LABELS: Record<string, string> = {
   devjobs: 'DEVjobs.de',
   kimeta: 'Kimeta',
   programmiererjobboerse: 'Programmiererjobboerse.de',
+  manual: 'Direct',
 };
 
 export function sourceLabel(platform: string): string {
