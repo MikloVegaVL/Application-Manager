@@ -18,7 +18,6 @@ aus `app.services.job_search_service`.
 from __future__ import annotations
 
 import re
-from urllib.parse import quote
 
 from bs4 import BeautifulSoup
 
@@ -36,20 +35,6 @@ SALARY_CLASS_PATTERN = re.compile(r"salary|gehalt|verguetung|vergütung|pay", re
 HOMEOFFICE_CLASS_PATTERN = re.compile(r"homeoffice|home-office|remote", re.IGNORECASE)
 
 
-def _stepstone_search_url(keywords: str, location: str | None) -> str:
-    """Baut Stepstones pfadbasiertes Such-URL-Muster.
-
-    Muster: `https://www.stepstone.de/jobs/<kw>/in-<ort>` (ohne Ort nur
-    `/jobs/<kw>`). Die Slugs ersetzen Leerzeichen durch Bindestriche; der
-    Rest wird URL-kodiert.
-    """
-    keyword_slug = quote(keywords.strip().replace(" ", "-"), safe="")
-    if location and location.strip():
-        location_slug = quote(location.strip().replace(" ", "-"), safe="")
-        return f"https://www.stepstone.de/jobs/{keyword_slug}/in-{location_slug}"
-    return f"https://www.stepstone.de/jobs/{keyword_slug}"
-
-
 # Ein Deskriptor pro benannter Börse. Reihenfolge = Anzeige-/Registry-Reihenfolge.
 #
 # devjobs.de ist NICHT hier gelistet: Cloudflare blockt den generischen
@@ -61,34 +46,12 @@ def _stepstone_search_url(keywords: str, location: str | None) -> str:
 # zu `xing.py`).
 BOARD_DESCRIPTORS: tuple[BoardDescriptor, ...] = (
     BoardDescriptor(
-        source_platform="stepstone",
-        build_search_url=_stepstone_search_url,
-    ),
-    BoardDescriptor(
-        source_platform="germantechjobs",
-        # Bestätigtes Muster nicht verfügbar - best-known Query-Parameter.
-        build_search_url=make_search_url_builder(
-            "https://germantechjobs.de/jobs",
-            keyword_param="search",
-            location_param="location",
-        ),
-    ),
-    BoardDescriptor(
-        source_platform="indeed",
-        build_search_url=make_search_url_builder(
-            "https://de.indeed.com/jobs",
-            keyword_param="q",
-            location_param="l",
-        ),
-    ),
-    BoardDescriptor(
         source_platform="programmiererjobboerse",
         # Bestätigtes Muster (aus der Seiten-eigenen Kopfzeilen-Suche, ce-debug
         # 2026-09-13): `/search/?q=...`. Die vorherige `/stellenangebote`-Rate
         # war eine falsche Vermutung und führte zu HTTP 404. Die Kopfzeilen-
         # Suche kennt keinen Location-Parameter; der generische `l=...`-
-        # Default wird von der Seite folgenlos ignoriert (verifiziert), bleibt
-        # hier aber der Einfachheit halber Standard wie bei den anderen Boards.
+        # Default wird von der Seite folgenlos ignoriert (verifiziert).
         build_search_url=make_search_url_builder(
             "https://www.programmiererjobboerse.de/search/",
             keyword_param="q",

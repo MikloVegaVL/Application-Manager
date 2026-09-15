@@ -1,4 +1,4 @@
-"""Tests für die vier generisch gelesenen HTML-Board-Quellen (U6).
+"""Tests für die generisch gelesene HTML-Board-Quelle (U6).
 
 devjobs.de ist NICHT Teil dieser Deskriptoren-Liste mehr (eigener
 Playwright-Client in `job_sources/devjobs.py`, siehe dessen Docstring) und
@@ -15,8 +15,6 @@ Playwright) für alle Boards.
 """
 from __future__ import annotations
 
-import re
-
 import pytest
 from requests_mock import ANY
 
@@ -25,20 +23,10 @@ from app.schemas.job_offer import JobOfferCreate
 from app.services.job_search_service import JobSearchService, SourceRegistration
 from app.services.job_sources.boards import BOARD_DESCRIPTORS, BoardSource
 
-BOARD_KEYS = (
-    "stepstone",
-    "germantechjobs",
-    "indeed",
-    "programmiererjobboerse",
-)
+BOARD_KEYS = ("programmiererjobboerse",)
 
 # Die zugehörigen Enable-Flags aus U3 (KTD7).
-BOARD_FLAGS = (
-    "JOB_SEARCH_STEPSTONE_ENABLED",
-    "JOB_SEARCH_GERMANTECHJOBS_ENABLED",
-    "JOB_SEARCH_INDEED_ENABLED",
-    "JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED",
-)
+BOARD_FLAGS = ("JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED",)
 
 JSON_LD_HTML = """
 <html><body>
@@ -116,13 +104,13 @@ NO_RESULTS_HTML = """
 # --- Deskriptoren -----------------------------------------------------------
 
 
-def test_four_distinct_board_platform_keys():
-    """Verification: alle vier Plattform-Schlüssel sind eindeutig und keiner
-    ist der generische "web-scraper" (R4/R6)."""
+def test_distinct_board_platform_key():
+    """Verification: der Plattform-Schlüssel ist eindeutig und nicht der
+    generische "web-scraper" (R4/R6)."""
     keys = [descriptor.source_platform for descriptor in BOARD_DESCRIPTORS]
 
-    assert len(keys) == 4
-    assert len(set(keys)) == 4
+    assert len(keys) == 1
+    assert len(set(keys)) == 1
     assert set(keys) == set(BOARD_KEYS)
     assert "web-scraper" not in keys
 
@@ -139,7 +127,7 @@ def test_search_url_builder_derives_a_public_url_with_keyword_and_location():
     "descriptor", BOARD_DESCRIPTORS, ids=lambda d: d.source_platform
 )
 def test_each_descriptor_yields_offers_tagged_with_its_own_platform(requests_mock, descriptor):
-    """Happy path: jeder der fünf Deskriptoren liefert Angebote mit SEINEM
+    """Happy path: der Deskriptor liefert Angebote mit SEINEM
     Plattform-Schlüssel - gemockt über requests_mock mit JSON-LD-Fixture."""
     requests_mock.get(ANY, text=JSON_LD_HTML)
 
@@ -248,43 +236,10 @@ def test_one_malformed_card_does_not_discard_the_whole_board(requests_mock):
     assert [offer.title for offer in offers] == ["Safe Job"]
 
 
-# --- Error-Isolation über den Orchestrator ---------------------------------
-
-
-def test_one_board_fetch_failure_leaves_the_others_unaffected(requests_mock):
-    """Error: fällt der Abruf eines Boards aus, liefern die übrigen weiterhin
-    Treffer und `ok`-Status."""
-    # ANY zuerst registrieren, die konkrete Fehler-URL danach - requests_mock
-    # prüft die zuletzt registrierten Matcher zuerst.
-    requests_mock.get(ANY, text=JSON_LD_HTML)
-    requests_mock.get(re.compile(r"https://de\.indeed\.com/.*"), status_code=500)
-
-    service = JobSearchService(
-        sources=[
-            SourceRegistration(BoardSource(descriptor, timeout=1.0))
-            for descriptor in BOARD_DESCRIPTORS
-        ],
-        deadline_seconds=2.0,
-    )
-
-    response = service.search("Angular", "Berlin")
-
-    ok_platforms = {status.platform for status in response.sources if status.status == "ok"}
-    assert ok_platforms == set(BOARD_KEYS) - {"indeed"}
-
-    indeed_status = next(status for status in response.sources if status.platform == "indeed")
-    assert indeed_status.status == "unavailable"
-    assert indeed_status.reason == "empty"
-
-    # Nur die drei gesunden Boards tragen zu den Ergebnissen bei.
-    assert {offer.source_platform for offer in response.results} == ok_platforms
-    assert "web-scraper" not in {offer.source_platform for offer in response.results}
-
-
 # --- Registry-Wiring (KTD7) -------------------------------------------------
 
 
-def test_registry_registers_all_four_boards_with_distinct_platforms(monkeypatch):
+def test_registry_registers_the_board_with_its_own_platform(monkeypatch):
     for flag in BOARD_FLAGS:
         monkeypatch.setattr(settings, flag, True)
 
@@ -302,10 +257,10 @@ def test_registry_registers_all_four_boards_with_distinct_platforms(monkeypatch)
 
 
 def test_disabled_board_flag_removes_it_from_the_registry(monkeypatch):
-    monkeypatch.setattr(settings, "JOB_SEARCH_INDEED_ENABLED", False)
+    monkeypatch.setattr(settings, "JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED", False)
 
     service = JobSearchService(deadline_seconds=1.0)
 
     platforms = [registration.platform for registration in service._sources]  # noqa: SLF001
-    assert "indeed" not in platforms
+    assert "programmiererjobboerse" not in platforms
     assert "devjobs" in platforms

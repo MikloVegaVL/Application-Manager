@@ -409,9 +409,6 @@ def test_default_registry_is_built_from_settings_without_injection():
         "linkedin",
         "xing",
         "devjobs",
-        "stepstone",
-        "germantechjobs",
-        "indeed",
         "programmiererjobboerse",
     }
     # KTD2: Arbeitnow ist wie Arbeitsagentur unconditionally registriert -
@@ -422,9 +419,6 @@ def test_default_registry_is_built_from_settings_without_injection():
     # einen eigenen Plattform-Schlüssel - keiner ist "web-scraper" (R4/R6).
     for board in (
         "devjobs",
-        "stepstone",
-        "germantechjobs",
-        "indeed",
         "programmiererjobboerse",
     ):
         assert board in platforms
@@ -617,9 +611,6 @@ def test_enrich_description_is_a_no_op_for_unsupported_sources():
 
 _NEW_SOURCE_FLAGS = (
     "JOB_SEARCH_DEVJOBS_ENABLED",
-    "JOB_SEARCH_STEPSTONE_ENABLED",
-    "JOB_SEARCH_GERMANTECHJOBS_ENABLED",
-    "JOB_SEARCH_INDEED_ENABLED",
     "JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED",
 )
 

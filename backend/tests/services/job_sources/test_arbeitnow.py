@@ -294,7 +294,7 @@ def test_registry_registers_arbeitnow_unconditionally():
 
 
 def test_arbeitnow_registration_is_unaffected_by_other_source_flags(monkeypatch):
-    monkeypatch.setattr(settings, "JOB_SEARCH_STEPSTONE_ENABLED", False)
+    monkeypatch.setattr(settings, "JOB_SEARCH_DEVJOBS_ENABLED", False)
     monkeypatch.setattr(settings, "JOB_SEARCH_LINKEDIN_ENABLED", False)
 
     service = JobSearchService(deadline_seconds=1.0)

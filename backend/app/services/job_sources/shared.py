@@ -95,7 +95,7 @@ COMPANY_CLASS_PATTERN = re.compile(r"company|arbeitgeber|employer|firma", re.IGN
 LOCATION_CLASS_PATTERN = re.compile(r"location|ort|city|standort", re.IGNORECASE)
 
 # Der blanket-`<article>`-Fallback unten (für Boards ohne "job"-artige
-# Klassennamen, z. B. Stepstone) greift auch auf `<article>`-Karten, die gar
+# Klassennamen) greift auch auf `<article>`-Karten, die gar
 # keine Stellenanzeige sind - z. B. Freelancer-/Bewerberprofile, wie sie
 # programmiererjobboerse.de als "Empfohlene Freelancer"-Widget auf derselben
 # Suchergebnisseite rendert (ce-debug 2026-09-14, live verifiziert: zwei

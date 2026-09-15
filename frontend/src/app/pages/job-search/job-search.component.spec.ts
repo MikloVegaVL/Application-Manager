@@ -402,11 +402,11 @@ describe('JobSearchComponent', () => {
       triggerSearch();
       flushSearch({
         results: [],
-        sources: [{ platform: 'germantechjobs', status: 'unavailable', reason: 'not-configured' }],
+        sources: [{ platform: 'devjobs', status: 'unavailable', reason: 'not-configured' }],
       });
 
       const text = fixture.nativeElement.textContent as string;
-      expect(text).toContain('GermanTechJobs');
+      expect(text).toContain('DEVjobs.de');
       expect(text).toContain('not configured');
     });
   });

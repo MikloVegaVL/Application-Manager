@@ -13,9 +13,6 @@ const SOURCE_LABELS: Record<string, string> = {
   jooble: 'Jooble',
   devjobs: 'DEVjobs.de',
   kimeta: 'Kimeta',
-  stepstone: 'Stepstone',
-  germantechjobs: 'GermanTechJobs',
-  indeed: 'Indeed',
   programmiererjobboerse: 'Programmiererjobboerse.de',
 };
 

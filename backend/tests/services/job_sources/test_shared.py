@@ -129,7 +129,7 @@ def test_non_job_article_is_excluded_from_heuristic_extraction():
     """Regression (ce-debug 2026-09-14): programmiererjobboerse.de rendert ein
     "Empfohlene Freelancer"-Widget als `<article class="profile-card">` auf
     derselben Suchergebnisseite. Der blanket-`<article>`-Fallback (für Boards
-    ohne job-artige Klassennamen, z. B. Stepstone) darf so eine Karte nicht
+    ohne job-artige Klassennamen) darf so eine Karte nicht
     als Stellenangebot durchreichen."""
     offers = shared_module.extract_offers(
         PROFILE_CARD_AMONG_JOBS_HTML, "https://example.de/jobs", "programmiererjobboerse"

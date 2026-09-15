@@ -98,7 +98,7 @@ def test_search_returns_envelope_with_results_and_sources(client):
 # --- U8: End-to-end multi-source verification (2026-09-11 plan) -------------
 #
 # These tests override `get_job_search_service` with a REAL `JobSearchService`
-# wired to a fake 12-source registry through the U2 injection seam
+# wired to a fake multi-source registry through the U2 injection seam
 # (`sources=`). Reusing `_FakeJobSearchService` above would make the envelope
 # assertions tautological - U8 exists to exercise the real fan-out, deadline
 # participation, and per-source status mapping (KTD3/KTD8/KTD9/KTD11).
@@ -109,14 +109,11 @@ _ALL_SOURCE_PLATFORMS = (
     "linkedin",
     "xing",
     "devjobs",
-    "stepstone",
-    "germantechjobs",
-    "indeed",
     "programmiererjobboerse",
     "it-entwickler-jobs",
 )
 
-_NOT_OK_PLATFORMS = {"xing", "indeed"}
+_NOT_OK_PLATFORMS = {"xing", "linkedin"}
 
 
 class _FakeSourceClient:
@@ -173,7 +170,7 @@ def _mixed_multi_source_service(deadline_seconds: float = 5.0):
     for platform in _ALL_SOURCE_PLATFORMS:
         if platform == "xing":
             client = _FakeSourceClient(platform, offers=[])
-        elif platform == "indeed":
+        elif platform == "linkedin":
             client = _FakeSourceClient(platform, exc=RuntimeError("simulated source failure"))
         else:
             client = _FakeSourceClient(platform, offers=[_source_offer(platform)])
@@ -182,7 +179,7 @@ def _mixed_multi_source_service(deadline_seconds: float = 5.0):
     return JobSearchService(sources=registrations, deadline_seconds=deadline_seconds), clients
 
 
-def test_real_service_fans_out_over_all_10_sources_with_per_source_status(client):
+def test_real_service_fans_out_over_all_sources_with_per_source_status(client):
     service, clients = _mixed_multi_source_service()
     app.dependency_overrides[get_job_search_service] = lambda: service
 
@@ -201,8 +198,8 @@ def test_real_service_fans_out_over_all_10_sources_with_per_source_status(client
         "status": "unavailable",
         "reason": "empty",
     }
-    assert by_platform["indeed"] == {
-        "platform": "indeed",
+    assert by_platform["linkedin"] == {
+        "platform": "linkedin",
         "status": "unavailable",
         "reason": "error",
     }
@@ -223,7 +220,7 @@ def test_real_service_timeout_does_not_delay_response_beyond_deadline(client):
     back at the shared deadline, not after the slow source finishes."""
     registrations: list[SourceRegistration] = []
     for platform in _ALL_SOURCE_PLATFORMS:
-        if platform == "indeed":
+        if platform == "linkedin":
             registrations.append(SourceRegistration(_FakeSourceClient(platform, delay=2.0)))
         else:
             registrations.append(
@@ -239,9 +236,9 @@ def test_real_service_timeout_does_not_delay_response_beyond_deadline(client):
     assert response.status_code == 200
     body = response.json()
     assert len(body["sources"]) == len(_ALL_SOURCE_PLATFORMS)
-    indeed_status = next(s for s in body["sources"] if s["platform"] == "indeed")
-    assert indeed_status["status"] == "unavailable"
-    assert indeed_status["reason"] == "timeout"
+    linkedin_status = next(s for s in body["sources"] if s["platform"] == "linkedin")
+    assert linkedin_status["status"] == "unavailable"
+    assert linkedin_status["reason"] == "timeout"
     assert elapsed < 1.0
 
 

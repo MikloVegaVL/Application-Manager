@@ -108,9 +108,6 @@ class Settings(BaseSettings):
     # verlässliche anonyme Suchoberfläche lässt sich per Flag deaktivieren,
     # ohne den Rest der Suche zu blockieren (KD1).
     JOB_SEARCH_DEVJOBS_ENABLED: bool = True
-    JOB_SEARCH_STEPSTONE_ENABLED: bool = True
-    JOB_SEARCH_GERMANTECHJOBS_ENABLED: bool = True
-    JOB_SEARCH_INDEED_ENABLED: bool = True
     JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED: bool = True
 
     # --- Bewerbungs-E-Mail-Suche (On-Demand, KTD3/KTD4) ---

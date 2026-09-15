@@ -332,9 +332,6 @@ class JobSearchService:
         # KTD7/KTD9); als Locals, damit der Service sie nicht dauerhaft cachen
         # muss.
         source_enabled: dict[str, bool] = {
-            "stepstone": settings.JOB_SEARCH_STEPSTONE_ENABLED,
-            "germantechjobs": settings.JOB_SEARCH_GERMANTECHJOBS_ENABLED,
-            "indeed": settings.JOB_SEARCH_INDEED_ENABLED,
             "programmiererjobboerse": settings.JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED,
         }
 
