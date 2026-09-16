@@ -90,6 +90,30 @@ def test_missing_where_omits_the_param(requests_mock):
     assert "where" not in requests_mock.last_request.qs
 
 
+def test_radius_km_is_sent_as_distance_km_when_location_is_set(requests_mock):
+    requests_mock.get(AdzunaJobsClient.BASE_URL, json={"results": []})
+
+    _client().search("Angular", "Berlin", radius_km=25)
+
+    assert requests_mock.last_request.qs["distancekm"] == ["25"]
+
+
+def test_radius_km_is_omitted_without_a_location(requests_mock):
+    requests_mock.get(AdzunaJobsClient.BASE_URL, json={"results": []})
+
+    _client().search("Angular", location=None, radius_km=25)
+
+    assert "distancekm" not in requests_mock.last_request.qs
+
+
+def test_missing_radius_km_omits_the_param(requests_mock):
+    requests_mock.get(AdzunaJobsClient.BASE_URL, json={"results": []})
+
+    _client().search("Angular", "Berlin")
+
+    assert "distancekm" not in requests_mock.last_request.qs
+
+
 def test_description_html_is_stripped(requests_mock):
     requests_mock.get(AdzunaJobsClient.BASE_URL, json={"results": [_result()]})
 

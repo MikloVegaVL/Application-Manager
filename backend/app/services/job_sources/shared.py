@@ -729,7 +729,10 @@ class BoardSourceAdapter:
         self,
         keywords: str,
         location: str | None = None,
+        radius_km: int | None = None,
     ) -> list[JobOfferCreate]:
+        """`radius_km` wird angenommen, aber ignoriert: die generischen Boards
+        kennen keinen Umkreis-Parameter."""
         url = self._descriptor.build_search_url(keywords, location)
         html = fetch_html(
             url,

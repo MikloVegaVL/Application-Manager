@@ -79,6 +79,7 @@ class AdzunaJobsClient(CooldownMixin):
         self,
         keywords: str,
         location: str | None = None,
+        radius_km: int | None = None,
     ) -> list[JobOfferCreate]:
         """Sucht Stellenangebote über Adzunas deutsche Such-API.
 
@@ -104,6 +105,8 @@ class AdzunaJobsClient(CooldownMixin):
         }
         if location:
             params["where"] = location
+            if radius_km:
+                params["distanceKm"] = radius_km
 
         # Nur die redigierte URL loggen - die rohe URL enthält `app_key`.
         logger.debug(

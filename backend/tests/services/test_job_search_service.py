@@ -40,6 +40,7 @@ class _FakeClient:
         self._configured = configured
         self._cooldown_active = cooldown_active
         self.calls: list[tuple] = []
+        self.radius_calls: list[int | None] = []
         self.is_configured_calls = 0
 
     def is_configured(self) -> bool:
@@ -49,8 +50,9 @@ class _FakeClient:
     def is_cooldown_active(self) -> bool:
         return self._cooldown_active
 
-    def search(self, keywords, location=None):
+    def search(self, keywords, location=None, radius_km=None):
         self.calls.append((keywords, location))
+        self.radius_calls.append(radius_km)
         if self._delay:
             time.sleep(self._delay)
         if self._exc is not None:
@@ -197,6 +199,33 @@ def test_anonymous_only_no_credential_or_session_passed_to_any_client():
             assert "cookie" not in repr(call_args).lower()
         # Nur keywords/location wurden übergeben - keine weiteren Argumente.
         assert client.calls[0] == ("Angular", "Berlin")
+
+
+def test_radius_km_is_forwarded_to_every_source_when_location_is_set():
+    """Covers R4: jede Quelle bekommt den gewählten Umkreis - ob sie ihn nutzt
+    (Arbeitsagentur/Adzuna/Jooble) oder ignoriert (die übrigen), entscheidet
+    die Quelle selbst (KTD1)."""
+    service, aa_client, li_client, xi_client, _ = _service(
+        aa_offers=[_offer("arbeitsagentur")],
+    )
+
+    service.search("Angular", "Berlin", radius_km=50)
+
+    for client in (aa_client, li_client, xi_client):
+        assert client.radius_calls == [50]
+
+
+def test_radius_km_is_cleared_when_location_is_empty():
+    """Covers R2/R3 (KTD5): der Server ist die maßgebliche Absicherung gegen
+    einen Umkreis ohne Ort, unabhängig vom Frontend-Zustand."""
+    service, aa_client, li_client, xi_client, _ = _service(
+        aa_offers=[_offer("arbeitsagentur")],
+    )
+
+    service.search("Angular", location=None, radius_km=50)
+
+    for client in (aa_client, li_client, xi_client):
+        assert client.radius_calls == [None]
 
 
 def test_fallback_only_triggers_when_arbeitsagentur_empty_and_fallback_url_given():
@@ -628,6 +657,38 @@ def test_heuristic_extraction_prefers_heading_over_a_leading_empty_overlay_link(
     assert len(offers) == 1
     assert offers[0].title == "Angular Developer"
     assert offers[0].source_url == "https://example.com/jobs/angular-developer-123"
+
+
+# --- ArbeitsagenturJobsClient.search() radius (KTD1/KTD2) -----------------
+
+
+def test_arbeitsagentur_sends_umkreis_when_location_and_radius_km_are_set(requests_mock):
+    requests_mock.get(f"{ArbeitsagenturJobsClient.BASE_URL}/jobs", json={"ergebnisliste": []})
+
+    ArbeitsagenturJobsClient().search("Angular", "Berlin", radius_km=50)
+
+    request = requests_mock.last_request
+    assert request.qs["wo"] == ["berlin"]
+    assert request.qs["umkreis"] == ["50"]
+
+
+def test_arbeitsagentur_omits_umkreis_without_a_location(requests_mock):
+    requests_mock.get(f"{ArbeitsagenturJobsClient.BASE_URL}/jobs", json={"ergebnisliste": []})
+
+    ArbeitsagenturJobsClient().search("Angular", location=None, radius_km=50)
+
+    assert "umkreis" not in requests_mock.last_request.qs
+
+
+def test_arbeitsagentur_omits_umkreis_without_a_radius(requests_mock):
+    requests_mock.get(f"{ArbeitsagenturJobsClient.BASE_URL}/jobs", json={"ergebnisliste": []})
+
+    ArbeitsagenturJobsClient().search("Angular", "Berlin")
+
+    assert "umkreis" not in requests_mock.last_request.qs
+    # Regression (feasibility review, U1): a radius must never collide with
+    # the client's pre-existing `results_limit` -> `size` param.
+    assert requests_mock.last_request.qs["size"] == ["25"]
 
 
 # --- ArbeitsagenturJobsClient.fetch_description() (lazy detail-page load) --

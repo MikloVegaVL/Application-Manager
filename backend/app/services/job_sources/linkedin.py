@@ -76,8 +76,13 @@ class LinkedInJobsClient(CooldownMixin):
         self,
         keywords: str,
         location: str | None = None,
+        radius_km: int | None = None,
     ) -> list[JobOfferCreate]:
         """Sucht Stellenangebote über LinkedIns öffentlichen Guest-Endpunkt.
+
+        `radius_km` wird angenommen, aber ignoriert: LinkedIns Guest-Endpunkt
+        kennt keinen Umkreis-Parameter, und `geoId` grenzt bereits fest auf
+        Deutschland ein (siehe `GERMANY_GEO_ID` oben).
 
         Liefert eine leere Liste statt einer Exception bei jedem Fehlerfall
         (Netzwerkfehler, Rate-Limit, aktiver Cooldown) - der Aufrufer

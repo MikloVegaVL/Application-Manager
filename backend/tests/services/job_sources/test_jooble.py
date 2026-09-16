@@ -90,6 +90,37 @@ def test_missing_location_defaults_to_germany(requests_mock):
     assert requests_mock.last_request.json()["location"] == "Germany"
 
 
+# --- Radius (KTD2: rounded up to the nearest accepted step, capped at 80) --
+
+
+@pytest.mark.parametrize(
+    ("selected_km", "expected_step"),
+    [(5, 8), (10, 16), (25, 26), (50, 80), (100, 80), (200, 80)],
+)
+def test_radius_km_snaps_up_to_the_nearest_accepted_step(requests_mock, selected_km, expected_step):
+    requests_mock.post(URL, json={"totalCount": 0, "jobs": []})
+
+    _client().search("Angular", "Berlin", radius_km=selected_km)
+
+    assert requests_mock.last_request.json()["radius"] == str(expected_step)
+
+
+def test_radius_km_is_omitted_without_a_location(requests_mock):
+    requests_mock.post(URL, json={"totalCount": 0, "jobs": []})
+
+    _client().search("Angular", location=None, radius_km=25)
+
+    assert "radius" not in requests_mock.last_request.json()
+
+
+def test_missing_radius_km_omits_the_param(requests_mock):
+    requests_mock.post(URL, json={"totalCount": 0, "jobs": []})
+
+    _client().search("Angular", "Berlin")
+
+    assert "radius" not in requests_mock.last_request.json()
+
+
 def test_snippet_html_is_stripped(requests_mock):
     requests_mock.post(URL, json={"jobs": [_job()]})
 

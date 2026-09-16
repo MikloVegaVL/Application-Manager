@@ -60,6 +60,11 @@ class JoobleJobsClient(CooldownMixin):
     DEFAULT_LOCATION = "Germany"
     _DEFAULT_RESULT_CAP = 25
     _DEFAULT_COOLDOWN_SECONDS = 300.0
+    # Jooble akzeptiert nur diese festen Umkreis-Stufen (km) - ein UI-Wert
+    # dazwischen wird auf die nächstgrößere Stufe aufgerundet, nie
+    # abgerundet, damit ein gewählter Umkreis nie enger sucht als beabsichtigt
+    # (KTD2 im Plan docs/plans/2026-09-16-001-feat-job-search-location-radius-plan.md).
+    _RADIUS_STEPS_KM = (4, 8, 16, 26, 40, 80)
 
     def __init__(
         self,
@@ -86,6 +91,7 @@ class JoobleJobsClient(CooldownMixin):
         self,
         keywords: str,
         location: str | None = None,
+        radius_km: int | None = None,
     ) -> list[JobOfferCreate]:
         """Sucht Stellenangebote über Joobles deutsche Such-API.
 
@@ -109,6 +115,8 @@ class JoobleJobsClient(CooldownMixin):
             "keywords": keywords,
             "location": location or self.DEFAULT_LOCATION,
         }
+        if location and radius_km:
+            payload["radius"] = str(self._snap_radius_km(radius_km))
         # Nur die redigierte URL loggen - die rohe URL enthält den API-Key im
         # Pfad.
         # `_redacted_endpoint()` maskiert den Key bereits selbst (er sitzt im
@@ -172,6 +180,17 @@ class JoobleJobsClient(CooldownMixin):
             if len(offers) >= self._result_cap:
                 break
         return offers
+
+    # --- Umkreis ------------------------------------------------------
+
+    @classmethod
+    def _snap_radius_km(cls, radius_km: int) -> int:
+        """Rundet auf die nächstgrößere von Jooble akzeptierte Umkreis-Stufe
+        auf (nie ab), gedeckelt auf die größte Stufe (KTD2)."""
+        for step in cls._RADIUS_STEPS_KM:
+            if radius_km <= step:
+                return step
+        return cls._RADIUS_STEPS_KM[-1]
 
     # --- Endpunkt ---------------------------------------------------------
 
