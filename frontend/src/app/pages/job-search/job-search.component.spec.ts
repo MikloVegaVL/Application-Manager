@@ -44,8 +44,8 @@ describe('JobSearchComponent', () => {
     expect(component['searchForm'].invalid).toBeTrue();
   });
 
-  function triggerSearch(keywords = 'Angular', location = ''): void {
-    component['searchForm'].setValue({ keywords, location });
+  function triggerSearch(keywords = 'Angular', location = '', radiusKm = ''): void {
+    component['searchForm'].setValue({ keywords, location, radiusKm });
     component.onSearch();
   }
 
@@ -54,6 +54,45 @@ describe('JobSearchComponent', () => {
     req.flush(response);
     fixture.detectChanges();
   }
+
+  describe('radius control (R1/R2/R3)', () => {
+    it('starts disabled when Location is empty', () => {
+      expect(component['searchForm'].controls.radiusKm.disabled).toBeTrue();
+    });
+
+    it('becomes enabled once Location gets a value', () => {
+      component['searchForm'].controls.location.setValue('Berlin');
+
+      expect(component['searchForm'].controls.radiusKm.disabled).toBeFalse();
+    });
+
+    it('becomes disabled again once Location is cleared', () => {
+      component['searchForm'].controls.location.setValue('Berlin');
+      component['searchForm'].controls.location.setValue('');
+
+      expect(component['searchForm'].controls.radiusKm.disabled).toBeTrue();
+    });
+
+    it('sends radius_km when a radius is chosen alongside a location', () => {
+      triggerSearch('Angular', 'Berlin', '50');
+
+      const req = httpMock.expectOne(
+        (request) => request.url === `${environment.apiBaseUrl}/jobs/search`,
+      );
+      expect(req.request.params.get('radius_km')).toBe('50');
+      req.flush({ results: [], sources: [] });
+    });
+
+    it('omits radius_km when no radius is selected', () => {
+      triggerSearch('Angular', '');
+
+      const req = httpMock.expectOne(
+        (request) => request.url === `${environment.apiBaseUrl}/jobs/search`,
+      );
+      expect(req.request.params.has('radius_km')).toBeFalse();
+      req.flush({ results: [], sources: [] });
+    });
+  });
 
   it('renders every result when all sources are ok', () => {
     triggerSearch();
@@ -504,7 +543,11 @@ describe('JobSearchComponent', () => {
       expect(component['hasSearched']()).toBeFalse();
       // Suchbegriff/Ort bleiben erhalten, damit sich dieselbe Suche leicht
       // erneut auslösen oder abwandeln lässt.
-      expect(component['searchForm'].getRawValue()).toEqual({ keywords: 'Angular', location: 'Berlin' });
+      expect(component['searchForm'].getRawValue()).toEqual({
+        keywords: 'Angular',
+        location: 'Berlin',
+        radiusKm: '',
+      });
     });
   });
 

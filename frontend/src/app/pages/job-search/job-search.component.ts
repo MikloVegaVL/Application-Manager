@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -10,6 +11,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 
 import {
@@ -34,6 +36,7 @@ import { sourceLabel as getSourceLabel } from '../../core/utils/source-label.uti
     MatIconModule,
     MatInputModule,
     MatProgressSpinnerModule,
+    MatSelectModule,
   ],
   templateUrl: './job-search.component.html',
   styleUrl: './job-search.component.scss',
@@ -49,10 +52,27 @@ export class JobSearchComponent {
    * Suche nicht verwirft - siehe JobSearchStateService-Doc. */
   private readonly state = inject(JobSearchStateService);
 
+  /** Umkreis-Stufen in km (KTD3) - Jooble rundet einen gewählten Wert intern
+   * auf die nächstgrößere eigene Stufe auf (siehe `JoobleJobsClient`). */
+  protected readonly radiusKmOptions = ['5', '10', '25', '50', '100', '200'];
+
   protected readonly searchForm = this.formBuilder.nonNullable.group({
     keywords: [this.state.keywords(), [Validators.required, Validators.minLength(2)]],
     location: [this.state.location()],
+    radiusKm: [{ value: this.state.radiusKm(), disabled: !this.state.location().trim() }],
   });
+
+  /** Der Umkreis ist ohne Ort bedeutungslos (R2) - deaktiviert/aktiviert das
+   * Control passend zum Ort-Feld, statt eine sinnlose Auswahl zuzulassen. */
+  private readonly toggleRadiusOnLocationChange = this.searchForm.controls.location.valueChanges
+    .pipe(takeUntilDestroyed())
+    .subscribe((location) => {
+      if (location.trim()) {
+        this.searchForm.controls.radiusKm.enable({ emitEvent: false });
+      } else {
+        this.searchForm.controls.radiusKm.disable({ emitEvent: false });
+      }
+    });
 
   protected readonly results = this.state.results;
   /** Status pro Quelle (Arbeitsagentur/LinkedIn/Xing) der letzten Suche - siehe R5. */
@@ -106,9 +126,10 @@ export class JobSearchComponent {
       return;
     }
 
-    const { keywords, location } = this.searchForm.getRawValue();
+    const { keywords, location, radiusKm } = this.searchForm.getRawValue();
     this.state.keywords.set(keywords);
     this.state.location.set(location);
+    this.state.radiusKm.set(radiusKm);
     this.loading.set(true);
     this.errorMessage.set(null);
     // Status der vorherigen Suche zurücksetzen - sonst könnte z. B. noch
@@ -121,22 +142,24 @@ export class JobSearchComponent {
     this.state.appliedHiddenCount.set(0);
     this.hasSearched.set(true);
 
-    this.jobService.searchJobs(keywords.trim(), location.trim() || undefined).subscribe({
-      next: (response) => {
-        this.results.set(response.results);
-        this.sourceStatuses.set(response.sources);
-        this.state.appliedHiddenCount.set(response.excluded_applied_count ?? 0);
-        this.loading.set(false);
-      },
-      error: (error: HttpErrorResponse) => {
-        console.error('Jobsuche fehlgeschlagen', error);
-        this.results.set([]);
-        this.sourceStatuses.set([]);
-        this.state.appliedHiddenCount.set(0);
-        this.loading.set(false);
-        this.errorMessage.set('The job search failed. Please try again later.');
-      },
-    });
+    this.jobService
+      .searchJobs(keywords.trim(), location.trim() || undefined, radiusKm || undefined)
+      .subscribe({
+        next: (response) => {
+          this.results.set(response.results);
+          this.sourceStatuses.set(response.sources);
+          this.state.appliedHiddenCount.set(response.excluded_applied_count ?? 0);
+          this.loading.set(false);
+        },
+        error: (error: HttpErrorResponse) => {
+          console.error('Jobsuche fehlgeschlagen', error);
+          this.results.set([]);
+          this.sourceStatuses.set([]);
+          this.state.appliedHiddenCount.set(0);
+          this.loading.set(false);
+          this.errorMessage.set('The job search failed. Please try again later.');
+        },
+      });
   }
 
   /** Leert die angezeigte Trefferliste, um Platz für eine neue Suche zu

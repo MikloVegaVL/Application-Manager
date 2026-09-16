@@ -61,6 +61,26 @@ describe('JobService', () => {
     expect(received?.sources.length).toBe(3);
   });
 
+  it('sends radius_km when a radius is given', () => {
+    service.searchJobs('Angular', 'Berlin', '50').subscribe();
+
+    const req = httpMock.expectOne(
+      (request) => request.url === `${environment.apiBaseUrl}/jobs/search`,
+    );
+    expect(req.request.params.get('radius_km')).toBe('50');
+    req.flush({ results: [], sources: [] });
+  });
+
+  it('omits radius_km when no radius is given', () => {
+    service.searchJobs('Angular', 'Berlin').subscribe();
+
+    const req = httpMock.expectOne(
+      (request) => request.url === `${environment.apiBaseUrl}/jobs/search`,
+    );
+    expect(req.request.params.has('radius_km')).toBeFalse();
+    req.flush({ results: [], sources: [] });
+  });
+
   it('Covers R1: findApplicationEmail POSTs the job payload and maps the result', () => {
     const payload = {
       source_url: 'https://example.com/job/1',

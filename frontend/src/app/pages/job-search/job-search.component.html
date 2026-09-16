@@ -22,6 +22,20 @@
       <input matInput formControlName="location" placeholder="e.g. Berlin" />
     </mat-form-field>
 
+    <mat-form-field appearance="outline" class="job-search__field">
+      <mat-label>Radius</mat-label>
+      <mat-icon matPrefix>my_location</mat-icon>
+      <mat-select formControlName="radiusKm">
+        <mat-option value="">No radius</mat-option>
+        @for (option of radiusKmOptions; track option) {
+          <mat-option [value]="option">{{ option }} km</mat-option>
+        }
+      </mat-select>
+      @if (searchForm.controls.radiusKm.disabled) {
+        <mat-hint>Add a location to set a search radius</mat-hint>
+      }
+    </mat-form-field>
+
     <button mat-raised-button color="primary" type="submit" class="job-search__submit" [disabled]="loading()">
       <mat-icon>search</mat-icon>
       Search

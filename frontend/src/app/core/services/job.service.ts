@@ -39,10 +39,18 @@ export class JobService {
    * Xing (und bei Bedarf über den generischen Fallback-Scraper). Liefert
    * die zusammengeführten Ergebnisse plus einen Status pro Quelle.
    */
-  searchJobs(keywords: string, location?: string, fallbackUrl?: string): Observable<JobSearchResponse> {
+  searchJobs(
+    keywords: string,
+    location?: string,
+    radiusKm?: string,
+    fallbackUrl?: string,
+  ): Observable<JobSearchResponse> {
     let params = new HttpParams().set('keywords', keywords);
     if (location) {
       params = params.set('location', location);
+    }
+    if (radiusKm) {
+      params = params.set('radius_km', radiusKm);
     }
     if (fallbackUrl) {
       params = params.set('fallback_url', fallbackUrl);
