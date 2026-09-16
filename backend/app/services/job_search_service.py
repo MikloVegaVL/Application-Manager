@@ -434,6 +434,14 @@ class JobSearchService:
     ) -> JobSearchResponse:
         """Fragt alle registrierten Quellen gleichzeitig ab und liefert eine
         zusammengeführte `JobSearchResponse` (KTD3/KTD8/KTD9)."""
+        # Normalisiert VOR dem R2/R3-Guard: ein rein aus Leerraum bestehender
+        # `location`-Wert ist in Python truthy, würde also sowohl diesen Guard
+        # als auch die identische `if location:`-Prüfung in jedem einzelnen
+        # Quellen-Client umgehen (ce-code-review, 2026-09-16). Die normalisierte
+        # Variante läuft weiter durch den Fan-out, damit alle Quellen denselben
+        # Wert sehen.
+        location = location.strip() if location else location
+
         # R2/R3 (KTD5): ein Umkreis ohne Ort ergibt keinen Sinn - die Suche
         # verhält sich dann wie ohne Radius-Auswahl. Das Frontend deaktiviert
         # die Radius-Auswahl zwar bereits ohne Ort, aber Angulars

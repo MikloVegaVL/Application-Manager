@@ -228,6 +228,21 @@ def test_radius_km_is_cleared_when_location_is_empty():
         assert client.radius_calls == [None]
 
 
+def test_radius_km_is_cleared_when_location_is_whitespace_only():
+    """Regression (ce-code-review, 2026-09-16): `bool(" ")` is True in Python,
+    so a naive `if not location` guard would not catch a whitespace-only
+    location - the fix normalizes it before the guard runs."""
+    service, aa_client, li_client, xi_client, _ = _service(
+        aa_offers=[_offer("arbeitsagentur")],
+    )
+
+    service.search("Angular", location="   ", radius_km=50)
+
+    for client in (aa_client, li_client, xi_client):
+        assert client.calls[0] == ("Angular", "")
+        assert client.radius_calls == [None]
+
+
 def test_fallback_only_triggers_when_arbeitsagentur_empty_and_fallback_url_given():
     service, *_client, fallback = _service(
         aa_offers=[],
