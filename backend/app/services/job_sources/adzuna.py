@@ -106,7 +106,7 @@ class AdzunaJobsClient(CooldownMixin):
         if location:
             params["where"] = location
             if radius_km:
-                params["distanceKm"] = radius_km
+                params["distance"] = radius_km
 
         # Nur die redigierte URL loggen - die rohe URL enthält `app_key`.
         logger.debug(
