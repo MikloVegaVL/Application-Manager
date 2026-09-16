@@ -64,8 +64,13 @@ class ArbeitnowJobsClient(CooldownMixin):
         self,
         keywords: str,
         location: str | None = None,
+        radius_km: int | None = None,
     ) -> list[JobOfferCreate]:
         """Sucht Stellenangebote über Arbeitnows offene API.
+
+        `radius_km` wird angenommen, aber ignoriert: die API kennt keinen
+        Umkreis-Parameter, und der Ort wird ohnehin nur client-seitig per
+        Substring gefiltert (siehe `_matches_location`).
 
         Kein `is_configured()`-Gate (KTD2) - die API braucht keine
         Zugangsdaten. 429 aktiviert einen Cooldown und liefert eine leere

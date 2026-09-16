@@ -77,7 +77,14 @@ def _fake_search_response() -> JobSearchResponse:
 
 
 class _FakeJobSearchService:
-    def search(self, keywords, location=None, fallback_url=None, excluded_source_urls=None):
+    def search(
+        self,
+        keywords,
+        location=None,
+        radius_km=None,
+        fallback_url=None,
+        excluded_source_urls=None,
+    ):
         return _fake_search_response()
 
 
@@ -93,6 +100,27 @@ def test_search_returns_envelope_with_results_and_sources(client):
     assert len(body["results"]) == 1
     assert len(body["sources"]) == 3
     assert {s["platform"] for s in body["sources"]} == {"arbeitsagentur", "linkedin", "xing"}
+
+
+@pytest.mark.parametrize("radius_km", [0, 500])
+def test_search_rejects_a_radius_km_outside_the_allowed_range(client, radius_km):
+    app.dependency_overrides[get_job_search_service] = lambda: _FakeJobSearchService()
+
+    response = client.get(
+        "/api/jobs/search", params={"keywords": "Angular", "radius_km": radius_km}
+    )
+
+    assert response.status_code == 422
+
+
+def test_search_accepts_a_radius_km_within_the_allowed_range(client):
+    app.dependency_overrides[get_job_search_service] = lambda: _FakeJobSearchService()
+
+    response = client.get(
+        "/api/jobs/search", params={"keywords": "Angular", "radius_km": 50}
+    )
+
+    assert response.status_code == 200
 
 
 # --- U8: End-to-end multi-source verification (2026-09-11 plan) -------------
@@ -139,7 +167,7 @@ class _FakeSourceClient:
     def is_configured(self) -> bool:
         return self._configured
 
-    def search(self, keywords, location=None):
+    def search(self, keywords, location=None, radius_km=None):
         self.calls.append((keywords, location))
         if self._delay:
             time.sleep(self._delay)

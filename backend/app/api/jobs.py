@@ -29,6 +29,7 @@ router = APIRouter(prefix="/jobs", tags=["Jobs"])
 def search_jobs(
     keywords: str = Query(..., min_length=2, description="Jobtitel / Suchbegriff"),
     location: str | None = Query(default=None, description="Ort oder PLZ"),
+    radius_km: int | None = Query(default=None, ge=1, le=200, description="Umkreis in km"),
     fallback_url: str | None = Query(
         default=None,
         description=(
@@ -52,6 +53,7 @@ def search_jobs(
     return service.search(
         keywords=keywords,
         location=location,
+        radius_km=radius_km,
         fallback_url=fallback_url,
         excluded_source_urls=saved_source_urls,
     )

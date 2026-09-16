@@ -65,8 +65,12 @@ class DevjobsScraper:
         self,
         keywords: str,
         location: str | None = None,
+        radius_km: int | None = None,
     ) -> list[JobOfferCreate]:
         """Sucht Stellenangebote über devjobs.de's gerenderte Suchergebnisseite.
+
+        `radius_km` wird angenommen, aber ignoriert: devjobs.de kennt keinen
+        Umkreis-Parameter.
 
         Liefert bei jedem Fehlerfall eine leere Liste statt einer Exception -
         der Aufrufer (`JobSearchService`) entscheidet anhand des Ergebnisses

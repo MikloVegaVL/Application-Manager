@@ -8,7 +8,7 @@ docs/plans/2026-09-11-001-feat-job-search-broader-source-coverage-plan.md):
 - die Playwright-Renderlogik samt begrenztem Start-Semaphore,
 - die CSS-Klassen-Muster und das "Überschrift vor Anker"-Karten-Mapping,
 - die generische zweistufige Extraktion (JSON-LD, dann Heuristik),
-- Board-Deskriptoren samt Adapter mit `search(keywords, location)`,
+- Board-Deskriptoren samt Adapter mit `search(keywords, location, radius_km=None)`,
 - den Salary/Homeoffice-Prosa-Helfer, URL-Validierung,
   Credential-Redaktion und BeautifulSoup-basiertes HTML-Stripping.
 
@@ -714,7 +714,7 @@ def make_search_url_builder(
 
 
 class BoardSourceAdapter:
-    """Quellen-Adapter mit einheitlicher `search(keywords, location)`-Signatur.
+    """Quellen-Adapter mit einheitlicher `search(keywords, location, radius_km=None)`-Signatur.
 
     Nutzt den geteilten Render-/Extraktionspfad, sodass ein neues HTML-Board
     ohne eigenen Scraper nur über seinen `BoardDescriptor` teilnimmt (R6).
@@ -729,7 +729,10 @@ class BoardSourceAdapter:
         self,
         keywords: str,
         location: str | None = None,
+        radius_km: int | None = None,
     ) -> list[JobOfferCreate]:
+        """`radius_km` wird angenommen, aber ignoriert: die generischen Boards
+        kennen keinen Umkreis-Parameter."""
         url = self._descriptor.build_search_url(keywords, location)
         html = fetch_html(
             url,

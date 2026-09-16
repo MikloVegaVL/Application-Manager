@@ -30,6 +30,7 @@ export class JobSearchStateService {
 
   readonly keywords = signal('');
   readonly location = signal('');
+  readonly radiusKm = signal('');
   readonly results = signal<JobOffer[]>([]);
   readonly sourceStatuses = signal<SourceStatus[]>([]);
   readonly hasSearched = signal(false);

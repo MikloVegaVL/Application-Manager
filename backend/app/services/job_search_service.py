@@ -69,7 +69,7 @@ class SourceRegistration:
     """Eine im Fan-out registrierte Quelle (KTD3).
 
     `client` erfüllt den Standard-Vertrag `SOURCE_PLATFORM` + `search(
-    keywords, location)`; `enabled=False` nimmt die Quelle aus der Suche,
+    keywords, location, radius_km=None)`; `enabled=False` nimmt die Quelle aus der Suche,
     ohne den Fan-out-Code zu ändern. Quellen mit `is_configured()` werden vor
     dem Submit befragt (KTD9).
     """
@@ -127,12 +127,15 @@ class ArbeitsagenturJobsClient:
         self,
         keywords: str,
         location: str | None = None,
+        radius_km: int | None = None,
         results_limit: int = 25,
     ) -> list[JobOfferCreate]:
-        """Sucht Stellenangebote nach Jobtitel/Keywords und optional Ort."""
+        """Sucht Stellenangebote nach Jobtitel/Keywords und optional Ort/Umkreis."""
         params: dict[str, Any] = {"was": keywords, "size": results_limit}
         if location:
             params["wo"] = location
+            if radius_km:
+                params["umkreis"] = radius_km
 
         try:
             response = requests.get(
@@ -425,11 +428,29 @@ class JobSearchService:
         self,
         keywords: str,
         location: str | None = None,
+        radius_km: int | None = None,
         fallback_url: str | None = None,
         excluded_source_urls: Collection[str] | None = None,
     ) -> JobSearchResponse:
         """Fragt alle registrierten Quellen gleichzeitig ab und liefert eine
         zusammengeführte `JobSearchResponse` (KTD3/KTD8/KTD9)."""
+        # Normalisiert VOR dem R2/R3-Guard: ein rein aus Leerraum bestehender
+        # `location`-Wert ist in Python truthy, würde also sowohl diesen Guard
+        # als auch die identische `if location:`-Prüfung in jedem einzelnen
+        # Quellen-Client umgehen (ce-code-review, 2026-09-16). Die normalisierte
+        # Variante läuft weiter durch den Fan-out, damit alle Quellen denselben
+        # Wert sehen.
+        location = location.strip() if location else location
+
+        # R2/R3 (KTD5): ein Umkreis ohne Ort ergibt keinen Sinn - die Suche
+        # verhält sich dann wie ohne Radius-Auswahl. Das Frontend deaktiviert
+        # die Radius-Auswahl zwar bereits ohne Ort, aber Angulars
+        # `getRawValue()` liefert trotzdem den Wert eines deaktivierten
+        # Controls zurück - dieser Guard ist die maßgebliche Absicherung, nicht
+        # das Frontend.
+        if not location:
+            radius_km = None
+
         # Nur aktivierte Quellen nehmen teil; unkonfigurierte Quellen werden
         # VOR dem Submit aussortiert und ohne `search()`-Aufruf als
         # "not-configured" markiert (KTD9).
@@ -467,7 +488,12 @@ class JobSearchService:
                 futures = [
                     (
                         registration,
-                        executor.submit(registration.client.search, keywords, location),
+                        executor.submit(
+                            registration.client.search,
+                            keywords=keywords,
+                            location=location,
+                            radius_km=radius_km,
+                        ),
                     )
                     for registration in submittable
                 ]
