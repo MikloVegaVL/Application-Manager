@@ -69,7 +69,7 @@ class SourceRegistration:
     """Eine im Fan-out registrierte Quelle (KTD3).
 
     `client` erfüllt den Standard-Vertrag `SOURCE_PLATFORM` + `search(
-    keywords, location)`; `enabled=False` nimmt die Quelle aus der Suche,
+    keywords, location, radius_km=None)`; `enabled=False` nimmt die Quelle aus der Suche,
     ohne den Fan-out-Code zu ändern. Quellen mit `is_configured()` werden vor
     dem Submit befragt (KTD9).
     """

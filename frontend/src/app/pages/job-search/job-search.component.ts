@@ -67,10 +67,18 @@ export class JobSearchComponent {
   private readonly toggleRadiusOnLocationChange = this.searchForm.controls.location.valueChanges
     .pipe(takeUntilDestroyed())
     .subscribe((location) => {
-      if (location.trim()) {
-        this.searchForm.controls.radiusKm.enable({ emitEvent: false });
+      const radiusControl = this.searchForm.controls.radiusKm;
+      const shouldEnable = !!location.trim();
+      // `enable()`/`disable()` re-run validity recalculation even when the
+      // control is already in the target state - guard against re-running
+      // that on every keystroke, not just on the empty<->non-empty transition.
+      if (shouldEnable === radiusControl.enabled) {
+        return;
+      }
+      if (shouldEnable) {
+        radiusControl.enable({ emitEvent: false });
       } else {
-        this.searchForm.controls.radiusKm.disable({ emitEvent: false });
+        radiusControl.disable({ emitEvent: false });
       }
     });
 
@@ -143,7 +151,10 @@ export class JobSearchComponent {
     this.hasSearched.set(true);
 
     this.jobService
-      .searchJobs(keywords.trim(), location.trim() || undefined, radiusKm || undefined)
+      .searchJobs(keywords.trim(), {
+        location: location.trim() || undefined,
+        radiusKm: radiusKm || undefined,
+      })
       .subscribe({
         next: (response) => {
           this.results.set(response.results);

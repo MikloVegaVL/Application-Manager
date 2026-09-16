@@ -29,6 +29,7 @@ Cooldown über `CooldownMixin` (KTD1). Die quellenübergreifende Maschinerie
 from __future__ import annotations
 
 import logging
+from bisect import bisect_left
 from typing import Any
 
 import requests
@@ -187,10 +188,8 @@ class JoobleJobsClient(CooldownMixin):
     def _snap_radius_km(cls, radius_km: int) -> int:
         """Rundet auf die nächstgrößere von Jooble akzeptierte Umkreis-Stufe
         auf (nie ab), gedeckelt auf die größte Stufe (KTD2)."""
-        for step in cls._RADIUS_STEPS_KM:
-            if radius_km <= step:
-                return step
-        return cls._RADIUS_STEPS_KM[-1]
+        index = bisect_left(cls._RADIUS_STEPS_KM, radius_km)
+        return cls._RADIUS_STEPS_KM[min(index, len(cls._RADIUS_STEPS_KM) - 1)]
 
     # --- Endpunkt ---------------------------------------------------------
 

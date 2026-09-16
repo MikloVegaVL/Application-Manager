@@ -46,7 +46,9 @@ describe('JobService', () => {
     };
 
     let received: JobSearchResponse | undefined;
-    service.searchJobs('Angular', 'Berlin').subscribe((response) => (received = response));
+    service
+      .searchJobs('Angular', { location: 'Berlin' })
+      .subscribe((response) => (received = response));
 
     const req = httpMock.expectOne(
       (request) => request.url === `${environment.apiBaseUrl}/jobs/search`,
@@ -62,7 +64,7 @@ describe('JobService', () => {
   });
 
   it('sends radius_km when a radius is given', () => {
-    service.searchJobs('Angular', 'Berlin', '50').subscribe();
+    service.searchJobs('Angular', { location: 'Berlin', radiusKm: '50' }).subscribe();
 
     const req = httpMock.expectOne(
       (request) => request.url === `${environment.apiBaseUrl}/jobs/search`,
@@ -72,7 +74,7 @@ describe('JobService', () => {
   });
 
   it('omits radius_km when no radius is given', () => {
-    service.searchJobs('Angular', 'Berlin').subscribe();
+    service.searchJobs('Angular', { location: 'Berlin' }).subscribe();
 
     const req = httpMock.expectOne(
       (request) => request.url === `${environment.apiBaseUrl}/jobs/search`,

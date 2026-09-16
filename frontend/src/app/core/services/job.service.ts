@@ -41,10 +41,9 @@ export class JobService {
    */
   searchJobs(
     keywords: string,
-    location?: string,
-    radiusKm?: string,
-    fallbackUrl?: string,
+    options: { location?: string; radiusKm?: string; fallbackUrl?: string } = {},
   ): Observable<JobSearchResponse> {
+    const { location, radiusKm, fallbackUrl } = options;
     let params = new HttpParams().set('keywords', keywords);
     if (location) {
       params = params.set('location', location);
