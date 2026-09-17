@@ -119,6 +119,9 @@ class Settings(BaseSettings):
     # lassen.
     ADZUNA_APP_ID: str = ""
     ADZUNA_APP_KEY: str = ""
+    # Regionsgebunden: ein auf `jooble.org` erzeugter Key liefert nur
+    # US-Stellen - für den deutschen Markt den Key auf
+    # https://de.jooble.org/api/about registrieren (siehe jooble.py).
     JOOBLE_API_KEY: str = ""
 
     # --- Bewerbungs-E-Mail-Suche (On-Demand, KTD3/KTD4) ---
