@@ -1,20 +1,27 @@
 """Client für Adzunas offizielle Jobsuche-API (Deutschland).
 
 Adzuna bietet eine dokumentierte, credential-basierte Such-API. Dieser Client
-fragt ausschließlich den deutschen Markt ab (`/jobs/de/search/{page}`, KD6)
-und mappt die JSON-Treffer auf das harmonisierte `JobOfferCreate`.
+fragt ausschließlich den deutschen Markt ab (`/jobs/de/search/{page}`) und
+mappt die JSON-Treffer auf das harmonisierte `JobOfferCreate`.
 
 Zugangsdaten (`app_id`/`app_key`) kommen ausschließlich aus den Settings
-(`ADZUNA_APP_ID`/`ADZUNA_APP_KEY`, KTD7) - nie aus einem Nutzerkonto (R2).
-Fehlen sie, meldet `is_configured()` `False` und `search()` wirft
-`SourceNotConfiguredError`, OHNE einen HTTP-Call zu machen (KTD4/KTD9).
-Lehnt der Server die Zugangsdaten ab (HTTP 401/403/410), wird dieselbe
-Exception geworfen; der Orchestrator mappt beides auf
-`status="unavailable", reason="not-configured"`.
+(`ADZUNA_APP_ID`/`ADZUNA_APP_KEY`) - nie aus einem Nutzerkonto. Fehlen sie,
+meldet `is_configured()` `False` und `search()` wirft
+`SourceNotConfiguredError`, OHNE einen HTTP-Call zu machen. Lehnt der Server
+die Zugangsdaten ab (HTTP 401/403/410), wird dieselbe Exception geworfen; der
+Orchestrator mappt beides auf `status="unavailable", reason="not-configured"`.
+
+Cooldown über `CooldownMixin` (KTD1 im Plan
+docs/plans/2026-09-15-003-feat-job-search-source-and-relevance-plan.md).
+Jeder unerwartete Fehler wird als `RuntimeError` mit statischer Meldung nach
+oben gereicht (KTD2) - nie mit interpolierter roher Exception, da deren
+`str()` die credential-tragende URL enthalten kann und der Orchestrator den
+vollen Traceback loggt (`logger.exception`, `job_search_service.py`), auf den
+`redact_credentials()` keinen Zugriff hat.
 
 Die quellenübergreifende Maschinerie (User-Agent, URL-Validierung,
 Salary-Prosa, HTML-Stripping, Credential-Redaktion) liegt in
-`job_sources/shared.py` (KTD10) und wird von hier nur konsumiert.
+`job_sources/shared.py` und wird von hier nur konsumiert.
 """
 from __future__ import annotations
 
@@ -65,24 +72,23 @@ class AdzunaJobsClient(CooldownMixin):
         }
 
     def is_configured(self) -> bool:
-        """Ob beide Zugangsdaten vorhanden sind (KTD9)."""
+        """Ob beide Zugangsdaten vorhanden sind."""
         return bool(self._app_id and self._app_key)
 
     def search(
         self,
         keywords: str,
         location: str | None = None,
+        radius_km: int | None = None,
     ) -> list[JobOfferCreate]:
         """Sucht Stellenangebote über Adzunas deutsche Such-API.
 
         Fehlende oder serverseitig abgelehnte Zugangsdaten werfen
-        `SourceNotConfiguredError` (KTD4/KTD9); 429 aktiviert einen Cooldown
-        und liefert eine leere Liste (der Orchestrator kennzeichnet das als
-        "rate-limited"). Echte Fehler (Netzwerk, unerwarteter HTTP-Status,
-        ungültiges JSON) werden als key-freie Exception nach oben gereicht,
-        damit der Orchestrator sie als "error" kennzeichnet - die rohe
-        Exception kann die app_key-tragende URL enthalten und darf nie in
-        Fehlertexte gelangen.
+        `SourceNotConfiguredError`. 429 aktiviert einen Cooldown und liefert
+        eine leere Liste (der Orchestrator kennzeichnet das als
+        "rate-limited"). Jeder andere Fehler wird als `RuntimeError` nach
+        oben gereicht (KTD2), damit der Orchestrator ihn als "error"
+        kennzeichnet.
         """
         if not self.is_configured():
             raise SourceNotConfiguredError("Adzuna: app_id/app_key fehlen.")
@@ -99,8 +105,10 @@ class AdzunaJobsClient(CooldownMixin):
         }
         if location:
             params["where"] = location
+            if radius_km:
+                params["distance"] = radius_km
 
-        # Nur die redigierte URL loggen - die rohe URL enthält `app_key` (R9).
+        # Nur die redigierte URL loggen - die rohe URL enthält `app_key`.
         logger.debug(
             "Adzuna-Anfrage: GET %s?%s",
             self.BASE_URL,
@@ -115,8 +123,11 @@ class AdzunaJobsClient(CooldownMixin):
                 timeout=self._timeout,
             )
         except requests.RequestException as exc:
-            # `str(exc)` enthält die rohe URL inkl. app_key - nur den Typ
-            # loggen und eine key-freie Exception werfen.
+            # `str(exc)` kann die volle URL inkl. `app_key` enthalten - nur
+            # den Exception-Typ loggen, nie den rohen Text interpolieren
+            # (KTD2): `from None` allein schützt nur vor der verketteten
+            # Exception im Traceback, nicht vor einer neuen Meldung, die den
+            # rohen Text selbst wiederholt.
             logger.warning("Adzuna-API nicht erreichbar (%s).", type(exc).__name__)
             raise RuntimeError("Adzuna-API nicht erreichbar.") from None
 
@@ -190,7 +201,7 @@ class AdzunaJobsClient(CooldownMixin):
 
     @staticmethod
     def _format_salary(raw: dict[str, Any]) -> str | None:
-        """Faltet `salary_min`/`salary_max`/`salary_is_predicted` in Prosa (KTD6)."""
+        """Faltet `salary_min`/`salary_max`/`salary_is_predicted` in Prosa."""
         salary_min = raw.get("salary_min")
         salary_max = raw.get("salary_max")
         if salary_min is None and salary_max is None:

@@ -14,6 +14,8 @@ import {
 } from './send-application-dialog/send-application-dialog.component';
 import { Application } from '../../core/models/application.model';
 import { JobOfferRead } from '../../core/models/job-offer.model';
+import { JobSearchStateService } from '../../core/services/job-search-state.service';
+import { environment } from '../../../environments/environment';
 
 const defaultJobOffer: JobOfferRead = {
   id: 1,
@@ -420,6 +422,95 @@ describe('ApplicationEditorComponent', () => {
       req.flush('server error', { status: 500, statusText: 'Internal Server Error' });
 
       expect(navigateSpy).not.toHaveBeenCalled();
+    });
+
+    it('Covers R10, AE4: a persisted application_email is preferred over the posting-text extraction', () => {
+      loadApplication(httpMock, {
+        coverLetterText: 'Sehr geehrte Damen und Herren,',
+        jobOffer: {
+          ...defaultJobOffer,
+          description_text: 'Bitte an extrahiert@acme.example.',
+          application_email: 'persistiert@acme.example',
+          application_email_source_url: 'https://acme.example/karriere',
+        },
+      });
+      const openSpy = spyOnDialogOpen(component);
+
+      component.onOpenSendDialog();
+
+      const data = openSpy.calls.mostRecent().args[1].data as SendApplicationDialogData;
+      expect(data.toEmail).toBe('persistiert@acme.example');
+    });
+
+    it('Covers KTD7: a found in-session lookup result pre-fills the dialog recipient', () => {
+      const state = TestBed.inject(JobSearchStateService);
+      state.cacheApplicationEmailResult(defaultJobOffer.source_url, {
+        status: 'found',
+        email: 'zwischenspeicher@acme.example',
+        source_url: 'https://acme.example/karriere',
+      });
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,' });
+      const openSpy = spyOnDialogOpen(component);
+
+      component.onOpenSendDialog();
+
+      const data = openSpy.calls.mostRecent().args[1].data as SendApplicationDialogData;
+      expect(data.toEmail).toBe('zwischenspeicher@acme.example');
+    });
+
+    it('Covers A5: a non-found cached lookup result does not pre-fill the dialog recipient', () => {
+      const state = TestBed.inject(JobSearchStateService);
+      state.cacheApplicationEmailResult(defaultJobOffer.source_url, {
+        status: 'not-found',
+        email: 'ignoriert@acme.example',
+      });
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,' });
+      const openSpy = spyOnDialogOpen(component);
+
+      component.onOpenSendDialog();
+
+      const data = openSpy.calls.mostRecent().args[1].data as SendApplicationDialogData;
+      expect(data.toEmail).toBe('');
+    });
+
+    it('Covers R1: supplies a lookup callback that delegates to the shared state service', () => {
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,' });
+      const openSpy = spyOnDialogOpen(component);
+
+      component.onOpenSendDialog();
+
+      const data = openSpy.calls.mostRecent().args[1].data as SendApplicationDialogData;
+      expect(typeof data.findApplicationEmail).toBe('function');
+
+      data.findApplicationEmail!(false).subscribe();
+
+      const req = httpMock.expectOne(
+        (r) => r.url === `${environment.apiBaseUrl}/jobs/application-email-lookup`,
+      );
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body.source_url).toBe(defaultJobOffer.source_url);
+      expect(req.request.body.force).toBeFalse();
+      req.flush({
+        status: 'found',
+        email: 'bewerbung@acme.example',
+        source_url: 'https://acme.example/karriere',
+      });
+    });
+
+    it('Covers R11: the dialog lookup callback forwards force=true to the backend payload', () => {
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,' });
+      const openSpy = spyOnDialogOpen(component);
+
+      component.onOpenSendDialog();
+
+      const data = openSpy.calls.mostRecent().args[1].data as SendApplicationDialogData;
+      data.findApplicationEmail!(true).subscribe();
+
+      const req = httpMock.expectOne(
+        (r) => r.url === `${environment.apiBaseUrl}/jobs/application-email-lookup`,
+      );
+      expect(req.request.body.force).toBeTrue();
+      req.flush({ status: 'not-found' });
     });
 
     it('Regression: opening the send dialog does not modify the saved Anschreiben text or coverLetterForm', () => {

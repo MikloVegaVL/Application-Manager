@@ -24,6 +24,11 @@ class JobOffer(Base):
     source_url: Mapped[str] = mapped_column(String(1024), nullable=False, unique=True)
     description_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_platform: Mapped[str] = mapped_column(String(100), nullable=False)
+    # Zuletzt ermittelte Bewerbungs-E-Mail samt Quellseite (R10). Beides ist
+    # eine Discovery-Cache - das Empfängerfeld im Sendedialog bleibt beim
+    # Versand maßgeblich (KTD5). Bewusst nullable wie `location`.
+    application_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    application_email_source_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

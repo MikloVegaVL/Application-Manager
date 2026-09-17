@@ -321,11 +321,12 @@ def _sent_email_row(entry: Any) -> dict[str, Any]:
     return {
         "company": getattr(entry, "company", None),
         "job_title": getattr(entry, "job_title", None),
+        "source_platform": getattr(entry, "source_platform", None),
         "recipient_email": getattr(entry, "recipient_email", None),
         "sent_at": sent_at.strftime("%Y-%m-%d %H:%M") if sent_at else "",
         "sender_email": getattr(entry, "sender_email", None),
         "subject": getattr(entry, "subject", None),
-        "attachment_filename": getattr(entry, "attachment_filename", None),
+        "attachment_filenames": getattr(entry, "attachment_filenames", None) or [],
     }
 
 

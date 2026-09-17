@@ -1,29 +1,35 @@
 """Client für Joobles credential-basierte Jobsuche-API (Deutschland).
 
 Jooble bietet eine dokumentierte, credential-basierte Such-API. Dieser Client
-fragt ausschließlich den deutschen Markt ab (KD6): fehlt ein `location`, wird
-der Suchradius per Default auf Deutschland gesetzt. Die Antwort
+fragt ausschließlich den deutschen Markt ab: fehlt ein `location`, wird der
+Suchradius per Default auf Deutschland gesetzt. Die Antwort
 (`{totalCount, jobs}`) wird auf das harmonisierte `JobOfferCreate` gemappt.
 
-Zugangsdaten (`JOOBLE_API_KEY`) kommen ausschließlich aus den Settings
-(KTD7) - nie aus einem Nutzerkonto (R2). Fehlt der Key, meldet
-`is_configured()` `False` und `search()` wirft `SourceNotConfiguredError`,
-OHNE einen HTTP-Call zu machen (KTD4/KTD9). Lehnt der Server den Key ab
-(HTTP 401/403), wird dieselbe Exception geworfen; der Orchestrator mappt
-beides auf `status="unavailable", reason="not-configured"`.
+Zugangsdaten (`JOOBLE_API_KEY`) kommen ausschließlich aus den Settings - nie
+aus einem Nutzerkonto. Fehlt der Key, meldet `is_configured()` `False` und
+`search()` wirft `SourceNotConfiguredError`, OHNE einen HTTP-Call zu machen.
+Lehnt der Server den Key ab (HTTP 401/403), wird dieselbe Exception
+geworfen; der Orchestrator mappt beides auf
+`status="unavailable", reason="not-configured"`.
 
 Der API-Key steckt bei Jooble im PFAD (`/api/<key>`), nicht in einem
 Query-Parameter - die geteilte `redact_credentials()`-Regex würde ihn daher
 NICHT maskieren. Deshalb wird die rohe, key-tragende URL (und die rohe
-Exception, die dieselbe URL enthalten kann) hier niemals geloggt (KTD10/R9).
+Exception, die dieselbe URL enthalten kann) hier niemals geloggt, und jeder
+`RuntimeError` trägt nur eine statische Meldung (KTD2 im Plan
+docs/plans/2026-09-15-003-feat-job-search-source-and-relevance-plan.md) -
+der Orchestrator loggt den vollen Traceback bei einem unerwarteten Fehler
+(`logger.exception`, `job_search_service.py`), auf den
+`redact_credentials()` keinen Zugriff hat.
 
-Die quellenübergreifende Maschinerie (User-Agent, URL-Validierung,
-Salary-Prosa, HTML-Stripping) liegt in `job_sources/shared.py` (KTD10) und
-wird von hier nur konsumiert.
+Cooldown über `CooldownMixin` (KTD1). Die quellenübergreifende Maschinerie
+(User-Agent, URL-Validierung, Salary-Prosa, HTML-Stripping) liegt in
+`job_sources/shared.py` und wird von hier nur konsumiert.
 """
 from __future__ import annotations
 
 import logging
+from bisect import bisect_left
 from typing import Any
 
 import requests
@@ -34,6 +40,7 @@ from app.services.job_sources.shared import (
     CooldownMixin,
     SourceNotConfiguredError,
     fold_salary_homeoffice,
+    redact_credentials,
     strip_html,
     validate_source_url,
 )
@@ -49,11 +56,16 @@ class JoobleJobsClient(CooldownMixin):
     # Jooble liefert keine eigene Detail-URL, die von `link` unabhängig wäre -
     # als Fallback (fehlender `link`) dient die kanonische Jooble-Detailseite.
     DETAIL_URL_TEMPLATE = "https://jooble.org/desc/{job_id}"
-    # Jooble ist auf den deutschen Markt ausgerichtet (KD6); fehlt der
-    # Aufrufer-Ort, wird er explizit gesetzt statt leer gelassen.
+    # Jooble ist auf den deutschen Markt ausgerichtet; fehlt der Aufrufer-Ort,
+    # wird er explizit gesetzt statt leer gelassen.
     DEFAULT_LOCATION = "Germany"
     _DEFAULT_RESULT_CAP = 25
     _DEFAULT_COOLDOWN_SECONDS = 300.0
+    # Jooble akzeptiert nur diese festen Umkreis-Stufen (km) - ein UI-Wert
+    # dazwischen wird auf die nächstgrößere Stufe aufgerundet, nie
+    # abgerundet, damit ein gewählter Umkreis nie enger sucht als beabsichtigt
+    # (KTD2 im Plan docs/plans/2026-09-16-001-feat-job-search-location-radius-plan.md).
+    _RADIUS_STEPS_KM = (4, 8, 16, 26, 40, 80)
 
     def __init__(
         self,
@@ -73,23 +85,25 @@ class JoobleJobsClient(CooldownMixin):
         }
 
     def is_configured(self) -> bool:
-        """Ob ein API-Key vorhanden ist (KTD9)."""
+        """Ob ein API-Key vorhanden ist."""
         return bool(self._api_key)
 
     def search(
         self,
         keywords: str,
         location: str | None = None,
+        radius_km: int | None = None,
     ) -> list[JobOfferCreate]:
         """Sucht Stellenangebote über Joobles deutsche Such-API.
 
         Fehlende oder serverseitig abgelehnte Zugangsdaten werfen
-        `SourceNotConfiguredError` (KTD4/KTD9); 429 aktiviert einen Cooldown
-        und liefert eine leere Liste (der Orchestrator kennzeichnet das als
+        `SourceNotConfiguredError`; 429 aktiviert einen Cooldown und liefert
+        eine leere Liste (der Orchestrator kennzeichnet das als
         "rate-limited"). Echte Fehler (Netzwerk, unerwarteter HTTP-Status,
-        ungültiges JSON) werden als redigierte Exception nach oben gereicht,
-        damit der Orchestrator sie als "error" kennzeichnet - die rohe
-        Exception enthält die key-tragende URL und darf nie geloggt werden.
+        ungültiges JSON) werden als `RuntimeError` mit statischer Meldung
+        nach oben gereicht (KTD2), damit der Orchestrator sie als "error"
+        kennzeichnet - die rohe Exception enthält die key-tragende URL und
+        darf nie geloggt oder in die neue Meldung interpoliert werden.
         """
         if not self.is_configured():
             raise SourceNotConfiguredError("Jooble: API-Key fehlt.")
@@ -102,8 +116,13 @@ class JoobleJobsClient(CooldownMixin):
             "keywords": keywords,
             "location": location or self.DEFAULT_LOCATION,
         }
+        if location and radius_km:
+            payload["radius"] = str(self._snap_radius_km(radius_km))
         # Nur die redigierte URL loggen - die rohe URL enthält den API-Key im
-        # Pfad (R9).
+        # Pfad.
+        # `_redacted_endpoint()` maskiert den Key bereits selbst (er sitzt im
+        # Pfad, nicht in einem Query-Parameter) - `redact_credentials()` hätte
+        # hier nichts mehr zu tun.
         logger.debug("Jooble-Anfrage: POST %s", self._redacted_endpoint())
 
         try:
@@ -163,7 +182,16 @@ class JoobleJobsClient(CooldownMixin):
                 break
         return offers
 
-    # --- Endpunkt / Cooldown-Verwaltung ---------------------------------
+    # --- Umkreis ------------------------------------------------------
+
+    @classmethod
+    def _snap_radius_km(cls, radius_km: int) -> int:
+        """Rundet auf die nächstgrößere von Jooble akzeptierte Umkreis-Stufe
+        auf (nie ab), gedeckelt auf die größte Stufe (KTD2)."""
+        index = bisect_left(cls._RADIUS_STEPS_KM, radius_km)
+        return cls._RADIUS_STEPS_KM[min(index, len(cls._RADIUS_STEPS_KM) - 1)]
+
+    # --- Endpunkt ---------------------------------------------------------
 
     def _endpoint(self) -> str:
         return self.BASE_URL_TEMPLATE.format(api_key=self._api_key)
@@ -202,7 +230,7 @@ class JoobleJobsClient(CooldownMixin):
         Jooble-Detailseite aus der (als String behandelten) `id` zurück.
 
         Ein vorhandener, aber unsicherer Link (`javascript:`, privater Host)
-        wird verworfen - nicht durch die id ersetzt (R3/KTD10).
+        wird verworfen - nicht durch die id ersetzt.
         """
         link = raw.get("link")
         if link:

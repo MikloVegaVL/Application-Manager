@@ -31,7 +31,7 @@ from __future__ import annotations
 import base64
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from time import monotonic
@@ -43,6 +43,7 @@ import requests
 from app.core.config import settings
 from app.schemas.job_offer import JobOfferCreate, JobSearchResponse, SourceStatus
 from app.services.job_sources.adzuna import AdzunaJobsClient
+from app.services.job_sources.arbeitnow import ArbeitnowJobsClient
 from app.services.job_sources.boards import BOARD_DESCRIPTORS, BoardSource
 from app.services.job_sources.devjobs import DevjobsScraper
 from app.services.job_sources.jooble import JoobleJobsClient
@@ -68,7 +69,7 @@ class SourceRegistration:
     """Eine im Fan-out registrierte Quelle (KTD3).
 
     `client` erfüllt den Standard-Vertrag `SOURCE_PLATFORM` + `search(
-    keywords, location)`; `enabled=False` nimmt die Quelle aus der Suche,
+    keywords, location, radius_km=None)`; `enabled=False` nimmt die Quelle aus der Suche,
     ohne den Fan-out-Code zu ändern. Quellen mit `is_configured()` werden vor
     dem Submit befragt (KTD9).
     """
@@ -126,12 +127,15 @@ class ArbeitsagenturJobsClient:
         self,
         keywords: str,
         location: str | None = None,
+        radius_km: int | None = None,
         results_limit: int = 25,
     ) -> list[JobOfferCreate]:
-        """Sucht Stellenangebote nach Jobtitel/Keywords und optional Ort."""
+        """Sucht Stellenangebote nach Jobtitel/Keywords und optional Ort/Umkreis."""
         params: dict[str, Any] = {"was": keywords, "size": results_limit}
         if location:
             params["wo"] = location
+            if radius_km:
+                params["umkreis"] = radius_km
 
         try:
             response = requests.get(
@@ -333,19 +337,42 @@ class JobSearchService:
         # KTD7/KTD9); als Locals, damit der Service sie nicht dauerhaft cachen
         # muss.
         source_enabled: dict[str, bool] = {
-            "kimeta": settings.JOB_SEARCH_KIMETA_ENABLED,
-            "stepstone": settings.JOB_SEARCH_STEPSTONE_ENABLED,
-            "germantechjobs": settings.JOB_SEARCH_GERMANTECHJOBS_ENABLED,
-            "indeed": settings.JOB_SEARCH_INDEED_ENABLED,
             "programmiererjobboerse": settings.JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED,
-            "adzuna": settings.JOB_SEARCH_ADZUNA_ENABLED,
-            "jooble": settings.JOB_SEARCH_JOOBLE_ENABLED,
         }
-        adzuna_app_id = settings.ADZUNA_APP_ID
-        adzuna_app_key = settings.ADZUNA_APP_KEY
-        jooble_api_key = settings.JOOBLE_API_KEY
 
         registry: list[SourceRegistration] = [SourceRegistration(self._arbeitsagentur_client)]
+        # Arbeitnow ist wie Arbeitsagentur unconditionally registriert: eine
+        # offene, keyless API braucht weder Enable-Flag noch Zugangsdaten (R4,
+        # KTD2).
+        registry.append(
+            SourceRegistration(
+                ArbeitnowJobsClient(
+                    # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
+                    timeout=inner_timeout_for(self._deadline_seconds),
+                )
+            )
+        )
+        if settings.JOB_SEARCH_ADZUNA_ENABLED:
+            registry.append(
+                SourceRegistration(
+                    AdzunaJobsClient(
+                        app_id=settings.ADZUNA_APP_ID,
+                        app_key=settings.ADZUNA_APP_KEY,
+                        # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
+                        timeout=inner_timeout_for(self._deadline_seconds),
+                    )
+                )
+            )
+        if settings.JOB_SEARCH_JOOBLE_ENABLED:
+            registry.append(
+                SourceRegistration(
+                    JoobleJobsClient(
+                        api_key=settings.JOOBLE_API_KEY,
+                        # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
+                        timeout=inner_timeout_for(self._deadline_seconds),
+                    )
+                )
+            )
         if settings.JOB_SEARCH_LINKEDIN_ENABLED:
             registry.append(
                 SourceRegistration(
@@ -365,35 +392,6 @@ class JobSearchService:
             registry.append(
                 SourceRegistration(
                     DevjobsScraper(inner_timeout=inner_timeout_for(self._deadline_seconds))
-                )
-            )
-        if source_enabled["adzuna"]:
-            # Auch ohne Credentials registriert: `search()` wird vom Fan-out
-            # gar nicht erst aufgerufen (KTD9) - der Client meldet dann
-            # `is_configured() == False` und wird als "not-configured"
-            # gekennzeichnet, statt stillschweigend zu verschwinden (R9).
-            registry.append(
-                SourceRegistration(
-                    AdzunaJobsClient(
-                        app_id=adzuna_app_id,
-                        app_key=adzuna_app_key,
-                        # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
-                        timeout=inner_timeout_for(self._deadline_seconds),
-                    )
-                )
-            )
-        if source_enabled["jooble"]:
-            # Auch ohne API-Key registriert: der Fan-out ruft `search()` gar
-            # nicht erst auf (KTD9) - der Client meldet dann
-            # `is_configured() == False` und wird als "not-configured"
-            # gekennzeichnet, statt stillschweigend zu verschwinden (R9).
-            registry.append(
-                SourceRegistration(
-                    JoobleJobsClient(
-                        api_key=jooble_api_key,
-                        # KTD8: innerer Timeout bleibt unter der äußeren Deadline.
-                        timeout=inner_timeout_for(self._deadline_seconds),
-                    )
                 )
             )
         # U6: die übrigen benannten HTML-Boards laufen alle über den geteilten
@@ -430,10 +428,29 @@ class JobSearchService:
         self,
         keywords: str,
         location: str | None = None,
+        radius_km: int | None = None,
         fallback_url: str | None = None,
+        excluded_source_urls: Collection[str] | None = None,
     ) -> JobSearchResponse:
         """Fragt alle registrierten Quellen gleichzeitig ab und liefert eine
         zusammengeführte `JobSearchResponse` (KTD3/KTD8/KTD9)."""
+        # Normalisiert VOR dem R2/R3-Guard: ein rein aus Leerraum bestehender
+        # `location`-Wert ist in Python truthy, würde also sowohl diesen Guard
+        # als auch die identische `if location:`-Prüfung in jedem einzelnen
+        # Quellen-Client umgehen (ce-code-review, 2026-09-16). Die normalisierte
+        # Variante läuft weiter durch den Fan-out, damit alle Quellen denselben
+        # Wert sehen.
+        location = location.strip() if location else location
+
+        # R2/R3 (KTD5): ein Umkreis ohne Ort ergibt keinen Sinn - die Suche
+        # verhält sich dann wie ohne Radius-Auswahl. Das Frontend deaktiviert
+        # die Radius-Auswahl zwar bereits ohne Ort, aber Angulars
+        # `getRawValue()` liefert trotzdem den Wert eines deaktivierten
+        # Controls zurück - dieser Guard ist die maßgebliche Absicherung, nicht
+        # das Frontend.
+        if not location:
+            radius_km = None
+
         # Nur aktivierte Quellen nehmen teil; unkonfigurierte Quellen werden
         # VOR dem Submit aussortiert und ohne `search()`-Aufruf als
         # "not-configured" markiert (KTD9).
@@ -471,7 +488,12 @@ class JobSearchService:
                 futures = [
                     (
                         registration,
-                        executor.submit(registration.client.search, keywords, location),
+                        executor.submit(
+                            registration.client.search,
+                            keywords=keywords,
+                            location=location,
+                            radius_km=radius_km,
+                        ),
                     )
                     for registration in submittable
                 ]
@@ -522,6 +544,11 @@ class JobSearchService:
             if not validate_source_url(fallback_url):
                 # R3/KTD10: eine unsichere (Loopback/private/metadata/nicht-
                 # http(s)) Fallback-URL darf nie serverseitig abgerufen werden.
+                # Bewusst KEIN `return` hier (KTD7 im Plan
+                # docs/plans/2026-09-15-003-feat-job-search-source-and-relevance-plan.md):
+                # dieser Zweig muss trotzdem durch den Relevanzfilter unten
+                # laufen wie der Erfolgsfall - ein zweiter Rückgabepunkt hier
+                # würde ihn daran vorbeiführen.
                 logger.warning("Unsichere Fallback-URL abgelehnt - Fallback übersprungen.")
                 source_statuses.append(
                     SourceStatus(
@@ -530,26 +557,102 @@ class JobSearchService:
                         reason="error",
                     )
                 )
-                return JobSearchResponse(results=results, sources=source_statuses)
-
-            logger.info("Keine Treffer über die Arbeitsagentur-API - nutze Fallback-Scraper (%s).", fallback_url)
-            fallback_results = self._fallback_scraper.search(url=fallback_url, keywords=keywords, location=location)
-            results.extend(fallback_results)
-            # Auch der Fallback-Pfad bekommt einen Status-Eintrag - sonst
-            # verletzt die Antwort ihre eigene Zusicherung, dass `sources`
-            # jede Quelle abdeckt, die zu `results` beiträgt (z. B. würde die
-            # Frontend-Statusleiste sonst alle drei Primärquellen als
-            # "unavailable" zeigen, obwohl der Fallback Treffer geliefert hat).
-            fallback_status = "ok" if fallback_results else "unavailable"
-            source_statuses.append(
-                SourceStatus(
-                    platform=GenericJobScraper.SOURCE_PLATFORM,
-                    status=fallback_status,
-                    reason=None if fallback_results else "empty",
+            else:
+                logger.info("Keine Treffer über die Arbeitsagentur-API - nutze Fallback-Scraper (%s).", fallback_url)
+                fallback_results = self._fallback_scraper.search(url=fallback_url, keywords=keywords, location=location)
+                results.extend(fallback_results)
+                # Auch der Fallback-Pfad bekommt einen Status-Eintrag - sonst
+                # verletzt die Antwort ihre eigene Zusicherung, dass `sources`
+                # jede Quelle abdeckt, die zu `results` beiträgt (z. B. würde die
+                # Frontend-Statusleiste sonst alle drei Primärquellen als
+                # "unavailable" zeigen, obwohl der Fallback Treffer geliefert hat).
+                fallback_status = "ok" if fallback_results else "unavailable"
+                source_statuses.append(
+                    SourceStatus(
+                        platform=GenericJobScraper.SOURCE_PLATFORM,
+                        status=fallback_status,
+                        reason=None if fallback_results else "empty",
+                    )
                 )
+
+        # R6/R7: ein gemeinsamer Relevanzfilter läuft genau einmal über die
+        # vollständig zusammengeführten Treffer (Fan-out plus optionaler
+        # Fallback-Scrape), bevor die Antwort gebaut wird - unabhängig davon,
+        # welcher der beiden obigen Zweige gelaufen ist (KTD7). `source_statuses`
+        # bleibt unverändert vor-Filter (KTD5); der Filter wirkt nur auf
+        # `results`.
+        filtered_results = self._apply_relevance_filter(results, keywords)
+        if len(filtered_results) != len(results):
+            # KTD8: ein Logeintrag macht sichtbar, wenn der Filter Treffer
+            # entfernt hat - sonst hat eine Quelle, deren Treffer alle
+            # herausgefiltert wurden, keinerlei Spur in den Logs (sie bleibt
+            # laut KTD5 weiterhin `status="ok"`).
+            logger.info(
+                "Relevanzfilter: %d von %d Treffern behalten.",
+                len(filtered_results),
+                len(results),
             )
 
-        return JobSearchResponse(results=results, sources=source_statuses)
+        # R1/R2: bereits beworbene Treffer werden nach dem Relevanzfilter
+        # ausgeblendet (KTD3). `source_statuses` bleibt unverändert - eine
+        # Quelle mit vollständig ausgeblendeten Treffern bleibt `status="ok"`
+        # (R8).
+        filtered_results, excluded_applied_count = self._exclude_applied(
+            filtered_results, excluded_source_urls
+        )
+        if excluded_applied_count:
+            logger.info(
+                "Bewerbungsfilter: %d Treffer sind bereits beworben und werden ausgeblendet.",
+                excluded_applied_count,
+            )
+
+        return JobSearchResponse(
+            results=filtered_results,
+            sources=source_statuses,
+            excluded_applied_count=excluded_applied_count,
+        )
+
+    @staticmethod
+    def _exclude_applied(
+        results: list[JobOfferCreate],
+        excluded_source_urls: Collection[str] | None,
+    ) -> tuple[list[JobOfferCreate], int]:
+        """Blendet Treffer aus, deren `source_url` bereits als Stellenangebot
+        gespeichert ist (R1/R2, KTD3), und liefert die verbleibenden Treffer
+        plus die Anzahl der ausgeblendeten.
+
+        Ein leeres/`None`-Ausschlussset lässt alle Treffer unverändert
+        passieren. Der Aufrufer übergibt die gespeicherten `source_url`s, weil
+        dieser Service bewusst keinen Datenbankzugriff hat (KTD1)."""
+        if not excluded_source_urls:
+            return results, 0
+        excluded = set(excluded_source_urls)
+        kept = [offer for offer in results if offer.source_url not in excluded]
+        return kept, len(results) - len(kept)
+
+    @staticmethod
+    def _apply_relevance_filter(
+        results: list[JobOfferCreate], keywords: str
+    ) -> list[JobOfferCreate]:
+        """Behält nur Treffer, deren Titel oder Beschreibung jeden
+        Stichwort-Teilbegriff enthält (R6/R7, KTD3/KTD4). Verallgemeinert
+        Arbeitnows frühere private `_matches`-Keyword-Hälfte auf alle Quellen.
+
+        Eine leere/`None`-Beschreibung wird als leerer String behandelt -
+        der Treffer wird dann effektiv nur gegen den Titel geprüft, nicht von
+        der Prüfung ausgenommen (KTD4). Eine leere Stichwortliste (z. B. bei
+        Whitespace-only-Suchbegriffen) lässt alle Treffer unverändert
+        passieren, wie schon Arbeitnows frühere Logik.
+        """
+        keyword_terms = [term.lower() for term in keywords.split() if term]
+        if not keyword_terms:
+            return results
+        filtered: list[JobOfferCreate] = []
+        for offer in results:
+            haystack = f"{offer.title} {offer.description_text or ''}".lower()
+            if all(term in haystack for term in keyword_terms):
+                filtered.append(offer)
+        return filtered
 
     def enrich_description(self, source_platform: str, source_url: str) -> str | None:
         """Lädt nachträglich den vollen Anzeigetext für ein einzelnes,

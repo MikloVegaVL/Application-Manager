@@ -19,7 +19,7 @@
         matInput
         type="email"
         formControlName="to_email"
-        placeholder="No email found in the job offer - please enter one"
+        placeholder="No email found in the job offer - use Find email or enter one"
       />
       @if (form.controls.to_email.hasError('required') && form.controls.to_email.touched) {
         <mat-error>Please enter a recipient email.</mat-error>
@@ -27,6 +27,54 @@
         <mat-error>Please enter a valid email address.</mat-error>
       }
     </mat-form-field>
+
+    @if (data.findApplicationEmail) {
+      <div class="dialog-form__lookup">
+        <button
+          mat-stroked-button
+          type="button"
+          class="dialog-form__find-email-btn"
+          [disabled]="lookingUp()"
+          (click)="onFindApplicationEmail()"
+        >
+          @if (lookingUp()) {
+            <mat-progress-spinner mode="indeterminate" diameter="18" />
+          } @else {
+            <mat-icon>travel_explore</mat-icon>
+          }
+          {{ hasRecipientOrResult() ? 'Find email again' : 'Find email' }}
+        </button>
+
+        @if (lookupResult(); as result) {
+          <div class="dialog-form__lookup-status" aria-live="polite">
+            @switch (result.status) {
+              @case ('found') {
+                <span>Application email found</span>
+                @if (result.source_url) {
+                  <a
+                    [href]="result.source_url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="dialog-form__lookup-source"
+                  >
+                    <mat-icon>open_in_new</mat-icon>
+                    Source of this address
+                  </a>
+                }
+              }
+              @case ('not-found') {
+                <span>No application email found</span>
+              }
+              @case ('failed') {
+                <span class="dialog-form__lookup-status--failed">
+                  Couldn't reach the employer's site — try again
+                </span>
+              }
+            }
+          </div>
+        }
+      </div>
+    }
 
     <mat-form-field appearance="outline" class="dialog-form__field">
       <mat-label>Subject</mat-label>

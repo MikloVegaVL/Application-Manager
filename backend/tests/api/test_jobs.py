@@ -18,7 +18,10 @@ from sqlalchemy.pool import StaticPool
 from app import models  # noqa: F401 - registriert Modelle in Base.metadata
 from app.db.database import Base, get_db
 from app.main import app
+from app.models.job_offer import JobOffer
+from app.schemas.application_email_lookup import ApplicationEmailLookupResult
 from app.schemas.job_offer import JobOfferCreate, JobSearchResponse, SourceStatus
+from app.services.application_email_lookup import get_application_email_lookup_service
 from app.services.job_search_service import (
     JobSearchService,
     SourceRegistration,
@@ -74,7 +77,14 @@ def _fake_search_response() -> JobSearchResponse:
 
 
 class _FakeJobSearchService:
-    def search(self, keywords, location=None, fallback_url=None):
+    def search(
+        self,
+        keywords,
+        location=None,
+        radius_km=None,
+        fallback_url=None,
+        excluded_source_urls=None,
+    ):
         return _fake_search_response()
 
 
@@ -92,30 +102,46 @@ def test_search_returns_envelope_with_results_and_sources(client):
     assert {s["platform"] for s in body["sources"]} == {"arbeitsagentur", "linkedin", "xing"}
 
 
+@pytest.mark.parametrize("radius_km", [0, 500])
+def test_search_rejects_a_radius_km_outside_the_allowed_range(client, radius_km):
+    app.dependency_overrides[get_job_search_service] = lambda: _FakeJobSearchService()
+
+    response = client.get(
+        "/api/jobs/search", params={"keywords": "Angular", "radius_km": radius_km}
+    )
+
+    assert response.status_code == 422
+
+
+def test_search_accepts_a_radius_km_within_the_allowed_range(client):
+    app.dependency_overrides[get_job_search_service] = lambda: _FakeJobSearchService()
+
+    response = client.get(
+        "/api/jobs/search", params={"keywords": "Angular", "radius_km": 50}
+    )
+
+    assert response.status_code == 200
+
+
 # --- U8: End-to-end multi-source verification (2026-09-11 plan) -------------
 #
 # These tests override `get_job_search_service` with a REAL `JobSearchService`
-# wired to a fake 12-source registry through the U2 injection seam
+# wired to a fake multi-source registry through the U2 injection seam
 # (`sources=`). Reusing `_FakeJobSearchService` above would make the envelope
 # assertions tautological - U8 exists to exercise the real fan-out, deadline
 # participation, and per-source status mapping (KTD3/KTD8/KTD9/KTD11).
 
 _ALL_SOURCE_PLATFORMS = (
     "arbeitsagentur",
+    "arbeitnow",
     "linkedin",
     "xing",
     "devjobs",
-    "kimeta",
-    "stepstone",
-    "germantechjobs",
-    "indeed",
     "programmiererjobboerse",
     "it-entwickler-jobs",
-    "adzuna",
-    "jooble",
 )
 
-_NOT_OK_PLATFORMS = {"xing", "indeed", "adzuna", "jooble"}
+_NOT_OK_PLATFORMS = {"xing", "linkedin"}
 
 
 class _FakeSourceClient:
@@ -141,7 +167,7 @@ class _FakeSourceClient:
     def is_configured(self) -> bool:
         return self._configured
 
-    def search(self, keywords, location=None):
+    def search(self, keywords, location=None, radius_km=None):
         self.calls.append((keywords, location))
         if self._delay:
             time.sleep(self._delay)
@@ -162,16 +188,17 @@ def _source_offer(platform: str) -> JobOfferCreate:
 
 
 def _mixed_multi_source_service(deadline_seconds: float = 5.0):
-    """Ein echter `JobSearchService` über alle 12 Quellen mit gemischten
-    Ergebnissen: ok / empty / error / not-configured (U8)."""
+    """Ein echter `JobSearchService` über alle Quellen mit gemischten
+    Ergebnissen: ok / empty / error (U8). Die `not-configured`-Kennzeichnung
+    (KTD9) ist quellen-unabhängig und wird generisch in
+    `test_job_search_service.py::test_unconfigured_source_yields_not_configured_without_a_search_call`
+    abgedeckt - keine der aktuellen Quellen braucht Zugangsdaten mehr."""
     registrations: list[SourceRegistration] = []
     clients: dict[str, _FakeSourceClient] = {}
     for platform in _ALL_SOURCE_PLATFORMS:
-        if platform in ("adzuna", "jooble"):
-            client = _FakeSourceClient(platform, configured=False)
-        elif platform == "xing":
+        if platform == "xing":
             client = _FakeSourceClient(platform, offers=[])
-        elif platform == "indeed":
+        elif platform == "linkedin":
             client = _FakeSourceClient(platform, exc=RuntimeError("simulated source failure"))
         else:
             client = _FakeSourceClient(platform, offers=[_source_offer(platform)])
@@ -180,7 +207,7 @@ def _mixed_multi_source_service(deadline_seconds: float = 5.0):
     return JobSearchService(sources=registrations, deadline_seconds=deadline_seconds), clients
 
 
-def test_real_service_fans_out_over_all_12_sources_with_per_source_status(client):
+def test_real_service_fans_out_over_all_sources_with_per_source_status(client):
     service, clients = _mixed_multi_source_service()
     app.dependency_overrides[get_job_search_service] = lambda: service
 
@@ -199,25 +226,11 @@ def test_real_service_fans_out_over_all_12_sources_with_per_source_status(client
         "status": "unavailable",
         "reason": "empty",
     }
-    assert by_platform["indeed"] == {
-        "platform": "indeed",
+    assert by_platform["linkedin"] == {
+        "platform": "linkedin",
         "status": "unavailable",
         "reason": "error",
     }
-    # The unconfigured Adzuna/Jooble pair appears as not-configured alongside
-    # the ok sources (KTD9/R9) - without ever calling `search()`.
-    assert by_platform["adzuna"] == {
-        "platform": "adzuna",
-        "status": "unavailable",
-        "reason": "not-configured",
-    }
-    assert by_platform["jooble"] == {
-        "platform": "jooble",
-        "status": "unavailable",
-        "reason": "not-configured",
-    }
-    assert clients["adzuna"].calls == []
-    assert clients["jooble"].calls == []
 
     ok_platforms = set(_ALL_SOURCE_PLATFORMS) - _NOT_OK_PLATFORMS
     assert {s["platform"] for s in body["sources"] if s["status"] == "ok"} == ok_platforms
@@ -235,11 +248,7 @@ def test_real_service_timeout_does_not_delay_response_beyond_deadline(client):
     back at the shared deadline, not after the slow source finishes."""
     registrations: list[SourceRegistration] = []
     for platform in _ALL_SOURCE_PLATFORMS:
-        if platform in ("adzuna", "jooble"):
-            registrations.append(
-                SourceRegistration(_FakeSourceClient(platform, configured=False))
-            )
-        elif platform == "indeed":
+        if platform == "linkedin":
             registrations.append(SourceRegistration(_FakeSourceClient(platform, delay=2.0)))
         else:
             registrations.append(
@@ -255,10 +264,54 @@ def test_real_service_timeout_does_not_delay_response_beyond_deadline(client):
     assert response.status_code == 200
     body = response.json()
     assert len(body["sources"]) == len(_ALL_SOURCE_PLATFORMS)
-    indeed_status = next(s for s in body["sources"] if s["platform"] == "indeed")
-    assert indeed_status["status"] == "unavailable"
-    assert indeed_status["reason"] == "timeout"
+    linkedin_status = next(s for s in body["sources"] if s["platform"] == "linkedin")
+    assert linkedin_status["status"] == "unavailable"
+    assert linkedin_status["reason"] == "timeout"
     assert elapsed < 1.0
+
+
+def test_search_excludes_a_saved_job_and_reports_the_count(client):
+    """U1: `GET /jobs/search` blends Treffer aus, deren `source_url` bereits
+    als Stellenangebot gespeichert ist, und meldet die Anzahl (R1/R2/R4)."""
+    platform = "arbeitsagentur"
+    offer = _source_offer(platform)
+    assert client.post("/api/jobs/save", json=offer.model_dump()).status_code == 201
+
+    service = JobSearchService(
+        sources=[SourceRegistration(_FakeSourceClient(platform, offers=[offer]))],
+        deadline_seconds=5.0,
+    )
+    app.dependency_overrides[get_job_search_service] = lambda: service
+
+    response = client.get("/api/jobs/search", params={"keywords": "Angular"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["results"] == []
+    assert body["excluded_applied_count"] == 1
+
+
+def test_search_returns_a_job_again_after_its_application_is_deleted(client):
+    """Covers AE3: das Löschen einer Bewerbung entfernt ihr `JobOffer`, daher
+    wird die Stelle in einer späteren Suche nicht mehr ausgeblendet."""
+    platform = "arbeitsagentur"
+    offer = _source_offer(platform)
+    client.post("/api/jobs/save", json=offer.model_dump())
+    application_id = client.get("/api/applications").json()[0]["id"]
+    assert client.delete(f"/api/applications/{application_id}").status_code == 204
+
+    service = JobSearchService(
+        sources=[SourceRegistration(_FakeSourceClient(platform, offers=[offer]))],
+        deadline_seconds=5.0,
+    )
+    app.dependency_overrides[get_job_search_service] = lambda: service
+
+    response = client.get("/api/jobs/search", params={"keywords": "Angular"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [r["source_url"] for r in body["results"]] == [offer.source_url]
+    assert body["excluded_applied_count"] == 0
 
 
 def test_save_job_returns_201(client):
@@ -440,3 +493,240 @@ def test_get_job_does_not_call_enrichment_when_description_already_present(clien
 
     assert response.status_code == 200
     assert response.json()["description_text"] == "Schon vorhanden."
+
+
+# --- U3: application-email lookup endpoint + save-time persistence ---------
+#
+# Siehe docs/plans/2026-09-15-002-feat-job-search-application-email-lookup-plan.md
+# (U3, KTD1/KTD5). Der Lookup-Service wird über `get_application_email_lookup_service`
+# durch ein Fake ersetzt - kein echtes Netzwerk, kein Ollama.
+
+
+class _FakeLookupService:
+    def __init__(self, result: ApplicationEmailLookupResult) -> None:
+        self.result = result
+        self.calls: list = []
+
+    def lookup(self, payload):
+        self.calls.append(payload)
+        return self.result
+
+
+def _count_job_offers() -> int:
+    session_factory = app.dependency_overrides[get_db]
+    session = next(session_factory())
+    try:
+        return session.query(JobOffer).count()
+    finally:
+        session.close()
+
+
+def _saved_job_payload(**overrides) -> dict:
+    payload = {
+        "title": "Angular Developer",
+        "company": "Acme",
+        "location": "Berlin",
+        "source_url": "https://example.com/job/lookup",
+        "description_text": None,
+        "source_platform": "linkedin",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _lookup_payload(source_url: str = "https://example.com/job/lookup") -> dict:
+    return {
+        "source_url": source_url,
+        "company": "Acme",
+    }
+
+
+def test_lookup_persists_found_address_on_saved_job(client):
+    """Covers R1, R10: die Suche für eine gespeicherte Stelle persistiert
+    Adresse und Quelle und gibt die Adresse zurück."""
+    payload = _saved_job_payload()
+    saved = client.post("/api/jobs/save", json=payload).json()
+    fake = _FakeLookupService(
+        ApplicationEmailLookupResult(
+            status="found",
+            email="bewerbung@acme.de",
+            source_url="https://acme.de/karriere",
+        )
+    )
+    app.dependency_overrides[get_application_email_lookup_service] = lambda: fake
+
+    response = client.post("/api/jobs/application-email-lookup", json=_lookup_payload())
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "found",
+        "email": "bewerbung@acme.de",
+        "source_url": "https://acme.de/karriere",
+    }
+    assert len(fake.calls) == 1
+    stored = client.get(f"/api/jobs/{saved['id']}").json()
+    assert stored["application_email"] == "bewerbung@acme.de"
+    assert stored["application_email_source_url"] == "https://acme.de/karriere"
+
+
+def test_lookup_serves_stored_address_without_running_the_service(client):
+    """Covers R1, R10/KTD1: eine bereits gespeicherte Adresse wird ohne Suche
+    zurückgegeben."""
+    payload = _saved_job_payload(
+        application_email="stored@acme.de",
+        application_email_source_url="https://acme.de/impressum",
+    )
+    client.post("/api/jobs/save", json=payload)
+
+    class _FailingLookupService:
+        def lookup(self, payload):
+            raise AssertionError("lookup must not run when a stored address exists")
+
+    app.dependency_overrides[get_application_email_lookup_service] = lambda: _FailingLookupService()
+
+    response = client.post("/api/jobs/application-email-lookup", json=_lookup_payload())
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "found",
+        "email": "stored@acme.de",
+        "source_url": "https://acme.de/impressum",
+    }
+
+
+def test_lookup_for_unsaved_source_url_does_not_create_a_job_offer(client):
+    """Covers R1: ein unsaved Payload (kein `id`) erzeugt keine `JobOffer`-Zeile."""
+    fake = _FakeLookupService(
+        ApplicationEmailLookupResult(
+            status="found",
+            email="bewerbung@acme.de",
+            source_url="https://acme.de/karriere",
+        )
+    )
+    app.dependency_overrides[get_application_email_lookup_service] = lambda: fake
+
+    response = client.post(
+        "/api/jobs/application-email-lookup",
+        json=_lookup_payload(source_url="https://example.com/job/unsaved"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "found"
+    assert _count_job_offers() == 0
+
+
+def test_lookup_not_found_leaves_persisted_fields_unchanged(client):
+    """Covers R6: ein not-found-Ergebnis lässt die gespeicherten Felder leer."""
+    payload = _saved_job_payload()
+    saved = client.post("/api/jobs/save", json=payload).json()
+    fake = _FakeLookupService(ApplicationEmailLookupResult(status="not-found"))
+    app.dependency_overrides[get_application_email_lookup_service] = lambda: fake
+
+    response = client.post("/api/jobs/application-email-lookup", json=_lookup_payload())
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "not-found"
+    stored = client.get(f"/api/jobs/{saved['id']}").json()
+    assert stored["application_email"] is None
+    assert stored["application_email_source_url"] is None
+
+
+def test_lookup_service_exception_returns_failed_not_5xx(client):
+    """Covers KTD4/R6: ein unerwarteter Fehler im Lookup mappt auf HTTP 200
+    mit `status: failed` und lässt die gespeicherten Felder unverändert."""
+    payload = _saved_job_payload()
+    saved = client.post("/api/jobs/save", json=payload).json()
+
+    class _RaisingLookupService:
+        def lookup(self, payload):
+            raise RuntimeError("unexpected lookup failure")
+
+    app.dependency_overrides[get_application_email_lookup_service] = (
+        lambda: _RaisingLookupService()
+    )
+
+    response = client.post("/api/jobs/application-email-lookup", json=_lookup_payload())
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "failed", "email": None, "source_url": None}
+    stored = client.get(f"/api/jobs/{saved['id']}").json()
+    assert stored["application_email"] is None
+    assert stored["application_email_source_url"] is None
+
+
+def test_lookup_force_reruns_despite_stored_address(client):
+    """Covers R1/KTD1: `force=True` überspringt die gespeicherte Adresse und
+    lässt den Scraper erneut laufen; das neue Ergebnis wird persistiert."""
+    payload = _saved_job_payload(
+        application_email="stored@acme.de",
+        application_email_source_url="https://acme.de/impressum",
+    )
+    saved = client.post("/api/jobs/save", json=payload).json()
+    fake = _FakeLookupService(
+        ApplicationEmailLookupResult(
+            status="found",
+            email="neu@acme.de",
+            source_url="https://acme.de/karriere",
+        )
+    )
+    app.dependency_overrides[get_application_email_lookup_service] = lambda: fake
+
+    response = client.post(
+        "/api/jobs/application-email-lookup",
+        json={**_lookup_payload(), "force": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "found",
+        "email": "neu@acme.de",
+        "source_url": "https://acme.de/karriere",
+    }
+    assert len(fake.calls) == 1
+    stored = client.get(f"/api/jobs/{saved['id']}").json()
+    assert stored["application_email"] == "neu@acme.de"
+
+
+def test_save_job_persists_valid_application_email(client):
+    payload = _saved_job_payload(
+        source_url="https://example.com/job/save-email",
+        application_email="bewerbung@acme.de",
+        application_email_source_url="https://acme.de/karriere",
+    )
+
+    response = client.post("/api/jobs/save", json=payload)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["application_email"] == "bewerbung@acme.de"
+    assert body["application_email_source_url"] == "https://acme.de/karriere"
+
+
+def test_save_job_ignores_invalid_application_email_and_source_url(client):
+    payload = _saved_job_payload(
+        source_url="https://example.com/job/save-invalid-email",
+        application_email="not-an-email",
+        application_email_source_url="http://127.0.0.1/private",
+    )
+
+    response = client.post("/api/jobs/save", json=payload)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["application_email"] is None
+    assert body["application_email_source_url"] is None
+
+
+def test_save_job_keeps_email_but_drops_unsafe_source_url(client):
+    payload = _saved_job_payload(
+        source_url="https://example.com/job/save-unsafe-source",
+        application_email="bewerbung@acme.de",
+        application_email_source_url="http://192.168.1.5/karriere",
+    )
+
+    response = client.post("/api/jobs/save", json=payload)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["application_email"] == "bewerbung@acme.de"
+    assert body["application_email_source_url"] is None

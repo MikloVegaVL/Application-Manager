@@ -40,6 +40,7 @@ class _FakeClient:
         self._configured = configured
         self._cooldown_active = cooldown_active
         self.calls: list[tuple] = []
+        self.radius_calls: list[int | None] = []
         self.is_configured_calls = 0
 
     def is_configured(self) -> bool:
@@ -49,8 +50,9 @@ class _FakeClient:
     def is_cooldown_active(self) -> bool:
         return self._cooldown_active
 
-    def search(self, keywords, location=None):
+    def search(self, keywords, location=None, radius_km=None):
         self.calls.append((keywords, location))
+        self.radius_calls.append(radius_km)
         if self._delay:
             time.sleep(self._delay)
         if self._exc is not None:
@@ -58,7 +60,12 @@ class _FakeClient:
         return self._offers
 
 
-def _offer(platform: str, title: str = "Some Job") -> JobOfferCreate:
+def _offer(platform: str, title: str = "Angular Developer") -> JobOfferCreate:
+    """`title` defaults to a term most tests' `service.search("Angular", ...)`
+    calls actually match - the shared relevance filter (R6/R7) drops offers
+    whose title/description don't contain the search keywords, so a fixture
+    default unrelated to "Angular" would silently empty `response.results` in
+    every test that doesn't override it."""
     return JobOfferCreate(
         title=title,
         company="Acme",
@@ -192,6 +199,48 @@ def test_anonymous_only_no_credential_or_session_passed_to_any_client():
             assert "cookie" not in repr(call_args).lower()
         # Nur keywords/location wurden übergeben - keine weiteren Argumente.
         assert client.calls[0] == ("Angular", "Berlin")
+
+
+def test_radius_km_is_forwarded_to_every_source_when_location_is_set():
+    """Covers R4: jede Quelle bekommt den gewählten Umkreis - ob sie ihn nutzt
+    (Arbeitsagentur/Adzuna/Jooble) oder ignoriert (die übrigen), entscheidet
+    die Quelle selbst (KTD1)."""
+    service, aa_client, li_client, xi_client, _ = _service(
+        aa_offers=[_offer("arbeitsagentur")],
+    )
+
+    service.search("Angular", "Berlin", radius_km=50)
+
+    for client in (aa_client, li_client, xi_client):
+        assert client.radius_calls == [50]
+
+
+def test_radius_km_is_cleared_when_location_is_empty():
+    """Covers R2/R3 (KTD5): der Server ist die maßgebliche Absicherung gegen
+    einen Umkreis ohne Ort, unabhängig vom Frontend-Zustand."""
+    service, aa_client, li_client, xi_client, _ = _service(
+        aa_offers=[_offer("arbeitsagentur")],
+    )
+
+    service.search("Angular", location=None, radius_km=50)
+
+    for client in (aa_client, li_client, xi_client):
+        assert client.radius_calls == [None]
+
+
+def test_radius_km_is_cleared_when_location_is_whitespace_only():
+    """Regression (ce-code-review, 2026-09-16): `bool(" ")` is True in Python,
+    so a naive `if not location` guard would not catch a whitespace-only
+    location - the fix normalizes it before the guard runs."""
+    service, aa_client, li_client, xi_client, _ = _service(
+        aa_offers=[_offer("arbeitsagentur")],
+    )
+
+    service.search("Angular", location="   ", radius_km=50)
+
+    for client in (aa_client, li_client, xi_client):
+        assert client.calls[0] == ("Angular", "")
+        assert client.radius_calls == [None]
 
 
 def test_fallback_only_triggers_when_arbeitsagentur_empty_and_fallback_url_given():
@@ -354,12 +403,144 @@ def test_two_registrations_with_the_same_platform_both_get_a_status():
         deadline_seconds=1.0,
     )
 
-    response = service.search("Angular")
+    # Leere Suchbegriffe lassen den Relevanzfilter (R6/R7) alles passieren -
+    # dieser Test prüft Registry-/Status-Verhalten, nicht Keyword-Matching.
+    response = service.search("")
 
     dup_statuses = [s for s in response.sources if s.platform == "dup"]
     assert len(dup_statuses) == 2
     assert {s.status for s in dup_statuses} == {"ok"}
     assert {offer.title for offer in response.results} == {"First", "Second"}
+
+
+# --- Shared relevance filter (R6/R7) ----------------------------------------
+#
+# Siehe docs/plans/2026-09-15-003-feat-job-search-source-and-relevance-plan.md
+# (U3, KTD3-KTD8). Ersetzt Arbeitnows frühere private Keyword-Filterung durch
+# einen zentralen Filter, der nach dem Zusammenführen aller Quellen genau
+# einmal läuft.
+
+
+def _offer_with_description(platform: str, title: str, description: str | None) -> JobOfferCreate:
+    return JobOfferCreate(
+        title=title,
+        company="Acme",
+        location=None,
+        source_url=f"https://example.com/{platform}/{title}",
+        description_text=description,
+        source_platform=platform,
+    )
+
+
+def test_filter_keeps_a_result_whose_title_matches():
+    service, *_ = _service(aa_offers=[_offer("arbeitsagentur", "Angular Developer")])
+
+    response = service.search("Angular")
+
+    assert [offer.title for offer in response.results] == ["Angular Developer"]
+
+
+def test_filter_keeps_a_result_whose_description_matches_but_title_does_not():
+    matching = _offer_with_description("arbeitsagentur", "Software Engineer", "Wir suchen Angular-Kenntnisse.")
+    service, *_ = _service(aa_offers=[matching])
+
+    response = service.search("Angular")
+
+    assert [offer.title for offer in response.results] == ["Software Engineer"]
+
+
+def test_filter_drops_a_result_matching_neither_title_nor_description():
+    non_matching = _offer_with_description("arbeitsagentur", "Backend Engineer", "Wir suchen Python-Kenntnisse.")
+    service, *_ = _service(aa_offers=[non_matching])
+
+    response = service.search("Angular")
+
+    assert response.results == []
+
+
+def test_filter_requires_every_keyword_term_to_match():
+    only_angular = _offer("arbeitsagentur", "Angular Developer")
+    service, *_ = _service(aa_offers=[only_angular])
+
+    response = service.search("Angular Senior")
+
+    assert response.results == []
+
+
+def test_filter_evaluates_a_missing_description_on_title_alone():
+    """KTD4: `description_text=None` (z. B. Arbeitsagentur/LinkedIn/heuristisch
+    gescrapte Board-/Xing-Treffer) degradiert den Filter auf Titel-only,
+    statt den Treffer von der Prüfung auszunehmen."""
+    service, *_ = _service(aa_offers=[_offer("arbeitsagentur", "Angular Developer")])
+
+    response = service.search("Angular")
+
+    assert len(response.results) == 1
+    assert response.results[0].description_text is None
+
+
+def test_filter_passes_everything_through_on_an_empty_keyword_string():
+    service, *_ = _service(
+        aa_offers=[_offer("arbeitsagentur", "Backend Engineer")],
+        li_offers=[_offer("linkedin", "Data Analyst")],
+    )
+
+    response = service.search("")
+
+    assert {offer.title for offer in response.results} == {"Backend Engineer", "Data Analyst"}
+
+
+def test_filter_does_not_change_source_status_when_all_of_a_sources_results_are_dropped():
+    """KTD5: der Filter wirkt nur auf `results`, nicht auf den pro-Quelle
+    Status - eine Quelle mit vollständig herausgefilterten Treffern bleibt
+    weiterhin `status="ok"`."""
+    non_matching = _offer_with_description("linkedin", "Backend Engineer", "Wir suchen Python-Kenntnisse.")
+    service, *_ = _service(
+        aa_offers=[_offer("arbeitsagentur", "Angular Developer")],
+        li_offers=[non_matching],
+    )
+
+    response = service.search("Angular")
+
+    linkedin_status = next(s for s in response.sources if s.platform == "linkedin")
+    assert linkedin_status.status == "ok"
+    assert {offer.source_platform for offer in response.results} == {"arbeitsagentur"}
+
+
+def test_fallback_trigger_uses_pre_filter_arbeitsagentur_results_not_post_filter():
+    """KTD6: der Fallback-Scraper darf nicht feuern, nur weil der
+    Relevanzfilter Arbeitsagenturs (rohe, nicht-leere) Treffer nachträglich
+    herausgefiltert hat - die Auslöse-Bedingung bleibt an den rohen
+    Fan-out-Ergebnissen."""
+    non_matching_aa = _offer_with_description("arbeitsagentur", "Backend Engineer", "Wir suchen Python-Kenntnisse.")
+    service, *_client, fallback = _service(aa_offers=[non_matching_aa])
+
+    response = service.search("Angular", fallback_url="https://example.com/jobs")
+
+    assert fallback.calls == []
+    # Arbeitsagenturs (jetzt herausgefilterter) Treffer bleibt ohne
+    # Fallback-Status-Eintrag - der Fallback-Pfad wurde nie betreten.
+    assert not any(s.platform == "web-scraper" for s in response.sources)
+    assert response.results == []
+
+
+def test_filter_applies_identically_whether_or_not_the_fallback_branch_ran():
+    """KTD7: beide Zweige der Fallback-Verzweigung (ungültige `fallback_url`
+    vs. tatsächlicher Fallback-Scrape) laufen durch denselben, einzigen
+    Filteraufruf - Treffer aus beiden Pfaden werden gleich gefiltert."""
+    # Zweig 1: unsichere fallback_url - kein Scrape, aber Fan-out-Treffer
+    # durchlaufen trotzdem den Filter.
+    service_unsafe, *_ = _service(aa_offers=[], li_offers=[_offer("linkedin", "Backend Engineer")])
+    response_unsafe = service_unsafe.search("Angular", fallback_url="javascript:alert(1)")
+    assert response_unsafe.results == []  # "Backend Engineer" enthält kein "Angular"
+
+    # Zweig 2: gültige fallback_url, Fallback liefert einen nicht-passenden
+    # Treffer - muss ebenso gefiltert werden wie der Fan-out-Pfad.
+    non_matching_fallback = _offer_with_description("web-scraper", "Backend Engineer", "Wir suchen Python-Kenntnisse.")
+    service_fallback, *_client, fallback = _service(aa_offers=[], fallback_offers=[non_matching_fallback])
+    response_fallback = service_fallback.search("Angular", fallback_url="https://example.com/jobs")
+    assert len(fallback.calls) == 1
+    assert response_fallback.results == []
 
 
 def test_registry_deadline_timeout_marks_source_and_returns_promptly():
@@ -405,17 +586,23 @@ def test_default_registry_is_built_from_settings_without_injection():
     assert platforms[0] == "arbeitsagentur"
     assert set(platforms) <= {
         "arbeitsagentur",
-        "linkedin",
-        "xing",
+        "arbeitnow",
         "adzuna",
         "jooble",
+        "linkedin",
+        "xing",
         "devjobs",
-        "kimeta",
-        "stepstone",
-        "germantechjobs",
-        "indeed",
         "programmiererjobboerse",
     }
+    # KTD2: Arbeitnow ist wie Arbeitsagentur unconditionally registriert -
+    # kein Enable-Flag, keine Zugangsdaten.
+    assert "arbeitnow" in platforms
+    # Adzuna/Jooble sind flag-gated (JOB_SEARCH_ADZUNA_ENABLED/
+    # JOB_SEARCH_JOOBLE_ENABLED, siehe
+    # docs/plans/2026-09-15-003-feat-job-search-source-and-relevance-plan.md),
+    # aber beide Flags defaulten auf `True` - ohne Settings-Override sind sie
+    # also registriert (ihre fehlenden Zugangsdaten wirken erst zur
+    # Such-Zeit über `is_configured()`, nicht bei der Registrierung selbst).
     assert "adzuna" in platforms
     assert "jooble" in platforms
     # U6: alle HTML-Boards (inkl. des eigens registrierten devjobs, siehe
@@ -423,10 +610,6 @@ def test_default_registry_is_built_from_settings_without_injection():
     # einen eigenen Plattform-Schlüssel - keiner ist "web-scraper" (R4/R6).
     for board in (
         "devjobs",
-        "kimeta",
-        "stepstone",
-        "germantechjobs",
-        "indeed",
         "programmiererjobboerse",
     ):
         assert board in platforms
@@ -489,6 +672,38 @@ def test_heuristic_extraction_prefers_heading_over_a_leading_empty_overlay_link(
     assert len(offers) == 1
     assert offers[0].title == "Angular Developer"
     assert offers[0].source_url == "https://example.com/jobs/angular-developer-123"
+
+
+# --- ArbeitsagenturJobsClient.search() radius (KTD1/KTD2) -----------------
+
+
+def test_arbeitsagentur_sends_umkreis_when_location_and_radius_km_are_set(requests_mock):
+    requests_mock.get(f"{ArbeitsagenturJobsClient.BASE_URL}/jobs", json={"ergebnisliste": []})
+
+    ArbeitsagenturJobsClient().search("Angular", "Berlin", radius_km=50)
+
+    request = requests_mock.last_request
+    assert request.qs["wo"] == ["berlin"]
+    assert request.qs["umkreis"] == ["50"]
+
+
+def test_arbeitsagentur_omits_umkreis_without_a_location(requests_mock):
+    requests_mock.get(f"{ArbeitsagenturJobsClient.BASE_URL}/jobs", json={"ergebnisliste": []})
+
+    ArbeitsagenturJobsClient().search("Angular", location=None, radius_km=50)
+
+    assert "umkreis" not in requests_mock.last_request.qs
+
+
+def test_arbeitsagentur_omits_umkreis_without_a_radius(requests_mock):
+    requests_mock.get(f"{ArbeitsagenturJobsClient.BASE_URL}/jobs", json={"ergebnisliste": []})
+
+    ArbeitsagenturJobsClient().search("Angular", "Berlin")
+
+    assert "umkreis" not in requests_mock.last_request.qs
+    # Regression (feasibility review, U1): a radius must never collide with
+    # the client's pre-existing `results_limit` -> `size` param.
+    assert requests_mock.last_request.qs["size"] == ["25"]
 
 
 # --- ArbeitsagenturJobsClient.fetch_description() (lazy detail-page load) --
@@ -619,13 +834,7 @@ def test_enrich_description_is_a_no_op_for_unsupported_sources():
 
 _NEW_SOURCE_FLAGS = (
     "JOB_SEARCH_DEVJOBS_ENABLED",
-    "JOB_SEARCH_KIMETA_ENABLED",
-    "JOB_SEARCH_STEPSTONE_ENABLED",
-    "JOB_SEARCH_GERMANTECHJOBS_ENABLED",
-    "JOB_SEARCH_INDEED_ENABLED",
     "JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED",
-    "JOB_SEARCH_ADZUNA_ENABLED",
-    "JOB_SEARCH_JOOBLE_ENABLED",
 )
 
 
@@ -643,26 +852,73 @@ def test_new_source_enable_flags_resolve_and_default_to_true(monkeypatch):
         assert getattr(fresh, flag) is True
 
 
-def test_api_credentials_default_to_empty_strings(monkeypatch):
-    """U3 edge: ungesetzte Zugangsdaten lösen zu einem leeren String auf -
-    die Grundlage dafür, dass Adzuna/Jooble `not-configured` melden, ohne
-    die Suche fehlschlagen zu lassen (R9/KD7)."""
-    from app.core.config import Settings
-
-    for var in ("ADZUNA_APP_ID", "ADZUNA_APP_KEY", "JOOBLE_API_KEY"):
-        monkeypatch.delenv(var, raising=False)
-
-    fresh = Settings(_env_file=None)
-
-    assert fresh.ADZUNA_APP_ID == ""
-    assert fresh.ADZUNA_APP_KEY == ""
-    assert fresh.JOOBLE_API_KEY == ""
-
-
 def test_source_status_accepts_not_configured_reason():
     """U3: das Backend-Schema erlaubt den neuen, eigenständigen Reason, damit
     die API-Clients aus U4/U5 ihn emittieren können (KTD5)."""
     status = SourceStatus(platform="adzuna", status="unavailable", reason="not-configured")
 
     assert status.reason == "not-configured"
+
+
+# --- Applied-job exclusion (R1/R2/R4) ---------------------------------------
+#
+# Siehe docs/plans/2026-09-15-004-feat-job-search-hide-applied-plan.md (U1,
+# KTD1-KTD3). Der Ausschluss läuft nach dem Relevanzfilter über die
+# zusammengeführten Treffer und zählt nur, was der Relevanzfilter passiert hat.
+
+
+def test_search_excludes_a_result_whose_source_url_is_already_applied():
+    applied = _offer("arbeitsagentur", "Angular Developer")
+    fresh = _offer("linkedin", "Angular Engineer")
+    service, *_ = _service(aa_offers=[applied], li_offers=[fresh])
+
+    response = service.search("Angular", excluded_source_urls={applied.source_url})
+
+    assert [offer.source_url for offer in response.results] == [fresh.source_url]
+    assert response.excluded_applied_count == 1
+
+
+def test_search_returns_every_result_when_no_excluded_urls_are_given():
+    service, *_ = _service(aa_offers=[_offer("arbeitsagentur")])
+
+    response = service.search("Angular")
+
+    assert len(response.results) == 1
+    assert response.excluded_applied_count == 0
+
+
+def test_search_returns_every_result_when_the_excluded_set_is_empty():
+    service, *_ = _service(aa_offers=[_offer("arbeitsagentur")])
+
+    response = service.search("Angular", excluded_source_urls=set())
+
+    assert len(response.results) == 1
+    assert response.excluded_applied_count == 0
+
+
+def test_excluded_applied_count_ignores_results_dropped_by_the_relevance_filter():
+    """KTD3: der Zähler misst nur Treffer, die den Relevanzfilter passiert
+    haben - ein bereits beworbener, aber irrelevanter Treffer zählt nicht."""
+    non_matching = _offer_with_description("linkedin", "Backend Engineer", "Python")
+    service, *_ = _service(aa_offers=[non_matching])
+
+    response = service.search("Angular", excluded_source_urls={non_matching.source_url})
+
+    assert response.results == []
+    assert response.excluded_applied_count == 0
+
+
+def test_excluding_all_of_a_sources_results_keeps_the_source_status_ok():
+    """R8: der Ausschluss wirkt nur auf `results`, nicht auf den pro-Quelle
+    Status - eine Quelle mit vollständig ausgeblendeten Treffern bleibt
+    `status="ok"`."""
+    applied = _offer("linkedin", "Angular Developer")
+    service, *_ = _service(li_offers=[applied])
+
+    response = service.search("Angular", excluded_source_urls={applied.source_url})
+
+    linkedin_status = next(s for s in response.sources if s.platform == "linkedin")
+    assert linkedin_status.status == "ok"
+    assert response.results == []
+    assert response.excluded_applied_count == 1
 

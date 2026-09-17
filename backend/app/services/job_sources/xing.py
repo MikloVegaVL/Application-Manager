@@ -80,8 +80,12 @@ class XingJobScraper:
         self,
         keywords: str,
         location: str | None = None,
+        radius_km: int | None = None,
     ) -> list[JobOfferCreate]:
         """Sucht Stellenangebote über Xings gerenderte Suchergebnisseite.
+
+        `radius_km` wird angenommen, aber ignoriert: Xing bietet keinen
+        Umkreis-Parameter (siehe Moduldoc zum Länderfilter oben).
 
         Liefert bei jedem Fehlerfall eine leere Liste statt einer Exception
         (Rendering-Fehler, Timeout, fehlende Ergebnisse) - der Aufrufer

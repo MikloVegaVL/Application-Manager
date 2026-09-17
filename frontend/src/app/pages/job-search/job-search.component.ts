@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -10,11 +11,18 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 
-import { JobOffer, JobSaveConflictDetail } from '../../core/models/job-offer.model';
+import {
+  ApplicationEmailLookupResult,
+  JobOffer,
+  toApplicationEmailLookupRequest,
+} from '../../core/models/job-offer.model';
 import { JobSearchStateService } from '../../core/services/job-search-state.service';
-import { JobService } from '../../core/services/job.service';
+import { JobService, jobSaveConflictId } from '../../core/services/job.service';
+import { extractEmail } from '../../core/utils/email-extraction.util';
+import { sourceLabel as getSourceLabel } from '../../core/utils/source-label.util';
 
 @Component({
   selector: 'app-job-search',
@@ -28,6 +36,7 @@ import { JobService } from '../../core/services/job.service';
     MatIconModule,
     MatInputModule,
     MatProgressSpinnerModule,
+    MatSelectModule,
   ],
   templateUrl: './job-search.component.html',
   styleUrl: './job-search.component.scss',
@@ -43,10 +52,35 @@ export class JobSearchComponent {
    * Suche nicht verwirft - siehe JobSearchStateService-Doc. */
   private readonly state = inject(JobSearchStateService);
 
+  /** Umkreis-Stufen in km (KTD3) - Jooble rundet einen gewählten Wert intern
+   * auf die nächstgrößere eigene Stufe auf (siehe `JoobleJobsClient`). */
+  protected readonly radiusKmOptions = ['5', '10', '25', '50', '100', '200'];
+
   protected readonly searchForm = this.formBuilder.nonNullable.group({
     keywords: [this.state.keywords(), [Validators.required, Validators.minLength(2)]],
     location: [this.state.location()],
+    radiusKm: [{ value: this.state.radiusKm(), disabled: !this.state.location().trim() }],
   });
+
+  /** Der Umkreis ist ohne Ort bedeutungslos (R2) - deaktiviert/aktiviert das
+   * Control passend zum Ort-Feld, statt eine sinnlose Auswahl zuzulassen. */
+  private readonly toggleRadiusOnLocationChange = this.searchForm.controls.location.valueChanges
+    .pipe(takeUntilDestroyed())
+    .subscribe((location) => {
+      const radiusControl = this.searchForm.controls.radiusKm;
+      const shouldEnable = !!location.trim();
+      // `enable()`/`disable()` re-run validity recalculation even when the
+      // control is already in the target state - guard against re-running
+      // that on every keystroke, not just on the empty<->non-empty transition.
+      if (shouldEnable === radiusControl.enabled) {
+        return;
+      }
+      if (shouldEnable) {
+        radiusControl.enable({ emitEvent: false });
+      } else {
+        radiusControl.disable({ emitEvent: false });
+      }
+    });
 
   protected readonly results = this.state.results;
   /** Status pro Quelle (Arbeitsagentur/LinkedIn/Xing) der letzten Suche - siehe R5. */
@@ -81,23 +115,18 @@ export class JobSearchComponent {
     () => this.sourceStatuses().length > 0 && this.unavailableSources().length === this.sourceStatuses().length,
   );
 
-  private static readonly SOURCE_LABELS: Record<string, string> = {
-    arbeitsagentur: 'Arbeitsagentur',
-    linkedin: 'LinkedIn',
-    xing: 'Xing',
-    adzuna: 'Adzuna',
-    jooble: 'Jooble',
-    devjobs: 'DEVjobs.de',
-    kimeta: 'Kimeta',
-    stepstone: 'Stepstone',
-    germantechjobs: 'GermanTechJobs',
-    indeed: 'Indeed',
-    programmiererjobboerse: 'Programmiererjobboerse.de',
-  };
+  /** True, wenn die Liste leer ist, weil alle Treffer bereits beworben
+   * wurden - dann statt des generischen Leerzustands die eigene Meldung
+   * (R4/R6). */
+  protected readonly allResultsApplied = computed(
+    () => this.results().length === 0 && this.state.appliedHiddenCount() > 0,
+  );
 
   private readonly savedJobIds = this.state.savedJobIds;
   protected readonly savingSourceUrl = signal<string | null>(null);
   protected readonly generatingSourceUrl = signal<string | null>(null);
+  /** Per Row laufende E-Mail-Suchen, gekeyt nach `source_url` (KTD7/R1). */
+  private readonly lookupLoadingUrls = signal<Set<string>>(new Set());
 
   onSearch(): void {
     if (this.searchForm.invalid) {
@@ -105,9 +134,10 @@ export class JobSearchComponent {
       return;
     }
 
-    const { keywords, location } = this.searchForm.getRawValue();
+    const { keywords, location, radiusKm } = this.searchForm.getRawValue();
     this.state.keywords.set(keywords);
     this.state.location.set(location);
+    this.state.radiusKm.set(radiusKm);
     this.loading.set(true);
     this.errorMessage.set(null);
     // Status der vorherigen Suche zurücksetzen - sonst könnte z. B. noch
@@ -116,22 +146,31 @@ export class JobSearchComponent {
     this.sourceStatuses.set([]);
     // Ein Quellen-Filter der letzten Suche passt nicht zu den neuen Quellen.
     this.selectedSources.set([]);
+    // Der "bereits beworben"-Zähler der letzten Suche gilt nicht mehr.
+    this.state.appliedHiddenCount.set(0);
     this.hasSearched.set(true);
 
-    this.jobService.searchJobs(keywords.trim(), location.trim() || undefined).subscribe({
-      next: (response) => {
-        this.results.set(response.results);
-        this.sourceStatuses.set(response.sources);
-        this.loading.set(false);
-      },
-      error: (error: HttpErrorResponse) => {
-        console.error('Jobsuche fehlgeschlagen', error);
-        this.results.set([]);
-        this.sourceStatuses.set([]);
-        this.loading.set(false);
-        this.errorMessage.set('The job search failed. Please try again later.');
-      },
-    });
+    this.jobService
+      .searchJobs(keywords.trim(), {
+        location: location.trim() || undefined,
+        radiusKm: radiusKm || undefined,
+      })
+      .subscribe({
+        next: (response) => {
+          this.results.set(response.results);
+          this.sourceStatuses.set(response.sources);
+          this.state.appliedHiddenCount.set(response.excluded_applied_count ?? 0);
+          this.loading.set(false);
+        },
+        error: (error: HttpErrorResponse) => {
+          console.error('Jobsuche fehlgeschlagen', error);
+          this.results.set([]);
+          this.sourceStatuses.set([]);
+          this.state.appliedHiddenCount.set(0);
+          this.loading.set(false);
+          this.errorMessage.set('The job search failed. Please try again later.');
+        },
+      });
   }
 
   /** Leert die angezeigte Trefferliste, um Platz für eine neue Suche zu
@@ -152,9 +191,15 @@ export class JobSearchComponent {
     this.selectedSources.set([]);
   }
 
-  /** Menschenlesbares Label für einen Quellen-Platform-Key (z. B. "linkedin" -> "LinkedIn"). */
   sourceLabel(platform: string): string {
-    return JobSearchComponent.SOURCE_LABELS[platform] ?? platform;
+    return getSourceLabel(platform);
+  }
+
+  /** Empfängeradresse aus dem Anzeigentext - dieselbe Extraktion wie im
+   * Editor (siehe `email-extraction.util`). `null`, wenn die Anzeige keine
+   * E-Mail nennt; die Karte zeigt dann einen Platzhalter. */
+  recipientEmail(job: JobOffer): string | null {
+    return extractEmail(job.description_text);
   }
 
   isSaved(job: JobOffer): boolean {
@@ -169,26 +214,111 @@ export class JobSearchComponent {
     return this.generatingSourceUrl() === job.source_url;
   }
 
+  isLookingUp(job: JobOffer): boolean {
+    return this.lookupLoadingUrls().has(job.source_url);
+  }
+
+  /** Ergebnis der letzten Suche für diesen Job (oder `null`) - steuert die
+   * Status-Anzeige (`not-found` vs. `failed`, siehe A5/KTD4). */
+  lookupResult(job: JobOffer): ApplicationEmailLookupResult | null {
+    return this.state.applicationEmailResult(job.source_url);
+  }
+
+  /** Gefundene Bewerbungs-E-Mail aus dem Lookup-Cache - `null`, solange kein
+   * `found`-Ergebnis vorliegt. */
+  applicationEmail(job: JobOffer): string | null {
+    const result = this.lookupResult(job);
+    return result?.status === 'found' ? (result.email ?? null) : null;
+  }
+
+  applicationEmailSourceUrl(job: JobOffer): string | null {
+    const result = this.lookupResult(job);
+    return result?.status === 'found' ? (result.source_url ?? null) : null;
+  }
+
+  /** Empfängeradresse für die Karte: zuerst das Lookup-Ergebnis, dann die
+   * Extraktion aus dem Anzeigentext (R12 - die bestehende Extraktion bleibt
+   * unverändert). */
+  displayedRecipient(job: JobOffer): string | null {
+    return this.applicationEmail(job) ?? this.recipientEmail(job);
+  }
+
+  /**
+   * Startet die On-Demand-Suche (R1/R2). Die Karte übergibt denselben Payload
+   * wie der Editor (KTD1); `force` wird gesetzt, sobald bereits ein Ergebnis
+   * vorliegt, damit der Re-Run-Affordance (R11) tatsächlich neu sucht - und
+   * im Payload ans Backend mitgeschickt, sonst liefert ein gespeicherter Job
+   * nur die persistierte Adresse zurück.
+   */
+  onFindApplicationEmail(job: JobOffer): void {
+    if (this.isLookingUp(job)) {
+      return;
+    }
+    const force = this.lookupResult(job) !== null;
+    this.setLookupLoading(job.source_url, true);
+    this.state
+      .lookupApplicationEmail(toApplicationEmailLookupRequest(job, force), { force })
+      .subscribe({
+        next: () => {
+          // Das Ergebnis ist im State-Service bereits gecacht (KTD7).
+          this.setLookupLoading(job.source_url, false);
+        },
+        error: (error: HttpErrorResponse) => {
+          // Ein echter HTTP-Fehler ist laut A5 ein `failed`-Ergebnis, kein
+          // stiller No-Op - sonst bliebe die Karte ohne Rückmeldung.
+          console.error('Application-email lookup failed', error);
+          this.state.cacheApplicationEmailResult(job.source_url, { status: 'failed' });
+          this.setLookupLoading(job.source_url, false);
+        },
+      });
+  }
+
+  private setLookupLoading(sourceUrl: string, loading: boolean): void {
+    const updated = new Set(this.lookupLoadingUrls());
+    if (loading) {
+      updated.add(sourceUrl);
+    } else {
+      updated.delete(sourceUrl);
+    }
+    this.lookupLoadingUrls.set(updated);
+  }
+
+  /** Reicht eine gecachte, gefundene Adresse beim Speichern mit, damit sie
+   * persistiert wird (KTD7/A1). */
+  private withCachedApplicationEmail(job: JobOffer): JobOffer {
+    const email = this.applicationEmail(job);
+    if (!email) {
+      return job;
+    }
+    return {
+      ...job,
+      application_email: email,
+      application_email_source_url: this.applicationEmailSourceUrl(job),
+    };
+  }
+
   onSaveJob(job: JobOffer): void {
     if (this.isSaved(job) || this.isSaving(job)) {
       return;
     }
     this.savingSourceUrl.set(job.source_url);
 
-    this.jobService.saveJob(job).subscribe({
+    this.jobService.saveJob(this.withCachedApplicationEmail(job)).subscribe({
       next: (saved) => {
         this.state.cacheSavedJob(job.source_url, saved.id);
+        this.state.removeResult(job.source_url);
         this.savingSourceUrl.set(null);
         this.snackBar.open(`"${job.title}" was saved.`, 'OK', { duration: 3000 });
       },
       error: (error: HttpErrorResponse) => {
         this.savingSourceUrl.set(null);
-        const conflictId = this.conflictJobOfferId(error);
+        const conflictId = jobSaveConflictId(error);
         if (conflictId !== null) {
           // Job existiert bereits serverseitig (z. B. nach einem Reload,
           // siehe JobSearchStateService) - Cache nachziehen statt nur zu
           // melden, sonst bliebe der Button dauerhaft im "speichern"-Zustand.
           this.state.cacheSavedJob(job.source_url, conflictId);
+          this.state.removeResult(job.source_url);
           this.snackBar.open('This job has already been saved.', 'OK', { duration: 3000 });
           return;
         }
@@ -201,6 +331,7 @@ export class JobSearchComponent {
   onGenerateApplication(job: JobOffer): void {
     const cachedId = this.savedJobIds().get(job.source_url);
     if (cachedId !== undefined) {
+      this.state.removeResult(job.source_url);
       this.navigateToEditor(cachedId);
       return;
     }
@@ -209,21 +340,23 @@ export class JobSearchComponent {
     }
     this.generatingSourceUrl.set(job.source_url);
 
-    this.jobService.saveJob(job).subscribe({
+    this.jobService.saveJob(this.withCachedApplicationEmail(job)).subscribe({
       next: (saved) => {
         this.state.cacheSavedJob(job.source_url, saved.id);
+        this.state.removeResult(job.source_url);
         this.generatingSourceUrl.set(null);
         this.navigateToEditor(saved.id);
       },
       error: (error: HttpErrorResponse) => {
         this.generatingSourceUrl.set(null);
-        const conflictId = this.conflictJobOfferId(error);
+        const conflictId = jobSaveConflictId(error);
         if (conflictId !== null) {
           // Job existiert bereits (z. B. aus einer früheren Session) - statt
           // in einer Sackgasse zu enden, direkt zum bestehenden Editor
           // weiterleiten (ce-debug-Fix, 2026-08-24: der Job tauchte vorher
           // nirgends mehr auf, siehe der `save_job`-Backfill im Backend).
           this.state.cacheSavedJob(job.source_url, conflictId);
+          this.state.removeResult(job.source_url);
           this.navigateToEditor(conflictId);
           return;
         }
@@ -234,16 +367,5 @@ export class JobSearchComponent {
 
   private navigateToEditor(jobOfferId: number): void {
     void this.router.navigate(['/editor', jobOfferId]);
-  }
-
-  /** Liest `job_offer_id` aus dem 409-Detail von `POST /jobs/save` (siehe
-   * `JobSaveConflictDetail` und das Backend-Backfill in `save_job`) -
-   * `null`, wenn der Fehler kein solcher Konflikt war. */
-  private conflictJobOfferId(error: HttpErrorResponse): number | null {
-    if (error.status !== 409) {
-      return null;
-    }
-    const detail = error.error?.detail as JobSaveConflictDetail | undefined;
-    return typeof detail?.job_offer_id === 'number' ? detail.job_offer_id : null;
   }
 }

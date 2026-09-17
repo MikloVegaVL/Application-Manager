@@ -63,9 +63,8 @@
     color: var(--app-muted-text);
   }
 
-  // Wraps the table in a scroll container instead of reflowing six columns
-  // on a narrow viewport (design-lens finding, docs/plans/2026-09-14-001-
-  // feat-application-email-log-plan.md).
+  // Scroll container only as a last-resort fallback; cells wrap (below) so
+  // content is never clipped or hidden behind a horizontal scrollbar.
   &__table-wrapper {
     overflow-x: auto;
     border: 1px solid var(--app-border, rgba(0, 0, 0, 0.12));
@@ -74,6 +73,19 @@
 
   &__table {
     width: 100%;
+    table-layout: auto;
+
+    // Material's `.mdc-data-table__table` forces `white-space: nowrap` on the
+    // whole table, which clipped long subjects/filenames instead of wrapping
+    // them. Override it on the header/cell elements (higher specificity than
+    // the Material rule) and top-align so multi-line rows stay readable.
+    th,
+    td {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      vertical-align: top;
+    }
 
     a {
       color: inherit;
@@ -85,6 +97,15 @@
     }
   }
 
+  // All attachments actually sent, one per line; wraps long filenames.
+  &__attachments {
+    margin: 0;
+    padding-left: 1.1em;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
   &__job-title {
     display: block;
     color: var(--app-muted-text);
@@ -94,5 +115,10 @@
   &__unknown {
     color: var(--app-muted-text);
     font-style: italic;
+  }
+
+  @media (max-width: 600px) {
+    padding: 16px;
+    gap: 16px;
   }
 }

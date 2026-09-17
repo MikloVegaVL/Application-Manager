@@ -1,12 +1,26 @@
 """API-Router für die Jobsuche und das Speichern von Stellenangeboten."""
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.models.application import Application
 from app.models.job_offer import JobOffer
+from app.schemas.application_email_lookup import (
+    ApplicationEmailLookupRequest,
+    ApplicationEmailLookupResult,
+)
 from app.schemas.job_offer import JobOfferCreate, JobOfferRead, JobSearchResponse
+from app.services.application_email_lookup import (
+    ApplicationEmailLookupService,
+    get_application_email_lookup_service,
+    is_valid_email,
+)
 from app.services.job_search_service import JobSearchService, get_job_search_service
+from app.services.job_sources.shared import validate_source_url
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
@@ -15,6 +29,7 @@ router = APIRouter(prefix="/jobs", tags=["Jobs"])
 def search_jobs(
     keywords: str = Query(..., min_length=2, description="Jobtitel / Suchbegriff"),
     location: str | None = Query(default=None, description="Ort oder PLZ"),
+    radius_km: int | None = Query(default=None, ge=1, le=200, description="Umkreis in km"),
     fallback_url: str | None = Query(
         default=None,
         description=(
@@ -23,13 +38,25 @@ def search_jobs(
             "keine Treffer liefert."
         ),
     ),
+    db: Session = Depends(get_db),
     service: JobSearchService = Depends(get_job_search_service),
 ) -> JobSearchResponse:
     """Sucht Stellenangebote gleichzeitig über Arbeitsagentur, LinkedIn und
     Xing (und bei Bedarf über den generischen Fallback-Scraper). Liefert
     die zusammengeführten Ergebnisse plus einen Status pro Quelle, ohne sie
-    zu speichern (KTD2)."""
-    return service.search(keywords=keywords, location=location, fallback_url=fallback_url)
+    zu speichern (KTD2).
+
+    Bereits gespeicherte Stellenangebote (= bereits beworben) werden
+    ausgeblendet (R1/R2). Der Service bleibt ohne Datenbankzugriff; die
+    gespeicherten `source_url`s kommen aus dieser Ebene (KTD1)."""
+    saved_source_urls = [row[0] for row in db.query(JobOffer.source_url).all()]
+    return service.search(
+        keywords=keywords,
+        location=location,
+        radius_km=radius_km,
+        fallback_url=fallback_url,
+        excluded_source_urls=saved_source_urls,
+    )
 
 
 @router.post("/save", response_model=JobOfferRead, status_code=status.HTTP_201_CREATED)
@@ -57,7 +84,17 @@ def save_job(payload: JobOfferCreate, db: Session = Depends(get_db)) -> JobOffer
             },
         )
 
-    job_offer = JobOffer(**payload.model_dump())
+    job_data = payload.model_dump()
+    # Discovery-Cache nur persistieren, wenn er plausibel ist: eine
+    # offensichtlich ungültige E-Mail wird ebenso verworfen wie eine
+    # Quell-URL, die die geteilte Host-Validierung nicht besteht (R10/KTD5).
+    if not is_valid_email(job_data.get("application_email")):
+        job_data["application_email"] = None
+        job_data["application_email_source_url"] = None
+    elif not validate_source_url(job_data.get("application_email_source_url")):
+        job_data["application_email_source_url"] = None
+
+    job_offer = JobOffer(**job_data)
     db.add(job_offer)
     db.flush()  # weist job_offer.id zu, ohne die Transaktion schon zu committen
 
@@ -74,6 +111,54 @@ def save_job(payload: JobOfferCreate, db: Session = Depends(get_db)) -> JobOffer
     db.refresh(job_offer)
 
     return job_offer
+
+
+@router.post("/application-email-lookup", response_model=ApplicationEmailLookupResult)
+def lookup_application_email(
+    payload: ApplicationEmailLookupRequest,
+    db: Session = Depends(get_db),
+    service: ApplicationEmailLookupService = Depends(get_application_email_lookup_service),
+) -> ApplicationEmailLookupResult:
+    """Sucht on-demand eine Bewerbungs-E-Mail für einen Job-Payload (R1).
+
+    Persistiert-zuerst (KTD1): hat ein gespeichertes `JobOffer` mit dieser
+    `source_url` bereits eine Adresse, wird sie ohne jeden Abruf zurückgegeben
+    - außer `force=True`, dann läuft der Scraper erneut. Sonst läuft die Suche;
+    ein gefundenes Ergebnis wird auf dem passenden gespeicherten Job
+    gespeichert (R10), ein unsauberer/unsaved Payload wird nicht persistiert.
+    Jeder Lookup-Fehler ist ein `failed`-Ergebnis, kein 5xx.
+    """
+    existing = db.query(JobOffer).filter(JobOffer.source_url == payload.source_url).first()
+    if not payload.force and existing is not None and existing.application_email:
+        return ApplicationEmailLookupResult(
+            status="found",
+            email=existing.application_email,
+            source_url=existing.application_email_source_url,
+        )
+
+    try:
+        result = service.lookup(payload)
+    except Exception:  # noqa: BLE001 - nie ein 5xx aus dem Lookup-Pfad
+        logger.exception("Bewerbungs-E-Mail-Suche ist unerwartet fehlgeschlagen.")
+        return ApplicationEmailLookupResult(status="failed")
+
+    if (
+        result.status == "found"
+        and result.email
+        and is_valid_email(result.email)
+        and len(result.email) <= 320
+        and existing is not None
+    ):
+        existing.application_email = result.email
+        existing.application_email_source_url = result.source_url
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001 - ein Persistenzfehler darf kein 5xx werden
+            logger.exception("Speichern der Bewerbungs-E-Mail ist fehlgeschlagen.")
+            db.rollback()
+            return ApplicationEmailLookupResult(status="failed")
+
+    return result
 
 
 @router.get("/{job_offer_id}", response_model=JobOfferRead)

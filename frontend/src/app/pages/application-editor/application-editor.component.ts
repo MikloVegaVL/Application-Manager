@@ -26,8 +26,9 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { HttpErrorResponse } from '@angular/common/http';
 import { Application } from '../../core/models/application.model';
-import { JobOfferRead } from '../../core/models/job-offer.model';
+import { JobOfferRead, toApplicationEmailLookupRequest } from '../../core/models/job-offer.model';
 import { ApplicationService } from '../../core/services/application.service';
+import { JobSearchStateService } from '../../core/services/job-search-state.service';
 import { JobService } from '../../core/services/job.service';
 import { parseBetreff } from '../../core/utils/cover-letter.util';
 import { extractEmail } from '../../core/utils/email-extraction.util';
@@ -62,6 +63,9 @@ export class ApplicationEditorComponent implements OnInit {
 
   private readonly applicationService = inject(ApplicationService);
   private readonly jobService = inject(JobService);
+  /** Teilt das Lookup-Ergebnis mit der Job-Suchkarte (KTD7) und cached es,
+   * wenn der Dialog die Suche auslöst. */
+  private readonly jobSearchState = inject(JobSearchStateService);
   private readonly formBuilder = inject(FormBuilder);
   private readonly snackBar = inject(MatSnackBar);
   private readonly dialog = inject(MatDialog);
@@ -301,14 +305,36 @@ export class ApplicationEditorComponent implements OnInit {
       ? `Application as ${jobOffer.title}`
       : 'Application';
 
+    // Persistierte Adresse schlägt die Extraktion aus dem Anzeigentext
+    // (R10/AE4); ein in-session gefundenes Ergebnis der Karte kommt davor,
+    // damit ein frisch gesuchter Job beim Öffnen nicht leer startet. Nur ein
+    // `found`-Ergebnis liefert eine Adresse - `not-found`/`failed` dürfen
+    // nicht als (leerer) Vorschlag durchschlagen.
+    const cachedLookupResult = jobOffer
+      ? this.jobSearchState.applicationEmailResult(jobOffer.source_url)
+      : null;
+    const cachedLookupEmail =
+      cachedLookupResult?.status === 'found' ? (cachedLookupResult.email ?? null) : null;
+
     const dialogRef = this.dialog.open(SendApplicationDialogComponent, {
       width: '520px',
       data: {
-        toEmail: extractEmail(jobOffer?.description_text) ?? '',
+        toEmail:
+          jobOffer?.application_email ??
+          cachedLookupEmail ??
+          extractEmail(jobOffer?.description_text) ??
+          '',
         subject: derivedSubject ?? fallbackSubject,
         message: derivedMessage,
         jobTitle: jobOffer?.title,
         companyName: jobOffer?.company,
+        findApplicationEmail: jobOffer
+          ? (force: boolean) =>
+              this.jobSearchState.lookupApplicationEmail(
+                toApplicationEmailLookupRequest(jobOffer, force),
+                { force },
+              )
+          : undefined,
       } satisfies SendApplicationDialogData,
     });
 

@@ -22,13 +22,15 @@ class SentEmailRead(BaseModel):
     id: int
     application_id: int | None
     job_offer_id: int | None
+    ad_url: str | None
     company: str | None
     job_title: str | None
+    source_platform: str | None
     recipient_email: str
     sent_at: datetime
     sender_email: str | None
     subject: str | None
-    attachment_filename: str | None
+    attachment_filenames: list[str]
 
 
 class SentEmailFilter(BaseModel):

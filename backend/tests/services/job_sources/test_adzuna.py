@@ -1,7 +1,7 @@
 """Tests für `AdzunaJobsClient` (siehe backend/app/services/job_sources/adzuna.py).
 
-Deckt die Testszenarien aus U4 des Plans ab:
-docs/plans/2026-09-11-001-feat-job-search-broader-source-coverage-plan.md
+Deckt U1 des Plans ab:
+docs/plans/2026-09-15-003-feat-job-search-source-and-relevance-plan.md
 """
 from __future__ import annotations
 
@@ -90,6 +90,30 @@ def test_missing_where_omits_the_param(requests_mock):
     assert "where" not in requests_mock.last_request.qs
 
 
+def test_radius_km_is_sent_as_distance_when_location_is_set(requests_mock):
+    requests_mock.get(AdzunaJobsClient.BASE_URL, json={"results": []})
+
+    _client().search("Angular", "Berlin", radius_km=25)
+
+    assert requests_mock.last_request.qs["distance"] == ["25"]
+
+
+def test_radius_km_is_omitted_without_a_location(requests_mock):
+    requests_mock.get(AdzunaJobsClient.BASE_URL, json={"results": []})
+
+    _client().search("Angular", location=None, radius_km=25)
+
+    assert "distance" not in requests_mock.last_request.qs
+
+
+def test_missing_radius_km_omits_the_param(requests_mock):
+    requests_mock.get(AdzunaJobsClient.BASE_URL, json={"results": []})
+
+    _client().search("Angular", "Berlin")
+
+    assert "distance" not in requests_mock.last_request.qs
+
+
 def test_description_html_is_stripped(requests_mock):
     requests_mock.get(AdzunaJobsClient.BASE_URL, json={"results": [_result()]})
 
@@ -133,42 +157,36 @@ def test_unsafe_redirect_url_is_rejected(requests_mock, unsafe_url):
     assert [offer.title for offer in offers] == ["Survivor"]
 
 
-def test_invalid_json_raises_a_key_free_error(requests_mock):
+# --- Error paths (KTD2: RuntimeError, not an empty list) -------------------
+
+
+def test_invalid_json_raises_runtime_error(requests_mock):
     requests_mock.get(AdzunaJobsClient.BASE_URL, text="<html>not json</html>")
 
-    with pytest.raises(RuntimeError) as excinfo:
-        _client(app_key="super-secret-key").search("Angular")
-
-    assert "super-secret-key" not in str(excinfo.value)
+    with pytest.raises(RuntimeError):
+        _client().search("Angular")
 
 
-@pytest.mark.parametrize("status_code", [400, 404, 500, 502, 503])
-def test_non_credential_http_error_raises_a_key_free_error(requests_mock, status_code):
-    requests_mock.get(AdzunaJobsClient.BASE_URL, status_code=status_code)
-
-    with pytest.raises(RuntimeError) as excinfo:
-        _client(app_key="super-secret-key").search("Angular")
-
-    assert "super-secret-key" not in str(excinfo.value)
-
-
-def test_request_exception_raises_a_key_free_error(requests_mock):
-    requests_mock.get(AdzunaJobsClient.BASE_URL, exc=requests.ConnectionError("boom"))
-
-    with pytest.raises(RuntimeError) as excinfo:
-        _client(app_key="super-secret-key").search("Angular")
-
-    assert "super-secret-key" not in str(excinfo.value)
-
-
-def test_http_error_maps_to_error_reason_in_the_orchestrator(requests_mock):
-    """Ein 5xx wird vom Orchestrator als `reason="error"` (nicht `empty`)
-    gekennzeichnet, weil `search()` jetzt eine Exception wirft."""
+def test_other_http_error_raises_runtime_error(requests_mock):
     requests_mock.get(AdzunaJobsClient.BASE_URL, status_code=500)
-    client = _client()
 
+    with pytest.raises(RuntimeError):
+        _client().search("Angular")
+
+
+def test_request_exception_raises_runtime_error_without_leaking_the_key(requests_mock):
+    requests_mock.get(AdzunaJobsClient.BASE_URL, exc=requests.ConnectionError(f"boom app_key={APP_KEY}"))
+
+    with pytest.raises(RuntimeError) as excinfo:
+        _client().search("Angular")
+
+    assert APP_KEY not in str(excinfo.value)
+
+
+def test_malformed_json_maps_to_error_reason_via_orchestrator(requests_mock):
+    requests_mock.get(AdzunaJobsClient.BASE_URL, text="<html>not json</html>")
     service = JobSearchService(
-        sources=[SourceRegistration(client)],
+        sources=[SourceRegistration(_client())],
         deadline_seconds=1.0,
     )
 
@@ -188,7 +206,7 @@ def test_no_credentials_reports_not_configured_without_http(requests_mock):
     assert client.is_configured() is False
     with pytest.raises(SourceNotConfiguredError):
         client.search("Angular")
-    # Kein HTTP-Call bei fehlenden Zugangsdaten (KTD4).
+    # Kein HTTP-Call bei fehlenden Zugangsdaten.
     assert requests_mock.call_count == 0
 
 
@@ -243,7 +261,7 @@ def test_salary_prose_folds_into_description_text(requests_mock):
     offers = _client().search("Angular")
 
     assert "Gehalt: 50.000 - 70.000 EUR" in offers[0].description_text
-    # Kein neues strukturiertes Feld (KD8/KTD6).
+    # Kein neues strukturiertes Feld.
     assert "salary" not in JobOfferCreate.model_fields
     assert "homeoffice" not in JobOfferCreate.model_fields
 
@@ -274,6 +292,28 @@ def test_app_key_never_appears_in_debug_logs(requests_mock, caplog):
     )
     assert "super-secret-key" not in client_logs
     assert "app_key=***" in client_logs
+
+
+def test_app_key_never_appears_in_orchestrator_exception_log(requests_mock, caplog):
+    """KTD2: `raise ... from None` allein reicht nicht - die neue
+    RuntimeError-Meldung selbst darf den rohen, credential-tragenden
+    Exception-Text nie interpolieren, sonst taucht der Key trotzdem im vom
+    Orchestrator geloggten Traceback auf (`logger.exception`)."""
+    caplog.set_level(logging.DEBUG)
+    requests_mock.get(
+        AdzunaJobsClient.BASE_URL,
+        exc=requests.ConnectionError(f"boom app_key={APP_KEY}"),
+    )
+    service = JobSearchService(
+        sources=[SourceRegistration(_client(app_key=APP_KEY))],
+        deadline_seconds=1.0,
+    )
+
+    service.search("Angular")
+
+    # `caplog.text` includes the formatted traceback (exc_info), unlike
+    # `record.getMessage()` which only covers the format-string message.
+    assert APP_KEY not in caplog.text
 
 
 # --- Wiring into the settings-derived registry ------------------------------

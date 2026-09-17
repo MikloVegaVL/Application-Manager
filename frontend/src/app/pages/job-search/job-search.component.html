@@ -22,6 +22,20 @@
       <input matInput formControlName="location" placeholder="e.g. Berlin" />
     </mat-form-field>
 
+    <mat-form-field appearance="outline" class="job-search__field">
+      <mat-label>Radius</mat-label>
+      <mat-icon matPrefix>my_location</mat-icon>
+      <mat-select formControlName="radiusKm">
+        <mat-option value="">No radius</mat-option>
+        @for (option of radiusKmOptions; track option) {
+          <mat-option [value]="option">{{ option }} km</mat-option>
+        }
+      </mat-select>
+      @if (searchForm.controls.radiusKm.disabled) {
+        <mat-hint>Add a location to set a search radius</mat-hint>
+      }
+    </mat-form-field>
+
     <button mat-raised-button color="primary" type="submit" class="job-search__submit" [disabled]="loading()">
       <mat-icon>search</mat-icon>
       Search
@@ -88,7 +102,9 @@
   }
 
   @if (!loading() && hasSearched() && !errorMessage() && results().length === 0) {
-    @if (allSourcesUnavailable()) {
+    @if (allResultsApplied()) {
+      <p class="job-search__empty">All matching job offers have already been applied to.</p>
+    } @else if (allSourcesUnavailable()) {
       <p class="job-search__empty">
         All sources were unreachable just now. Please try again in a few minutes.
       </p>
@@ -122,6 +138,42 @@
             <mat-chip-set>
               <mat-chip>{{ job.source_platform }}</mat-chip>
             </mat-chip-set>
+            <div class="job-card__recipient">
+              <mat-icon>mail_outline</mat-icon>
+              <span>
+                <span class="job-card__recipient-label"> Recipient: </span>
+                {{ displayedRecipient(job) || '—' }}
+              </span>
+              @if (applicationEmailSourceUrl(job); as sourceUrl) {
+                <a
+                  class="job-card__recipient-source"
+                  [href]="sourceUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <mat-icon>open_in_new</mat-icon>
+                  Source of this address
+                </a>
+              }
+            </div>
+
+            @if (lookupResult(job); as result) {
+              <p class="job-card__lookup-status" aria-live="polite">
+                @switch (result.status) {
+                  @case ('found') {
+                    Application email found
+                  }
+                  @case ('not-found') {
+                    No application email found
+                  }
+                  @case ('failed') {
+                    <span class="job-card__lookup-status--failed">
+                      Couldn't reach the employer's site — try again
+                    </span>
+                  }
+                }
+              </p>
+            }
           </mat-card-content>
 
           <mat-card-actions align="end">
@@ -159,6 +211,23 @@
               }
               Generate application
             </button>
+
+            @if (!recipientEmail(job)) {
+              <button
+                mat-button
+                type="button"
+                class="job-card__find-email-btn"
+                [disabled]="isLookingUp(job)"
+                (click)="onFindApplicationEmail(job)"
+              >
+                @if (isLookingUp(job)) {
+                  <mat-progress-spinner mode="indeterminate" diameter="18" />
+                } @else {
+                  <mat-icon>travel_explore</mat-icon>
+                }
+                {{ lookupResult(job) ? 'Find email again' : 'Find email' }}
+              </button>
+            }
           </mat-card-actions>
         </mat-card>
       }

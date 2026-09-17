@@ -14,7 +14,7 @@ durch eine spätere Löschung verschwinden.
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -40,6 +40,7 @@ class SentEmail(Base):
     # lesbar (siehe Docstring oben).
     company: Mapped[str | None] = mapped_column(String(255), nullable=True)
     job_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_platform: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     recipient_email: Mapped[str] = mapped_column(String(320), nullable=False)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
@@ -48,7 +49,16 @@ class SentEmail(Base):
     # versendete Bewerbungen) unbekannt, da nie erfasst.
     sender_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    attachment_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Alle tatsächlich mitgeschickten Dateinamen in Versandreihenfolge
+    # (Lebenslauf zuerst, danach die zusätzlichen Profil-Anhänge) - als Liste
+    # statt eines einzelnen Feldes, damit das Protokoll zeigt, was wirklich
+    # angehängt wurde, nicht nur den Lebenslauf. JSON wie die strukturierten
+    # Listen in `MasterProfile` (identisch unter SQLite und PostgreSQL).
+    # Leer, wenn für Altbestand nie erfasst (Backfill).
+    attachment_filenames: Mapped[list[str]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -67,6 +77,13 @@ class SentEmail(Base):
         Application (und damit die Verlinkung) nicht mehr existiert, statt
         auf eine dann ohnehin nicht mehr erreichbare Seite zu verweisen."""
         return self.application.job_offer_id if self.application is not None else None
+
+    @property
+    def ad_url(self) -> str | None:
+        """Live-Link zur ursprünglichen Stellenanzeige (`JobOffer.source_url`)
+        - wie `job_offer_id` kein Snapshot, wird `None` sobald die Application
+        gelöscht ist."""
+        return self.application.job_offer.source_url if self.application is not None else None
 
     def __repr__(self) -> str:  # pragma: no cover - Debug-Hilfe
         return (

@@ -4,13 +4,17 @@ export interface SentEmail {
   application_id: number | null;
   /** Live (kein Snapshot) - `null`, sobald die Application gelöscht ist; steuert den Link-through (R5). */
   job_offer_id: number | null;
+  /** Live (kein Snapshot) - URL der ursprünglichen Stellenanzeige, `null` sobald die Application gelöscht ist. */
+  ad_url: string | null;
   company: string | null;
   job_title: string | null;
+  source_platform: string | null;
   recipient_email: string;
   sent_at: string;
   sender_email: string | null;
   subject: string | null;
-  attachment_filename: string | null;
+  /** Alle tatsächlich mitgeschickten Anhänge in Versandreihenfolge (Lebenslauf zuerst); leer für Altbestand. */
+  attachment_filenames: string[];
 }
 
 /** Entspricht `SentEmailFilter` - gemeinsamer Filter-Vertrag von Liste und Export (KTD4). */

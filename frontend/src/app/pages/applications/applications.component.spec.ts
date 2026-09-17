@@ -1,12 +1,38 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
+import { MatDialogRef } from '@angular/material/dialog';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { of } from 'rxjs';
 
 import { ApplicationsComponent } from './applications.component';
 import { Application } from '../../core/models/application.model';
+import { JobOfferRead } from '../../core/models/job-offer.model';
+import {
+  AddJobOfferDialogComponent,
+  AddJobOfferDialogResult,
+} from './add-job-offer-dialog/add-job-offer-dialog.component';
 import { environment } from '../../../environments/environment';
+
+/** Ersetzt `MatDialog.open()` durch einen Fake, der sofort mit `result` schließt. */
+function spyOnAddJobOfferDialog(
+  component: ApplicationsComponent,
+  result?: AddJobOfferDialogResult,
+): jasmine.Spy {
+  const fakeDialogRef = {
+    afterClosed: () => of(result),
+  } as unknown as MatDialogRef<AddJobOfferDialogComponent, AddJobOfferDialogResult>;
+  return spyOn(component['dialog'], 'open').and.returnValue(fakeDialogRef);
+}
+
+const manualDialogResult: AddJobOfferDialogResult = {
+  title: 'Backend Engineer',
+  company: 'Acme GmbH',
+  source_url: 'https://acme.example/careers/backend-engineer',
+  description_text: 'We are looking for a backend engineer ...',
+  application_email: 'jobs@acme.example',
+};
 
 describe('ApplicationsComponent', () => {
   let component: ApplicationsComponent;
@@ -208,5 +234,133 @@ describe('ApplicationsComponent', () => {
 
     const text = fixture.nativeElement.textContent as string;
     expect(text).not.toContain('Sent to');
+  });
+
+  it('Covers R4, U2: renders the Direct source label for a manually-saved job offer', () => {
+    const manualApplication: Application = {
+      ...sampleApplication,
+      job_offer: { ...sampleApplication.job_offer, source_platform: 'manual' },
+    };
+    flushList([manualApplication]);
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Direct');
+  });
+
+  it('Covers AE1, R5, R7: saves a manually-entered job offer and navigates to its editor', () => {
+    flushList([]);
+    spyOnAddJobOfferDialog(component, manualDialogResult);
+    const router = TestBed.inject(Router);
+    const navigateSpy = spyOn(router, 'navigate');
+
+    component.onAddJobOffer();
+
+    const saveReq = httpMock.expectOne(
+      (request) => request.url === `${environment.apiBaseUrl}/jobs/save` && request.method === 'POST',
+    );
+    expect(saveReq.request.body).toEqual(
+      jasmine.objectContaining({
+        title: 'Backend Engineer',
+        company: 'Acme GmbH',
+        source_url: 'https://acme.example/careers/backend-engineer',
+        location: null,
+        source_platform: 'manual',
+      }),
+    );
+    saveReq.flush({
+      id: 99,
+      title: 'Backend Engineer',
+      company: 'Acme GmbH',
+      location: null,
+      source_url: 'https://acme.example/careers/backend-engineer',
+      description_text: 'We are looking for a backend engineer ...',
+      source_platform: 'manual',
+      application_email: 'jobs@acme.example',
+      created_at: new Date().toISOString(),
+      is_processed: false,
+    } satisfies JobOfferRead);
+
+    expect(navigateSpy).toHaveBeenCalledWith(['/editor', 99]);
+  });
+
+  it('Covers AE2, R6: navigates to the existing application on a duplicate reference', () => {
+    flushList([]);
+    spyOnAddJobOfferDialog(component, manualDialogResult);
+    const router = TestBed.inject(Router);
+    const navigateSpy = spyOn(router, 'navigate');
+
+    component.onAddJobOffer();
+
+    const saveReq = httpMock.expectOne(
+      (request) => request.url === `${environment.apiBaseUrl}/jobs/save`,
+    );
+    saveReq.flush(
+      { detail: { message: 'already saved', job_offer_id: 42 } },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    expect(navigateSpy).toHaveBeenCalledWith(['/editor', 42]);
+  });
+
+  it('shows a generic error and does not navigate on a non-409 save failure', () => {
+    flushList([]);
+    spyOnAddJobOfferDialog(component, manualDialogResult);
+    const router = TestBed.inject(Router);
+    const navigateSpy = spyOn(router, 'navigate');
+
+    component.onAddJobOffer();
+
+    const saveReq = httpMock.expectOne(
+      (request) => request.url === `${environment.apiBaseUrl}/jobs/save`,
+    );
+    saveReq.flush('server error', { status: 500, statusText: 'Internal Server Error' });
+
+    expect(navigateSpy).not.toHaveBeenCalled();
+    expect(component['savingNewJobOffer']()).toBeFalse();
+  });
+
+  it('makes no save request when the dialog is cancelled', () => {
+    flushList([]);
+    spyOnAddJobOfferDialog(component, undefined);
+
+    component.onAddJobOffer();
+
+    httpMock.expectNone((request) => request.url === `${environment.apiBaseUrl}/jobs/save`);
+    expect(component['savingNewJobOffer']()).toBeFalse();
+  });
+
+  it('Covers AE3: saves successfully with only the required fields filled in', () => {
+    flushList([]);
+    spyOnAddJobOfferDialog(component, {
+      title: 'Backend Engineer',
+      company: 'Acme GmbH',
+      source_url: 'https://acme.example/careers/backend-engineer',
+      description_text: '',
+      application_email: '',
+    });
+    const router = TestBed.inject(Router);
+    spyOn(router, 'navigate');
+
+    component.onAddJobOffer();
+
+    const saveReq = httpMock.expectOne(
+      (request) => request.url === `${environment.apiBaseUrl}/jobs/save`,
+    );
+    expect(saveReq.request.body).toEqual(
+      jasmine.objectContaining({ description_text: null, application_email: null }),
+    );
+  });
+
+  it('Covers KTD5: reopens the dialog blank rather than pre-filled after a save failure', () => {
+    flushList([]);
+    const openSpy = spyOnAddJobOfferDialog(component, undefined);
+
+    component.onAddJobOffer();
+    component.onAddJobOffer();
+
+    expect(openSpy.calls.count()).toBe(2);
+    for (const call of openSpy.calls.all()) {
+      expect(call.args[1]?.data).toBeUndefined();
+    }
   });
 });

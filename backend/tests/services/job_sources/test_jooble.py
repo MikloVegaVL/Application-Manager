@@ -1,7 +1,7 @@
 """Tests für `JoobleJobsClient` (siehe backend/app/services/job_sources/jooble.py).
 
-Deckt die Testszenarien aus U5 des Plans ab:
-docs/plans/2026-09-11-001-feat-job-search-broader-source-coverage-plan.md
+Deckt U2 des Plans ab:
+docs/plans/2026-09-15-003-feat-job-search-source-and-relevance-plan.md
 """
 from __future__ import annotations
 
@@ -90,6 +90,37 @@ def test_missing_location_defaults_to_germany(requests_mock):
     assert requests_mock.last_request.json()["location"] == "Germany"
 
 
+# --- Radius (KTD2: rounded up to the nearest accepted step, capped at 80) --
+
+
+@pytest.mark.parametrize(
+    ("selected_km", "expected_step"),
+    [(5, 8), (10, 16), (25, 26), (50, 80), (100, 80), (200, 80)],
+)
+def test_radius_km_snaps_up_to_the_nearest_accepted_step(requests_mock, selected_km, expected_step):
+    requests_mock.post(URL, json={"totalCount": 0, "jobs": []})
+
+    _client().search("Angular", "Berlin", radius_km=selected_km)
+
+    assert requests_mock.last_request.json()["radius"] == str(expected_step)
+
+
+def test_radius_km_is_omitted_without_a_location(requests_mock):
+    requests_mock.post(URL, json={"totalCount": 0, "jobs": []})
+
+    _client().search("Angular", location=None, radius_km=25)
+
+    assert "radius" not in requests_mock.last_request.json()
+
+
+def test_missing_radius_km_omits_the_param(requests_mock):
+    requests_mock.post(URL, json={"totalCount": 0, "jobs": []})
+
+    _client().search("Angular", "Berlin")
+
+    assert "radius" not in requests_mock.last_request.json()
+
+
 def test_snippet_html_is_stripped(requests_mock):
     requests_mock.post(URL, json={"jobs": [_job()]})
 
@@ -104,7 +135,7 @@ def test_salary_prose_folds_into_description_text(requests_mock):
     offers = _client().search("Angular")
 
     assert "Gehalt: 50000 - 70000 EUR" in offers[0].description_text
-    # Kein neues strukturiertes Feld (KD8/KTD6).
+    # Kein neues strukturiertes Feld.
     assert "salary" not in JobOfferCreate.model_fields
     assert "homeoffice" not in JobOfferCreate.model_fields
 
@@ -162,7 +193,7 @@ def test_no_key_reports_not_configured_without_http(requests_mock):
     assert client.is_configured() is False
     with pytest.raises(SourceNotConfiguredError):
         client.search("Angular")
-    # Kein HTTP-Call bei fehlendem Key (KTD4).
+    # Kein HTTP-Call bei fehlendem Key.
     assert requests_mock.call_count == 0
 
 
@@ -222,6 +253,25 @@ def test_network_error_raises_without_leaking_the_key(requests_mock):
         _client().search("Angular")
 
     assert API_KEY not in str(excinfo.value)
+
+
+def test_key_never_appears_in_orchestrator_exception_log(requests_mock, caplog):
+    """KTD2: `raise ... from None` allein reicht nicht - die neue
+    RuntimeError-Meldung selbst darf den rohen, key-tragenden Exception-Text
+    nie interpolieren, sonst taucht der Key trotzdem im vom Orchestrator
+    geloggten Traceback auf (`logger.exception`)."""
+    caplog.set_level(logging.DEBUG)
+    requests_mock.post(URL, exc=requests.ConnectionError(f"boom {URL}"))
+    service = JobSearchService(
+        sources=[SourceRegistration(_client())],
+        deadline_seconds=1.0,
+    )
+
+    service.search("Angular")
+
+    # `caplog.text` includes the formatted traceback (exc_info), unlike
+    # `record.getMessage()` which only covers the format-string message.
+    assert API_KEY not in caplog.text
 
 
 # --- Integration: log redaction + registry wiring ---------------------------

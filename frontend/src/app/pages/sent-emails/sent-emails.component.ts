@@ -9,12 +9,14 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSelectModule } from '@angular/material/select';
+import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatTableModule } from '@angular/material/table';
 
 import { SENDER_EMAIL_OPTIONS } from '../../core/models/master-profile.model';
 import { SentEmail, SentEmailFilterParams } from '../../core/models/sent-email.model';
 import { SentEmailService } from '../../core/services/sent-email.service';
 import { downloadBlobResponse } from '../../core/utils/download-blob-response.util';
+import { sourceLabel } from '../../core/utils/source-label.util';
 
 const DEFAULT_FILTERED_FILENAME = 'sent-emails-filtered.pdf';
 const DEFAULT_FULL_LOG_FILENAME = 'sent-emails-full-log.pdf';
@@ -24,8 +26,8 @@ const DEFAULT_FULL_LOG_FILENAME = 'sent-emails-full-log.pdf';
  * log-plan.md): listet jeden protokollierten Bewerbungsmail-Versand,
  * filterbar nach Firma/Absender-Account/Zeitraum (R4/R7), mit Link-through
  * zur Application (R5, sofern noch vorhanden) und PDF-Export der aktuellen
- * Ansicht bzw. des gesamten Protokolls (R8/R9). Rein lesend - kein Resend/
- * Edit/Delete (R6).
+ * Ansicht bzw. des gesamten Protokolls (R8/R9). Kein Resend/Edit - nur
+ * Löschen einzelner Log-Einträge ist möglich (kein R6 mehr).
  *
  * KTD4: Filterung läuft serverseitig (Query-Parameter), nicht clientseitig
  * wie in `applications.component.ts` - der Export der "aktuellen Ansicht"
@@ -53,20 +55,27 @@ const DEFAULT_FULL_LOG_FILENAME = 'sent-emails-full-log.pdf';
 })
 export class SentEmailsComponent implements OnInit {
   private readonly sentEmailService = inject(SentEmailService);
+  private readonly snackBar = inject(MatSnackBar);
 
   protected readonly senderEmailOptions = SENDER_EMAIL_OPTIONS;
+  protected readonly sourceLabel = sourceLabel;
   protected readonly displayedColumns = [
     'company',
+    'ad_url',
+    'source_platform',
     'recipient_email',
     'sent_at',
     'sender_email',
     'subject',
-    'attachment_filename',
+    'attachment_filenames',
+    'actions',
   ];
 
   protected readonly entries = signal<SentEmail[]>([]);
   protected readonly loading = signal(true);
   protected readonly errorMessage = signal<string | null>(null);
+  /** ID des Log-Eintrags, der gerade gelöscht wird (max. einer gleichzeitig). */
+  protected readonly deletingId = signal<number | null>(null);
 
   protected readonly companyFilter = signal('');
   protected readonly senderEmailFilter = signal<string | null>(null);
@@ -126,6 +135,37 @@ export class SentEmailsComponent implements OnInit {
       error: () => {
         this.exportingAll.set(false);
         this.exportError.set('Export failed. Please try again.');
+      },
+    });
+  }
+
+  protected isDeleting(entry: SentEmail): boolean {
+    return this.deletingId() === entry.id;
+  }
+
+  protected onDelete(entry: SentEmail): void {
+    if (this.deletingId() !== null) {
+      return;
+    }
+    const confirmed = window.confirm(
+      `Permanently delete this log entry (${entry.recipient_email}, ${entry.company ?? 'unknown company'})?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    this.deletingId.set(entry.id);
+    this.sentEmailService.deleteById(entry.id).subscribe({
+      next: () => {
+        this.entries.update((entries) => entries.filter((e) => e.id !== entry.id));
+        this.deletingId.set(null);
+        this.snackBar.open('Log entry was deleted.', 'OK', { duration: 3000 });
+      },
+      error: (error: HttpErrorResponse) => {
+        this.deletingId.set(null);
+        const message =
+          (error.error?.detail as string | undefined) ?? 'The log entry could not be deleted.';
+        this.snackBar.open(message, 'OK', { duration: 4000 });
       },
     });
   }

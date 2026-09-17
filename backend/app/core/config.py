@@ -108,21 +108,33 @@ class Settings(BaseSettings):
     # verlässliche anonyme Suchoberfläche lässt sich per Flag deaktivieren,
     # ohne den Rest der Suche zu blockieren (KD1).
     JOB_SEARCH_DEVJOBS_ENABLED: bool = True
-    JOB_SEARCH_KIMETA_ENABLED: bool = True
-    JOB_SEARCH_STEPSTONE_ENABLED: bool = True
-    JOB_SEARCH_GERMANTECHJOBS_ENABLED: bool = True
-    JOB_SEARCH_INDEED_ENABLED: bool = True
     JOB_SEARCH_PROGRAMMIERERJOBBOERSE_ENABLED: bool = True
 
-    # --- Jobsuche: credential-basierte APIs (U3/U4/U5, KTD7/KTD9) ---
+    # --- Jobsuche: credential-basierte APIs (siehe Plan
+    # docs/plans/2026-09-15-003-feat-job-search-source-and-relevance-plan.md) ---
     JOB_SEARCH_ADZUNA_ENABLED: bool = True
     JOB_SEARCH_JOOBLE_ENABLED: bool = True
     # Leere Defaults sind beabsichtigt: ohne Zugangsdaten melden Adzuna und
     # Jooble den Status `not-configured`, statt die Suche fehlschlagen zu
-    # lassen (R9/KD7).
+    # lassen.
     ADZUNA_APP_ID: str = ""
     ADZUNA_APP_KEY: str = ""
     JOOBLE_API_KEY: str = ""
+
+    # --- Bewerbungs-E-Mail-Suche (On-Demand, KTD3/KTD4) ---
+    # Die Suche ist eine synchrone Live-Scrape-Anfrage und muss laut KTD4
+    # strikt begrenzt sein: Seitenanzahl, Per-Fetch-Timeout, maximale
+    # Body-Größe, an die Extraktion gegebener Seitentext und eine
+    # Gesamt-Deadline. Die Deadline liegt bewusst deutlich unter
+    # `frontend/nginx.conf`s `proxy_read_timeout` (2000s, siehe dort), damit
+    # die Anfrage immer auflöst statt in einen Proxy-Timeout zu laufen. Die
+    # Adressen liest eine Regex (kein LLM - siehe Service-Docstring).
+    APPLICATION_EMAIL_LOOKUP_MAX_PAGES: int = 6
+    APPLICATION_EMAIL_LOOKUP_FETCH_TIMEOUT_SECONDS: float = 10.0
+    APPLICATION_EMAIL_LOOKUP_MAX_BODY_BYTES: int = 400_000
+    # Spiegelt `ai_generator._MAX_JOB_DESCRIPTION_CHARS` (Token-/Kosten-Schutz).
+    APPLICATION_EMAIL_LOOKUP_MAX_PAGE_TEXT_CHARS: int = 6_000
+    APPLICATION_EMAIL_LOOKUP_DEADLINE_SECONDS: float = 45.0
 
     # --- Generierte/hochgeladene Dateien ---
     # Ablageort der vom Nutzer hochgeladenen Lebenslauf-Anhang-Datei (siehe

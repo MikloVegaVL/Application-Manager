@@ -10,6 +10,7 @@ das bei bereits erreichtem Head trivial nichts tut), und `downgrade()`.
 from __future__ import annotations
 
 import importlib.util
+import json
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +28,21 @@ _MIGRATION_PATH = _BACKEND_DIR / "alembic" / "versions" / "40770d5086f1_add_sent
 # Letzter Head vor der neuen `sent_emails`-Migration - Tests bauen
 # Alt-Zustand (bereits versendete Applications ohne Log-Tabelle) davor auf.
 _PRE_MIGRATION_HEAD = "b3a9c1d2e4f5"
+
+# Head vor der `attachment_filename` -> `attachment_filenames`-Migration
+# (`c7f3a1b9d2e4`) - Tests bauen einen Alt-Log-Eintrag mit dem Einzelwert auf.
+_PRE_ATTACHMENT_LIST_MIGRATION_HEAD = "a4b8c2d1e5f6"
+
+
+def _as_list(value: object) -> list[str]:
+    """JSON-Spalten werden unter SQLite je nach Reflektion als Liste oder als
+    roher JSON-String zurückgegeben - hier normalisieren, damit die Assertions
+    nicht an der Reflektions-Repräsentation hängen."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return json.loads(value)
+    return list(value)  # type: ignore[arg-type]
 
 
 def _load_migration_module() -> ModuleType:
@@ -122,11 +138,12 @@ def test_upgrade_creates_sent_emails_table_with_expected_columns(migration_db) -
         "application_id",
         "company",
         "job_title",
+        "source_platform",
         "recipient_email",
         "sent_at",
         "sender_email",
         "subject",
-        "attachment_filename",
+        "attachment_filenames",
         "created_at",
     }
 
@@ -154,15 +171,42 @@ def test_upgrade_backfills_one_row_per_sent_application_with_correct_field_value
     acme_row = rows["hr@acme.example"]
     assert acme_row.company == "Acme"
     assert acme_row.job_title == "Backend Dev"
+    # `_insert_job_offer` hardcodes source_platform='test' - backfilled here
+    # by the follow-up 5b1e9f7a2c3d migration via a live join, since the
+    # original 40770d5086f1 backfill (above) predates that column.
+    assert acme_row.source_platform == "test"
     assert acme_row.sent_at.replace(tzinfo=timezone.utc) == sent_at_a
     assert acme_row.sender_email is None
     assert acme_row.subject is None
-    assert acme_row.attachment_filename is None
+    assert _as_list(acme_row.attachment_filenames) == []
     assert acme_row.application_id is not None
 
     globex_row = rows["jobs@globex.example"]
     assert globex_row.company == "Globex"
     assert globex_row.job_title == "Frontend Dev"
+    assert globex_row.source_platform == "test"
+
+
+def test_upgrade_backfills_the_old_single_attachment_filename_into_the_list(migration_db) -> None:
+    """Regression: existing log rows that recorded only the CV must keep that
+    filename after the column becomes a list (not be blanked)."""
+    alembic_cfg, engine = migration_db
+    upgrade(alembic_cfg, _PRE_ATTACHMENT_LIST_MIGRATION_HEAD)
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                "INSERT INTO sent_emails (recipient_email, sent_at, attachment_filename) "
+                "VALUES ('hr@acme.example', '2026-09-01 10:00:00', 'lebenslauf.pdf')"
+            )
+        )
+
+    upgrade(alembic_cfg, "head")
+
+    metadata = sa.MetaData()
+    sent_emails = sa.Table("sent_emails", metadata, autoload_with=engine)
+    with engine.connect() as conn:
+        row = conn.execute(sa.select(sent_emails)).one()
+    assert _as_list(row.attachment_filenames) == ["lebenslauf.pdf"]
 
 
 def test_upgrade_backfills_an_application_whose_status_later_advanced_past_sent(migration_db) -> None:
