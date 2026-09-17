@@ -1,0 +1,10 @@
+/* Vitest-specific TypeScript config. Kept separate from tsconfig.spec.json
+   (Karma/Jasmine) so both runners can coexist during the migration. */
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/vitest",
+    "types": ["jasmine"]
+  },
+  "include": ["src/**/*.spec.ts", "src/**/*.d.ts", "src/test-setup.ts"]
+}
