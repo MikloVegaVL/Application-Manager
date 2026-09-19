@@ -22,3 +22,8 @@ The domain a skill belongs to, used to group skills into compact sections in a r
 
 ### Applied
 A saved job offer is considered applied: saving creates a draft application immediately, so "saved", "on the Applications page", and "applied" describe the same set of job offers. A job offer stops being applied only when its application is deleted, which also removes the job offer.
+
+## Portal Auto-Fill
+
+### Action needed
+The paused state of a portal auto-fill run, raised on an Application when the agent hits a captcha, a form field it can't map with confidence, or the mandatory pre-submit confirmation. Distinct from any `ApplicationStatus` value; cleared only when the user resumes the run from the app.
