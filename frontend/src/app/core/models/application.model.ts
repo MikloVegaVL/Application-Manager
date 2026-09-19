@@ -12,6 +12,10 @@ export interface Application {
   sent_at: string | null;
   /** Empfängeradresse des Mailversands - erst nach dem Versand gesetzt. */
   sent_to_email: string | null;
+  /** Portal-Auto-Fill-Status - `null`, solange kein Auto-Fill-Lauf gestartet wurde. */
+  automation_state?: 'running' | 'paused' | 'submitted' | 'failed' | null;
+  action_needed_reason?: string | null;
+  automation_started_at?: string | null;
   created_at: string;
   /** Stellenangebot, zu dem die Bewerbung gehört - für die Übersichtsliste. */
   job_offer: JobOfferRead;

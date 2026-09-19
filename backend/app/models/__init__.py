@@ -8,6 +8,7 @@ und Alembic später alle Modelle für Migrationen erkennt.
 from app.models.application import Application, ApplicationStatus
 from app.models.job_offer import JobOffer
 from app.models.master_profile import MasterProfile
+from app.models.portal_submission import PortalSubmission
 from app.models.profile_attachment import ProfileAttachment
 from app.models.sent_email import SentEmail
 
@@ -16,6 +17,7 @@ __all__ = [
     "ApplicationStatus",
     "JobOffer",
     "MasterProfile",
+    "PortalSubmission",
     "ProfileAttachment",
     "SentEmail",
 ]
