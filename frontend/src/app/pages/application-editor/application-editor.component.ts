@@ -3,6 +3,7 @@ import {
   Component,
   DestroyRef,
   OnInit,
+  computed,
   inject,
   input,
   signal,
@@ -93,6 +94,12 @@ export class ApplicationEditorComponent implements OnInit {
   /** True während eine Regenerate-Anfrage läuft (R8) - sperrt Regenerate,
    * Save und Send bis die Anfrage abgeschlossen ist (KTD4). */
   protected readonly regenerating = signal(false);
+  /** Fasst alle drei "gerade läuft etwas"-Signale zusammen (ce-simplify-code-
+   * Fund: einzeln kopierte Kombinationen in den drei Button-Bindings waren
+   * auseinandergedriftet - Regenerate erlaubte einen Klick während Send
+   * bereits lief). Einzige Quelle für die drei `[disabled]`-Bindings im
+   * Template, damit sie nicht wieder auseinanderlaufen können. */
+  protected readonly busy = computed(() => this.saving() || this.sending() || this.regenerating());
   protected readonly errorMessage = signal<string | null>(null);
   /** True während der erstmaligen KI-Generierung (siehe `generateForFirstTime`) -
    * steuert den Hinweis, dass das ohne GPU-Beschleunigung mehrere Minuten

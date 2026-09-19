@@ -1,5 +1,5 @@
 import { DOCUMENT } from '@angular/common';
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 
 /**
  * Fixed marker prepended to `document.title` to signal that a generation
@@ -12,12 +12,11 @@ const COMPLETION_PREFIX = '✓ ';
 /**
  * Signals cover-letter generation completion via the browser tab title when
  * the tab is unfocused, mirroring `ThemeService`'s DI style
- * (`providedIn: 'root'`, `inject(DOCUMENT)`, signal-based internal state).
+ * (`providedIn: 'root'`, `inject(DOCUMENT)`).
  *
- * In-flight state is tracked per outstanding HTTP request via
- * `markGenerationStarted` / `markGenerationSettled`, not per component
- * instance or component lifecycle - callers invoke these directly around a
- * generation call, so navigating away before the request settles can't
+ * `markGenerationStarted` / `markGenerationSettled` are called directly by
+ * callers around a generation call, not tied to a component instance or
+ * component lifecycle - so navigating away before the request settles can't
  * strand the service in an "in flight" state.
  *
  * Every route in this app declares a `title:` that Angular's Router title
@@ -34,18 +33,18 @@ const COMPLETION_PREFIX = '✓ ';
 @Injectable({ providedIn: 'root' })
 export class TabTitleService {
   private readonly document = inject(DOCUMENT);
-  private readonly inFlightCount = signal(0);
   private visibilityListener: (() => void) | null = null;
 
   /** Call when a generation request (first-time or Regenerate) is sent. */
   markGenerationStarted(): void {
-    this.inFlightCount.update((count) => count + 1);
+    // No bookkeeping needed here: the completion signal reacts to visibility
+    // state and the current title at settle time, not to how many requests
+    // are in flight. Kept as a symmetric pairing with `markGenerationSettled`
+    // for call sites to hook into.
   }
 
   /** Call when that request settles - on success or on failure alike. */
   markGenerationSettled(): void {
-    this.inFlightCount.update((count) => Math.max(0, count - 1));
-
     if (this.document.visibilityState !== 'hidden') {
       return;
     }

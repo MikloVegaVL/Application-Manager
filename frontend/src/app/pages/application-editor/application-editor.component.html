@@ -13,7 +13,7 @@
       mat-button
       type="button"
       matTooltip="Saves the edited cover letter text"
-      [disabled]="!application() || saving() || regenerating()"
+      [disabled]="!application() || busy()"
       (click)="onSaveCoverLetter()"
     >
       @if (saving()) {
@@ -28,7 +28,7 @@
       mat-button
       type="button"
       matTooltip="Generates a new cover letter, replacing the current text"
-      [disabled]="!application() || regenerating() || saving()"
+      [disabled]="!application() || busy()"
       (click)="onRegenerate()"
     >
       @if (regenerating()) {
@@ -43,7 +43,7 @@
       mat-raised-button
       color="accent"
       type="button"
-      [disabled]="!application() || sending() || regenerating()"
+      [disabled]="!application() || busy()"
       (click)="onOpenSendDialog()"
     >
       @if (sending()) {
