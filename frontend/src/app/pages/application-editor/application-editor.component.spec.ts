@@ -15,6 +15,7 @@ import {
 import { Application } from '../../core/models/application.model';
 import { JobOfferRead } from '../../core/models/job-offer.model';
 import { JobSearchStateService } from '../../core/services/job-search-state.service';
+import { TabTitleService } from '../../core/services/tab-title.service';
 import { environment } from '../../../environments/environment';
 
 const defaultJobOffer: JobOfferRead = {
@@ -317,6 +318,144 @@ describe('ApplicationEditorComponent', () => {
 
       expect(component['saving']()).toBeFalse();
       httpMock.expectNone((r) => r.url.endsWith('/applications/1') && r.method === 'PUT');
+    });
+  });
+
+  describe('onRegenerate()', () => {
+    let tabTitleService: TabTitleService;
+    let confirmSpy: jasmine.Spy;
+
+    beforeEach(() => {
+      tabTitleService = TestBed.inject(TabTitleService);
+      confirmSpy = spyOn(window, 'confirm');
+    });
+
+    it('Covers AE3: confirm=true sends the generate request and applies the returned application on success', () => {
+      loadApplication(httpMock, { coverLetterText: 'Alter Text' });
+      confirmSpy.and.returnValue(true);
+      const startSpy = spyOn(tabTitleService, 'markGenerationStarted');
+      const settleSpy = spyOn(tabTitleService, 'markGenerationSettled');
+
+      component.onRegenerate();
+
+      expect(confirmSpy).toHaveBeenCalled();
+      // R5: the confirm message must name the concrete consequence, not a generic prompt.
+      expect(confirmSpy.calls.mostRecent().args[0]).toContain('replace');
+      expect(component['regenerating']()).toBeTrue();
+      expect(startSpy).toHaveBeenCalled();
+
+      const req = httpMock.expectOne((r) => r.url.endsWith('/applications/generate'));
+      req.flush(buildApplication('Neuer Text'));
+
+      expect(component['application']()?.cover_letter_text).toBe('Neuer Text');
+      expect(component['regenerating']()).toBeFalse();
+      expect(settleSpy).toHaveBeenCalled();
+    });
+
+    it('Covers AE4: confirm=false sends no HTTP request and leaves the current form value unchanged', () => {
+      loadApplication(httpMock, { coverLetterText: 'Alter Text' });
+      confirmSpy.and.returnValue(false);
+
+      component.onRegenerate();
+
+      expect(component['regenerating']()).toBeFalse();
+      expect(component['coverLetterForm'].getRawValue().cover_letter_text).toBe('Alter Text');
+      httpMock.expectNone((r) => r.url.endsWith('/applications/generate'));
+    });
+
+    it('Covers AE8: already regenerating sends no HTTP request, independent of the confirm stub', () => {
+      loadApplication(httpMock, { coverLetterText: 'Alter Text' });
+      confirmSpy.and.returnValue(true);
+      component['regenerating'].set(true);
+
+      component.onRegenerate();
+
+      expect(confirmSpy).not.toHaveBeenCalled();
+      httpMock.expectNone((r) => r.url.endsWith('/applications/generate'));
+    });
+
+    it('a 409 from the regenerate call surfaces as a generic error and resets regenerating to false', () => {
+      loadApplication(httpMock, { coverLetterText: 'Alter Text' });
+      confirmSpy.and.returnValue(true);
+      const settleSpy = spyOn(tabTitleService, 'markGenerationSettled');
+
+      component.onRegenerate();
+
+      const req = httpMock.expectOne((r) => r.url.endsWith('/applications/generate'));
+      req.flush(
+        { detail: 'Für dieses Stellenangebot läuft bereits eine Generierung.' },
+        { status: 409, statusText: 'Conflict' },
+      );
+
+      // Not routed into pollForRunningGeneration - no follow-up poll request.
+      httpMock.expectNone((r) => r.url.endsWith('/applications/by-job-offer/1'));
+      expect(component['regenerating']()).toBeFalse();
+      expect(component['loading']()).toBeFalse();
+      expect(component['errorMessage']()).toBeNull();
+      // Stored letter must remain visible, not replaced by a page-level error state.
+      expect(component['coverLetterForm'].getRawValue().cover_letter_text).toBe('Alter Text');
+      expect(settleSpy).toHaveBeenCalled();
+    });
+
+    it('Covers AE5/AE6: a successful and a failed regenerate call each invoke markGenerationSettled exactly once', () => {
+      loadApplication(httpMock, { coverLetterText: 'Alter Text' });
+      confirmSpy.and.returnValue(true);
+      const settleSpy = spyOn(tabTitleService, 'markGenerationSettled');
+
+      component.onRegenerate();
+      const req = httpMock.expectOne((r) => r.url.endsWith('/applications/generate'));
+      req.flush('server error', { status: 500, statusText: 'Internal Server Error' });
+
+      expect(settleSpy).toHaveBeenCalledTimes(1);
+      expect(component['regenerating']()).toBeFalse();
+    });
+
+    it('disables Regenerate, Save and Send in the template while regenerating() is true', () => {
+      loadApplication(httpMock, { coverLetterText: 'Alter Text' });
+      fixture.detectChanges();
+
+      component['regenerating'].set(true);
+      fixture.detectChanges();
+
+      const buttons: HTMLButtonElement[] = fixture.nativeElement.querySelectorAll('button');
+      const byText = (text: string) =>
+        Array.from(buttons).find((b) => b.textContent?.includes(text));
+
+      expect(byText('Regenerate')?.disabled).toBeTrue();
+      expect(byText('Save cover letter')?.disabled).toBeTrue();
+      expect(byText('Send application by email now')?.disabled).toBeTrue();
+    });
+  });
+
+  describe('generateForFirstTime() tab-title wiring', () => {
+    it('marks the generation started and settled on the first-time success path', () => {
+      const tabTitleService = TestBed.inject(TabTitleService);
+      const startSpy = spyOn(tabTitleService, 'markGenerationStarted');
+      const settleSpy = spyOn(tabTitleService, 'markGenerationSettled');
+
+      loadApplication(httpMock); // coverLetterText null -> triggers generateForFirstTime
+      fixture.detectChanges();
+
+      expect(startSpy).toHaveBeenCalledTimes(1);
+
+      const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
+      generateReq.flush(buildApplication('Sehr geehrte Damen und Herren,'));
+
+      expect(settleSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('marks the generation settled on the first-time error path (not routed through polling)', () => {
+      const tabTitleService = TestBed.inject(TabTitleService);
+      const settleSpy = spyOn(tabTitleService, 'markGenerationSettled');
+
+      loadApplication(httpMock);
+      fixture.detectChanges();
+
+      const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
+      generateReq.flush({ detail: 'boom' }, { status: 500, statusText: 'Internal Server Error' });
+
+      expect(settleSpy).toHaveBeenCalledTimes(1);
+      expect(component['errorMessage']()).toBe('boom');
     });
   });
 

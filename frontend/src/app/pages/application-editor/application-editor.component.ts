@@ -30,6 +30,7 @@ import { JobOfferRead, toApplicationEmailLookupRequest } from '../../core/models
 import { ApplicationService } from '../../core/services/application.service';
 import { JobSearchStateService } from '../../core/services/job-search-state.service';
 import { JobService } from '../../core/services/job.service';
+import { TabTitleService } from '../../core/services/tab-title.service';
 import { parseBetreff } from '../../core/utils/cover-letter.util';
 import { extractEmail } from '../../core/utils/email-extraction.util';
 import {
@@ -71,6 +72,7 @@ export class ApplicationEditorComponent implements OnInit {
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
+  private readonly tabTitleService = inject(TabTitleService);
 
   /** Abstand zwischen zwei Status-Abfragen, während auf eine bereits
    * laufende Generierung gewartet wird (siehe `pollForRunningGeneration`). */
@@ -88,6 +90,9 @@ export class ApplicationEditorComponent implements OnInit {
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
   protected readonly sending = signal(false);
+  /** True während eine Regenerate-Anfrage läuft (R8) - sperrt Regenerate,
+   * Save und Send bis die Anfrage abgeschlossen ist (KTD4). */
+  protected readonly regenerating = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
   /** True während der erstmaligen KI-Generierung (siehe `generateForFirstTime`) -
    * steuert den Hinweis, dass das ohne GPU-Beschleunigung mehrere Minuten
@@ -152,9 +157,11 @@ export class ApplicationEditorComponent implements OnInit {
 
   private generateForFirstTime(jobOfferId: number): void {
     this.isFirstGeneration.set(true);
+    this.tabTitleService.markGenerationStarted();
     this.applicationService.generate(jobOfferId).subscribe({
       next: (application) => {
         this.isFirstGeneration.set(false);
+        this.tabTitleService.markGenerationSettled();
         this.applyApplication(application);
         this.snackBar.open('Cover letter was generated for the first time.', 'OK', {
           duration: 3000,
@@ -215,6 +222,10 @@ export class ApplicationEditorComponent implements OnInit {
       .subscribe({
         next: (application) => {
           this.isFirstGeneration.set(false);
+          // Die eigene POST-/generate-Anfrage endete mit 409 (siehe oben) -
+          // erst hier, mit dem Ergebnis der abgewarteten fremden Generierung,
+          // ist der Vorgang aus Sicht dieses Tabs abgeschlossen (R6).
+          this.tabTitleService.markGenerationSettled();
           this.applyApplication(application);
         },
         complete: () => {
@@ -224,6 +235,7 @@ export class ApplicationEditorComponent implements OnInit {
           // statt den Editor stillschweigend im Warte-Zustand zu belassen.
           if (this.isFirstGeneration()) {
             this.isFirstGeneration.set(false);
+            this.tabTitleService.markGenerationSettled();
             this.loading.set(false);
             this.errorMessage.set(
               'The generation is taking unusually long or has failed. Please reload the page to try again.',
@@ -233,11 +245,12 @@ export class ApplicationEditorComponent implements OnInit {
       });
   }
 
-  /** Gemeinsame Fehlerbehandlung für `generateForFirstTime` und
-   * `pollForRunningGeneration` - beide beenden die Generierungs-Wartezeit
-   * gleich (Hinweis-Anzeige aus, Fehler anzeigen). */
+  /** Gemeinsame Fehlerbehandlung für `generateForFirstTime` - beendet die
+   * Generierungs-Wartezeit (Hinweis-Anzeige aus, Fehler anzeigen, Tab-Titel-
+   * Tracking abgeschlossen). */
   private handleGenerationError(error: HttpErrorResponse): void {
     this.isFirstGeneration.set(false);
+    this.tabTitleService.markGenerationSettled();
     this.handleLoadError(error);
   }
 
@@ -285,6 +298,53 @@ export class ApplicationEditorComponent implements OnInit {
           this.snackBar.open(message, 'OK', { duration: 4000 });
         },
       });
+  }
+
+  /** Erzeugt ein neues Anschreiben für eine Bewerbung, die bereits eines hat
+   * (R4) - überschreibt den gespeicherten Text nach Bestätigung (R5) und ist
+   * gegen Doppel-Klicks/laufende Anfragen abgesichert (R8, KTD4). Nutzt
+   * bewusst nicht `handleGenerationError`/`handleLoadError`: die von diesen
+   * Methoden gesteuerte Seiten-Fehleransicht (`@if (errorMessage())` im
+   * Template) würde bei einem Fehlschlag den ganzen Editor-Inhalt ersetzen
+   * und damit das aktuell gespeicherte/handbearbeitete Anschreiben
+   * verstecken - stattdessen bleibt der Text sichtbar/editierbar und der
+   * Fehler wird nur per Snackbar gezeigt (analog `onSaveCoverLetter`). */
+  onRegenerate(): void {
+    const application = this.application();
+    if (!application || this.regenerating()) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'Regenerating will replace the current cover letter text with a newly generated one. Continue?',
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    this.regenerating.set(true);
+    this.tabTitleService.markGenerationStarted();
+    this.applicationService.generate(application.job_offer_id).subscribe({
+      next: (updated) => {
+        this.regenerating.set(false);
+        this.tabTitleService.markGenerationSettled();
+        this.applyApplication(updated);
+        this.snackBar.open('Cover letter was regenerated.', 'OK', { duration: 3000 });
+      },
+      error: (error: HttpErrorResponse) => {
+        // Ein 409 (das per-Job-Angebot-Lock des Backends, siehe KTD4) wird
+        // hier bewusst wie ein gewöhnlicher Fehler behandelt statt wie in
+        // `generateForFirstTime` in `pollForRunningGeneration` zu münden -
+        // das `regenerating`-Guard-Signal (R8) macht diesen Wettlauf im
+        // Normalbetrieb unerreichbar.
+        this.regenerating.set(false);
+        this.tabTitleService.markGenerationSettled();
+        const message =
+          (error.error?.detail as string | undefined) ??
+          'The cover letter could not be regenerated.';
+        this.snackBar.open(message, 'OK', { duration: 4000 });
+      },
+    });
   }
 
   onOpenSendDialog(): void {

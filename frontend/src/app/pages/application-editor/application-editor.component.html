@@ -13,7 +13,7 @@
       mat-button
       type="button"
       matTooltip="Saves the edited cover letter text"
-      [disabled]="!application() || saving()"
+      [disabled]="!application() || saving() || regenerating()"
       (click)="onSaveCoverLetter()"
     >
       @if (saving()) {
@@ -25,10 +25,25 @@
     </button>
 
     <button
+      mat-button
+      type="button"
+      matTooltip="Generates a new cover letter, replacing the current text"
+      [disabled]="!application() || regenerating() || saving()"
+      (click)="onRegenerate()"
+    >
+      @if (regenerating()) {
+        <mat-progress-spinner mode="indeterminate" diameter="18" />
+      } @else {
+        <mat-icon>autorenew</mat-icon>
+      }
+      Regenerate
+    </button>
+
+    <button
       mat-raised-button
       color="accent"
       type="button"
-      [disabled]="!application() || sending()"
+      [disabled]="!application() || sending() || regenerating()"
       (click)="onOpenSendDialog()"
     >
       @if (sending()) {
