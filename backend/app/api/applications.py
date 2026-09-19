@@ -98,6 +98,14 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
             )
         _generating_job_offer_ids.add(job_offer.id)
 
+    # Vorab geladen (statt erst nach der Generierung wie zuvor), damit ein
+    # bereits gespeichertes Anschreiben als `previous_cover_letter_text` an
+    # die KI-Generierung weitergereicht werden kann (KTD3, Regenerate-
+    # Feature) - dieselbe Zeile wird unten für den Upsert wiederverwendet
+    # statt ein zweites Mal abgefragt zu werden.
+    application = db.query(Application).filter(Application.job_offer_id == job_offer.id).first()
+    previous_cover_letter_text = application.cover_letter_text if application else None
+
     # `else` statt einem zweiten verschachtelten try/except (ce-code-review-
     # Fund, 2026-08-28): läuft nur, wenn `generate_application_content` NICHT
     # geworfen hat - `finally` gibt die Sperre in jedem Fall frei, aber erst
@@ -105,11 +113,12 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
     # (sonst könnte ein Duplikat in die Lücke zwischen Generierung und
     # `db.commit()` hineinlaufen).
     try:
-        cover_letter_text = generate_application_content(profile, job_offer)
+        cover_letter_text = generate_application_content(
+            profile, job_offer, previous_cover_letter_text=previous_cover_letter_text
+        )
     except ApplicationGenerationError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     else:
-        application = db.query(Application).filter(Application.job_offer_id == job_offer.id).first()
         if application is None:
             application = Application(job_offer_id=job_offer.id)
             db.add(application)

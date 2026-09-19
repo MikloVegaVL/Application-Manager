@@ -321,7 +321,7 @@ def test_generate_application_returns_409_for_an_overlapping_request_on_the_same
     first_call_started = threading.Event()
     release_first_call = threading.Event()
 
-    def slow_generate(profile, job_offer):
+    def slow_generate(profile, job_offer, previous_cover_letter_text=None):
         first_call_started.set()
         assert release_first_call.wait(timeout=2), "Test-Deadlock"
         return "Betreff: Bewerbung als Backend Engineer\n\nSehr geehrte Damen und Herren,..."
@@ -352,7 +352,7 @@ def test_generate_application_returns_409_for_an_overlapping_request_on_the_same
     # darf nicht dauerhaft mit 409 blockiert bleiben.
     monkeypatch.setattr(
         "app.api.applications.generate_application_content",
-        lambda profile, job_offer: "Zweite Generierung",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Zweite Generierung",
     )
     follow_up_response = client.post("/api/applications/generate", json={"job_offer_id": job_offer_id})
     assert follow_up_response.status_code == 200
@@ -383,7 +383,7 @@ def test_generate_application_guard_is_scoped_per_job_offer_not_global(
     first_call_started = threading.Event()
     release_first_call = threading.Event()
 
-    def slow_generate(profile, job_offer):
+    def slow_generate(profile, job_offer, previous_cover_letter_text=None):
         first_call_started.set()
         assert release_first_call.wait(timeout=2), "Test-Deadlock"
         return "Betreff: Bewerbung als Backend Engineer\n\nSehr geehrte Damen und Herren,..."
@@ -405,7 +405,7 @@ def test_generate_application_guard_is_scoped_per_job_offer_not_global(
     # gleichzeitiger Aufruf für Job B muss trotzdem durchlaufen, nicht 409.
     monkeypatch.setattr(
         "app.api.applications.generate_application_content",
-        lambda profile, job_offer: "Betreff: Bewerbung als Frontend Engineer\n\nSehr geehrte Damen und Herren,...",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Betreff: Bewerbung als Frontend Engineer\n\nSehr geehrte Damen und Herren,...",
     )
     other_job_response = client.post("/api/applications/generate", json={"job_offer_id": job_offer_b_id})
 
@@ -433,7 +433,7 @@ def test_generate_application_releases_the_lock_when_generation_fails(
     finally:
         session.close()
 
-    def failing_generate(profile, job_offer):
+    def failing_generate(profile, job_offer, previous_cover_letter_text=None):
         raise ApplicationGenerationError("Ollama ist nicht erreichbar")
 
     monkeypatch.setattr("app.api.applications.generate_application_content", failing_generate)
@@ -443,10 +443,73 @@ def test_generate_application_releases_the_lock_when_generation_fails(
 
     monkeypatch.setattr(
         "app.api.applications.generate_application_content",
-        lambda profile, job_offer: "Erfolgreiche Generierung nach vorherigem Fehler",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Erfolgreiche Generierung nach vorherigem Fehler",
     )
     retry_response = client.post("/api/applications/generate", json={"job_offer_id": job_offer_id})
     assert retry_response.status_code == 200
+
+
+def test_generate_application_passes_existing_cover_letter_as_previous_version(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    # KTD3 (siehe docs/plans/2026-09-19-001-feat-cover-letter-generation-
+    # quality-plan.md): ein erneuter Aufruf von POST /generate für ein
+    # Stellenangebot mit bereits gespeichertem Anschreiben (Regenerate) muss
+    # den bisherigen Text als `previous_cover_letter_text` an die KI-
+    # Generierung weiterreichen, damit das Prompt eine bewusst andere
+    # Version anfordern kann - ohne das würde jede Regenerierung blind
+    # denselben Kontext wie eine Erstgenerierung sehen.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/generate-previous"
+        )
+        job_offer_id = job_offer.id
+        _create_application(session, job_offer_id=job_offer_id)
+        _create_profile(session)
+    finally:
+        session.close()
+
+    received: dict[str, object] = {}
+
+    def capturing_generate(profile, job_offer, previous_cover_letter_text=None):
+        received["previous_cover_letter_text"] = previous_cover_letter_text
+        return "Neue, andere Version des Anschreibens"
+
+    monkeypatch.setattr("app.api.applications.generate_application_content", capturing_generate)
+
+    response = client.post("/api/applications/generate", json={"job_offer_id": job_offer_id})
+
+    assert response.status_code == 200
+    assert received["previous_cover_letter_text"] == "Sehr geehrte Damen und Herren..."
+    assert response.json()["cover_letter_text"] == "Neue, andere Version des Anschreibens"
+
+
+def test_generate_application_passes_no_previous_version_on_first_generation(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/generate-no-previous"
+        )
+        job_offer_id = job_offer.id
+        _create_profile(session)
+    finally:
+        session.close()
+
+    received: dict[str, object] = {}
+
+    def capturing_generate(profile, job_offer, previous_cover_letter_text=None):
+        received["previous_cover_letter_text"] = previous_cover_letter_text
+        return "Erste Version des Anschreibens"
+
+    monkeypatch.setattr("app.api.applications.generate_application_content", capturing_generate)
+
+    response = client.post("/api/applications/generate", json={"job_offer_id": job_offer_id})
+
+    assert response.status_code == 200
+    assert received["previous_cover_letter_text"] is None
 
 
 def test_send_application_fails_when_no_cv_file_uploaded(client: TestClient, db_session_local) -> None:
