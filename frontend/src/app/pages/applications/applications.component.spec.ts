@@ -1,14 +1,16 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed, fakeAsync, flush, tick } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Router, provideRouter } from '@angular/router';
 import { MatDialogRef } from '@angular/material/dialog';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { of } from 'rxjs';
+import { vi } from 'vitest';
 
 import { ApplicationsComponent } from './applications.component';
 import { Application } from '../../core/models/application.model';
 import { JobOfferRead } from '../../core/models/job-offer.model';
+import { TabTitleService } from '../../core/services/tab-title.service';
 import {
   AddJobOfferDialogComponent,
   AddJobOfferDialogResult,
@@ -362,5 +364,212 @@ describe('ApplicationsComponent', () => {
     for (const call of openSpy.calls.all()) {
       expect(call.args[1]?.data).toBeUndefined();
     }
+  });
+
+  describe('portal auto-fill (U7)', () => {
+    const startUrl = `${environment.apiBaseUrl}/applications/1/portal-fill/start`;
+    const statusUrl = `${environment.apiBaseUrl}/applications/1/portal-fill/status`;
+    const continueUrl = `${environment.apiBaseUrl}/applications/1/portal-fill/continue`;
+    const cancelUrl = `${environment.apiBaseUrl}/applications/1/portal-fill/cancel`;
+
+    function expectStatusPoll() {
+      return httpMock.expectOne((request) => request.url === statusUrl && request.method === 'GET');
+    }
+
+    function startRun(): void {
+      component['onStartPortalFill'](sampleApplication, 'https://portal.example/apply');
+      const startReq = httpMock.expectOne((request) => request.url === startUrl && request.method === 'POST');
+      expect(startReq.request.body).toEqual({ application_form_url: 'https://portal.example/apply' });
+      startReq.flush({ ...sampleApplication, automation_state: 'running', action_needed_reason: null });
+      fixture.detectChanges();
+    }
+
+    it('starts a run via start() and begins polling status', fakeAsync(() => {
+      flushList([sampleApplication]);
+
+      startRun();
+      expect(component['portalFillStartingId']()).toBeNull();
+
+      tick(5000);
+      const pollReq = expectStatusPoll();
+      pollReq.flush({ automation_state: 'running', action_needed_reason: null });
+      fixture.destroy(); // still `running` - stop the periodic poll so fakeAsync can settle.
+    }));
+
+    it('renders reason-specific banner copy on paused and lets Continue resume polling', fakeAsync(() => {
+      flushList([sampleApplication]);
+      startRun();
+
+      tick(5000);
+      expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('A captcha appeared');
+
+      component['onContinuePortalFill'](sampleApplication);
+      const continueReq = httpMock.expectOne(
+        (request) => request.url === continueUrl && request.method === 'POST',
+      );
+      continueReq.flush({ ...sampleApplication, automation_state: 'paused', action_needed_reason: 'captcha' });
+
+      // Polling keeps going while paused - the paused-phase poll picks the next tick up.
+      tick(5000);
+      expectStatusPoll().flush({ automation_state: 'running', action_needed_reason: null });
+      fixture.destroy(); // still `running` - stop the periodic poll so fakeAsync can settle.
+    }));
+
+    it('a failing poll tick does not stop the overall poll', fakeAsync(() => {
+      flushList([sampleApplication]);
+      startRun();
+
+      tick(5000);
+      expectStatusPoll().flush('boom', { status: 500, statusText: 'Server Error' });
+
+      // Next tick still fires - the failed tick did not terminate the poll.
+      tick(5000);
+      expectStatusPoll().flush({ automation_state: 'running', action_needed_reason: null });
+      fixture.destroy(); // still `running` - stop the periodic poll so fakeAsync can settle.
+    }));
+
+    it('the running phase stops polling after its bounded timeout', fakeAsync(() => {
+      flushList([sampleApplication]);
+      startRun();
+
+      tick(30 * 60 * 1000 + 5000);
+      httpMock.match(() => true).forEach((request) => {
+        if (!request.cancelled) {
+          request.flush({ automation_state: 'running', action_needed_reason: null });
+        }
+      });
+      flush();
+
+      httpMock.expectNone((request) => request.url === statusUrl);
+    }));
+
+    it('the paused phase keeps polling with no fixed timeout', fakeAsync(() => {
+      flushList([sampleApplication]);
+      startRun();
+
+      tick(5000);
+      expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
+
+      // Advance well beyond the running-phase timeout - the paused phase has none of its own.
+      tick(30 * 60 * 1000 + 5000);
+      httpMock.match(() => true).forEach((request) => {
+        if (!request.cancelled) {
+          request.flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
+        }
+      });
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.textContent as string).toContain('A captcha appeared');
+
+      // Still polling: one more explicit tick produces one more request.
+      tick(5000);
+      expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
+      fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
+    }));
+
+    it('Cancel calls cancelPortalFill() and clears the banner', fakeAsync(() => {
+      flushList([sampleApplication]);
+      startRun();
+
+      tick(5000);
+      expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'pre_submit_confirmation' });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent as string).toContain('Form is filled');
+
+      component['onCancelPortalFill'](sampleApplication);
+      const cancelReq = httpMock.expectOne(
+        (request) => request.url === cancelUrl && request.method === 'POST',
+      );
+      cancelReq.flush({
+        ...sampleApplication,
+        automation_state: 'failed',
+        action_needed_reason: 'cancelled_by_user',
+      });
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).not.toContain('Form is filled');
+      expect(text).toContain('Cancelled.');
+      fixture.destroy(); // the paused-phase poll is still awaiting its next tick - stop it for fakeAsync.
+    }));
+
+    it('replaces the trigger with a persistent indicator on submitted', fakeAsync(() => {
+      flushList([sampleApplication]);
+      startRun();
+
+      tick(5000);
+      expectStatusPoll().flush({ automation_state: 'submitted', action_needed_reason: null });
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('Submitted via portal on');
+      expect(text).not.toContain('Auto-fill portal');
+    }));
+
+    it('shows a dismissible, translated failure notice and re-enables the trigger', fakeAsync(() => {
+      flushList([sampleApplication]);
+      startRun();
+
+      tick(5000);
+      expectStatusPoll().flush({ automation_state: 'failed', action_needed_reason: 'iframe_not_found' });
+      fixture.detectChanges();
+
+      let text = fixture.nativeElement.textContent as string;
+      expect(text).toContain("Couldn't find the application form on that page.");
+      expect(text).toContain('Auto-fill portal');
+
+      component['onDismissFailure'](sampleApplication);
+      fixture.detectChanges();
+
+      text = fixture.nativeElement.textContent as string;
+      expect(text).not.toContain("Couldn't find the application form on that page.");
+      expect(text).toContain('Auto-fill portal');
+    }));
+
+    it('disables Delete and the Outcome toggle while a run is running or paused', fakeAsync(() => {
+      flushList([sampleApplication]);
+      startRun();
+
+      const deleteButton: HTMLButtonElement = fixture.nativeElement.querySelector(
+        '.application-card__actions button',
+      );
+      expect(deleteButton.disabled).toBe(true);
+
+      const outcomeButton: HTMLButtonElement = fixture.nativeElement.querySelector(
+        '.application-card__outcome-accept button',
+      );
+      expect(outcomeButton.disabled).toBe(true);
+
+      tick(5000);
+      expectStatusPoll().flush({ automation_state: 'submitted', action_needed_reason: null });
+      fixture.detectChanges();
+
+      expect(deleteButton.disabled).toBe(false);
+    }));
+
+    it('signals TabTitleService when a poll observes a transition to paused while backgrounded', fakeAsync(() => {
+      const tabTitleService = TestBed.inject(TabTitleService);
+      const settledSpy = vi.spyOn(tabTitleService, 'markGenerationSettled');
+      vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+
+      flushList([sampleApplication]);
+      startRun();
+      expect(settledSpy).not.toHaveBeenCalled();
+
+      tick(5000);
+      expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
+
+      expect(settledSpy).toHaveBeenCalledTimes(1);
+
+      // A further tick that is still `paused` is not a new transition - no extra call.
+      tick(5000);
+      expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
+      expect(settledSpy).toHaveBeenCalledTimes(1);
+      fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
+    }));
   });
 });

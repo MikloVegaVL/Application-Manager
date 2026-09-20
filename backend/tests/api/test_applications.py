@@ -10,11 +10,12 @@ Repo anlegen (gleiches Muster wie `tests/api/test_jobs.py`).
 from __future__ import annotations
 
 import threading
+from datetime import datetime, timezone
 from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -24,6 +25,7 @@ from app.main import app
 from app.models.application import Application, ApplicationStatus
 from app.models.job_offer import JobOffer
 from app.models.master_profile import MasterProfile
+from app.models.portal_submission import PortalSubmission
 from app.models.profile_attachment import ProfileAttachment
 from app.models.sent_email import SentEmail
 from app.services.ai_generator import ApplicationGenerationError
@@ -40,6 +42,18 @@ def db_session_local():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
+    # SQLite ignoriert `ondelete=...` per Default (siehe `app.db.database`) -
+    # ohne dieses PRAGMA würde `test_deleting_application_sets_portal_
+    # submission_application_id_to_null_not_the_row` unten nie eine
+    # verwaiste `application_id` auf NULL gesetzt sehen, egal ob das FK im
+    # Modell korrekt `ondelete="SET NULL"` trägt oder nicht.
+    @event.listens_for(engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
     yield testing_session_local
@@ -815,5 +829,189 @@ def test_failed_send_creates_no_log_entry_and_leaves_status_unchanged(
         assert session.query(SentEmail).filter_by(application_id=application_id).count() == 0
         application = session.get(Application, application_id)
         assert application.status == ApplicationStatus.DRAFT
+    finally:
+        session.close()
+
+
+# --- Portal automation state + PortalSubmission log (U1, docs/plans/2026-09-19
+# -002-feat-portal-application-auto-fill-agent-plan.md) --------------------
+
+
+def test_new_application_defaults_automation_fields_to_null(
+    client: TestClient, db_session_local
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/portal-1"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+    finally:
+        session.close()
+
+    session = db_session_local()
+    try:
+        application = session.get(Application, application_id)
+        assert application.automation_state is None
+        assert application.action_needed_reason is None
+        assert application.automation_started_at is None
+    finally:
+        session.close()
+
+
+def test_application_read_response_includes_automation_fields_as_null(
+    client: TestClient, db_session_local
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/portal-2"
+        )
+        _create_application(session, job_offer_id=job_offer.id)
+    finally:
+        session.close()
+
+    response = client.get("/api/applications")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["automation_state"] is None
+    assert body[0]["action_needed_reason"] is None
+    assert body[0]["automation_started_at"] is None
+
+
+def test_portal_submission_can_be_created_and_read_back_via_relationship(
+    client: TestClient, db_session_local
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/portal-3"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+        submission = PortalSubmission(
+            application_id=application_id,
+            company="Acme GmbH",
+            job_title="Backend Engineer",
+            platform="personio",
+            portal_url="https://acme.jobs.personio.de/job/1?application=1",
+            submitted_at=datetime(2026, 9, 19, 10, 0, tzinfo=timezone.utc),
+        )
+        session.add(submission)
+        session.commit()
+        session.refresh(submission)
+        submission_id = submission.id
+    finally:
+        session.close()
+
+    session = db_session_local()
+    try:
+        row = session.get(PortalSubmission, submission_id)
+        assert row.application is not None
+        assert row.application.id == application_id
+        assert row.portal_url == "https://acme.jobs.personio.de/job/1?application=1"
+        assert row.platform == "personio"
+    finally:
+        session.close()
+
+
+def test_delete_application_returns_409_while_automation_is_active(
+    client: TestClient, db_session_local
+) -> None:
+    # P0-Regression (adversarial-reviewer): eine `Application` mit aktivem
+    # Portal-Auto-Fill-Lauf darf nicht gelöscht werden - sonst könnte z. B.
+    # während der pausierten `pre_submit_confirmation` die Bewerbung gelöscht
+    # und danach per `continue` trotzdem der echte Submit auf dem externen
+    # Portal ausgelöst werden, ohne jede lokale Spur (`_record_submission()`/
+    # `_set_state()` fänden die Zeile dann nicht mehr).
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/portal-delete-1"
+        )
+        application = Application(job_offer_id=job_offer.id, automation_state="paused")
+        session.add(application)
+        session.commit()
+        session.refresh(application)
+        application_id = application.id
+    finally:
+        session.close()
+
+    response = client.delete(f"/api/applications/{application_id}")
+
+    assert response.status_code == 409
+
+    session = db_session_local()
+    try:
+        assert session.get(Application, application_id) is not None
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("automation_state", [None, "failed", "submitted"])
+def test_delete_application_still_succeeds_when_automation_is_not_active(
+    client: TestClient, db_session_local, automation_state
+) -> None:
+    # Kein Regressionsrisiko durch den neuen Guard: eine `Application`, die
+    # nie automatisiert wurde oder deren Lauf bereits terminal beendet ist,
+    # muss weiterhin normal löschbar bleiben.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session,
+            title="Backend Engineer",
+            company="Acme GmbH",
+            source_url=f"https://example.com/job/portal-delete-{automation_state}",
+        )
+        application = Application(job_offer_id=job_offer.id, automation_state=automation_state)
+        session.add(application)
+        session.commit()
+        session.refresh(application)
+        application_id = application.id
+    finally:
+        session.close()
+
+    response = client.delete(f"/api/applications/{application_id}")
+
+    assert response.status_code == 204
+
+
+def test_deleting_application_sets_portal_submission_application_id_to_null_not_the_row(
+    client: TestClient, db_session_local
+) -> None:
+    # Gleiches Muster wie `SentEmail` (Audit-Log überlebt die Löschung der
+    # Application) - der Snapshot (company/job_title/platform) hält die Zeile
+    # danach weiterhin lesbar.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/portal-4"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+        session.add(
+            PortalSubmission(
+                application_id=application_id,
+                company="Acme GmbH",
+                job_title="Backend Engineer",
+                platform="personio",
+                portal_url="https://acme.jobs.personio.de/job/2?application=1",
+                submitted_at=datetime(2026, 9, 19, 10, 0, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    response = client.delete(f"/api/applications/{application_id}")
+    assert response.status_code == 204
+
+    session = db_session_local()
+    try:
+        row = session.query(PortalSubmission).filter_by(company="Acme GmbH", job_title="Backend Engineer").one()
+        assert row.application_id is None
+        assert row.company == "Acme GmbH"
+        assert row.job_title == "Backend Engineer"
+        assert row.platform == "personio"
     finally:
         session.close()

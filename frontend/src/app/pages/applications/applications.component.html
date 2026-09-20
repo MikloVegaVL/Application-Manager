@@ -94,7 +94,7 @@
                 <mat-button-toggle-group
                   class="application-card__outcome-options"
                   [value]="application.status"
-                  [disabled]="isUpdatingStatus(application)"
+                  [disabled]="isUpdatingStatus(application) || isPortalFillActive(application)"
                   [hideSingleSelectionIndicator]="true"
                   (change)="onStatusChange(application, $event.value)"
                   aria-label="Outcome"
@@ -123,6 +123,83 @@
                 </div>
               }
             </div>
+
+            <div class="application-card__portal-fill">
+              @if (automationState(application) === 'submitted') {
+                <div class="application-card__portal-fill-submitted">
+                  <mat-icon>check_circle</mat-icon>
+                  <span>Submitted via portal on {{ submittedDateLabel(application) }}</span>
+                </div>
+              }
+
+              @if (automationState(application) === 'running') {
+                <div class="application-card__portal-fill-running">
+                  <mat-progress-spinner mode="indeterminate" diameter="16" />
+                  <span>Auto-fill is running ...</span>
+                  <button mat-button color="warn" type="button" (click)="onCancelPortalFill(application)">
+                    Cancel
+                  </button>
+                </div>
+              }
+
+              @if (showActionNeededBanner(application)) {
+                <div class="application-card__portal-fill-banner">
+                  <mat-icon>front_hand</mat-icon>
+                  <span>{{ actionNeededCopy(application) }}</span>
+                  <div class="application-card__portal-fill-banner-actions">
+                    <button
+                      mat-stroked-button
+                      color="primary"
+                      type="button"
+                      (click)="onContinuePortalFill(application)"
+                    >
+                      Continue
+                    </button>
+                    <button mat-button color="warn" type="button" (click)="onCancelPortalFill(application)">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              }
+
+              @if (showFailureNotice(application)) {
+                <div class="application-card__portal-fill-failed">
+                  <mat-icon>error_outline</mat-icon>
+                  <span>{{ failureCopy(application) }}</span>
+                  <button
+                    mat-icon-button
+                    type="button"
+                    aria-label="Dismiss"
+                    (click)="onDismissFailure(application)"
+                  >
+                    <mat-icon>close</mat-icon>
+                  </button>
+                </div>
+              }
+
+              @if (showPortalFillTrigger(application)) {
+                <div class="application-card__portal-fill-trigger">
+                  <mat-form-field appearance="outline" class="application-card__portal-fill-url">
+                    <mat-label>Application form URL</mat-label>
+                    <input matInput #portalFillUrl type="url" placeholder="https://..." />
+                  </mat-form-field>
+                  <button
+                    mat-stroked-button
+                    color="primary"
+                    type="button"
+                    [disabled]="portalFillStartingId() === application.id"
+                    (click)="onStartPortalFill(application, portalFillUrl.value)"
+                  >
+                    @if (portalFillStartingId() === application.id) {
+                      <mat-progress-spinner mode="indeterminate" diameter="18" />
+                    } @else {
+                      <mat-icon>smart_toy</mat-icon>
+                    }
+                    Auto-fill portal
+                  </button>
+                </div>
+              }
+            </div>
           </mat-card-content>
 
           <mat-card-actions class="application-card__actions">
@@ -130,7 +207,7 @@
               mat-button
               color="warn"
               type="button"
-              [disabled]="isDeleting(application)"
+              [disabled]="isDeleting(application) || isPortalFillActive(application)"
               (click)="onDelete(application)"
             >
               @if (isDeleting(application)) {

@@ -17,6 +17,7 @@ python-dotenv
 requests
 playwright
 beautifulsoup4
+rapidfuzz
 
 # --- KI / LLM ---
 ollama==0.6.2

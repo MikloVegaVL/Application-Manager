@@ -10,10 +10,12 @@ from app.api.applications import router as applications_router
 from app.api.cv_builder import router as cv_builder_router
 from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
+from app.api.portal_fill import router as portal_fill_router
 from app.api.profile import router as profile_router
 from app.api.sent_emails import router as sent_emails_router
 from app.core.config import settings
 from app.db.init_db import init_db
+from app.services.portal_agents.session import reset_stale_automation_state, shutdown_all_sessions
 
 # `urllib3`/`requests` loggen vollständige Request-URLs auf DEBUG-Ebene, was
 # credential-tragende URLs künftiger Job-Quellen preisgeben könnte -
@@ -25,9 +27,15 @@ logging.getLogger("requests").setLevel(logging.WARNING)
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Legt beim App-Start alle Datenbank-Tabellen an (sofern nicht
-    bereits vorhanden) und übergibt anschließend an die laufende App."""
+    bereits vorhanden), setzt verwaisten Portal-Auto-Fill-Automationsstatus
+    zurück (U2: die In-Memory-Session-Registry überlebt einen Neustart nie)
+    und übergibt anschließend an die laufende App. Beim Shutdown werden
+    noch laufende Portal-Auto-Fill-Sitzungen signalisiert herunterzufahren
+    (R9/R10 - siehe `shutdown_all_sessions()`-Doku zur Thread-Affinität)."""
     init_db()
+    reset_stale_automation_state()
     yield
+    shutdown_all_sessions()
 
 
 app = FastAPI(
@@ -56,6 +64,7 @@ app.include_router(profile_router, prefix=settings.API_V1_PREFIX)
 app.include_router(applications_router, prefix=settings.API_V1_PREFIX)
 app.include_router(cv_builder_router, prefix=settings.API_V1_PREFIX)
 app.include_router(sent_emails_router, prefix=settings.API_V1_PREFIX)
+app.include_router(portal_fill_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/", tags=["Root"])
