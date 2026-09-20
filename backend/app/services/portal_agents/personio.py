@@ -133,8 +133,13 @@ def _any_selector_present(container, selectors: tuple[str, ...]) -> bool:
     """`Locator.count()` wartet NICHT (im Gegensatz zu den meisten anderen
     Playwright-Aktionen) - liefert sofort die aktuelle Trefferzahl im DOM.
     Genau das brauchen wir hier: eine reine Momentaufnahme-Prüfung, kein
-    Warten auf ein Captcha, das vielleicht nie erscheint."""
-    return any(container.locator(selector).count() > 0 for selector in selectors)
+    Warten auf ein Captcha, das vielleicht nie erscheint.
+
+    Alle `selectors` werden als EINE CSS-Selektorliste (durch Komma
+    verbunden) abgefragt - ein Roundtrip statt einem pro Selektor (diese
+    Prüfung läuft vor jedem Feld/jeder Freitextfrage, s. `_pause_if_captcha_
+    present`, daher summiert sich das sonst schnell)."""
+    return container.locator(", ".join(selectors)).count() > 0
 
 
 def captcha_present(page, frame) -> bool:
@@ -184,9 +189,7 @@ def _locate_frame(session: PortalFillSession, iframe_wait_timeout_ms: float | No
     try:
         frame.locator("body").wait_for(state="attached", **wait_kwargs)
     except PlaywrightTimeoutError as exc:
-        session.close()
-        session._set_state("failed", "iframe_not_found")
-        session_module._unregister(session.application_id)
+        session._abort("iframe_not_found")
         raise IframeNotFoundError() from exc
     return frame
 
@@ -230,15 +233,12 @@ def _load_answering_context(
     stundenlangen `session.pause()`-Wait offen zu halten (Ressourcen-Leck-
     Risiko). `MasterProfile` wird wie im Rest der App per `.first()` als das
     eine Profil dieser Single-User-Anwendung geladen (siehe `send_application`)."""
-    db = session_module.SessionLocal()
-    try:
+    with session_module._db_session() as db:
         application = db.get(Application, application_id)
         job_offer = db.get(JobOffer, application.job_offer_id) if application is not None else None
         profile = db.query(MasterProfile).first()
         cover_letter_text = application.cover_letter_text if application is not None else None
         return profile, job_offer, cover_letter_text
-    finally:
-        db.close()
 
 
 def _fill_freetext_questions(session: PortalFillSession, frame) -> None:
@@ -282,8 +282,7 @@ def _record_submission(session: PortalFillSession) -> None:
     `send_application`s Erfolgs-Only-Logging-Muster. Nutzt eine frische,
     KURZLEBIGE `SessionLocal()`-Session statt eine über den vorherigen
     `pre_submit_confirmation`-Pause-Wait offen gehaltene."""
-    db = session_module.SessionLocal()
-    try:
+    with session_module._db_session() as db:
         application = db.get(Application, session.application_id)
         job_offer = (
             db.get(JobOffer, application.job_offer_id) if application is not None else None
@@ -302,8 +301,6 @@ def _record_submission(session: PortalFillSession) -> None:
             application.automation_state = "submitted"
             application.action_needed_reason = None
         db.commit()
-    finally:
-        db.close()
 
 
 def run(

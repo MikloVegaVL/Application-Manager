@@ -13,7 +13,7 @@ export interface Application {
   /** Empfängeradresse des Mailversands - erst nach dem Versand gesetzt. */
   sent_to_email: string | null;
   /** Portal-Auto-Fill-Status - `null`, solange kein Auto-Fill-Lauf gestartet wurde. */
-  automation_state?: 'running' | 'paused' | 'submitted' | 'failed' | null;
+  automation_state?: PortalFillStatus['automation_state'];
   action_needed_reason?: string | null;
   automation_started_at?: string | null;
   created_at: string;

@@ -359,7 +359,7 @@ export class ApplicationsComponent implements OnInit {
           automation_state: updated.automation_state ?? null,
           action_needed_reason: updated.action_needed_reason ?? null,
         });
-        this.pollPortalFillRunning(application.id);
+        this.pollPortalFillPhase(application.id, 'running');
       },
       error: (error: HttpErrorResponse) => {
         this.portalFillStartingId.set(null);
@@ -406,60 +406,53 @@ export class ApplicationsComponent implements OnInit {
    * ist selbst dafür zuständig, das nur zu tun, während der Tab im Hintergrund ist (siehe `TabTitleService`),
    * hier wird nur die Transition (statt jedes einzelnen `paused`-Ticks) erkannt. */
   private setPortalFillStatus(applicationId: number, status: PortalFillStatus): void {
-    const wasPaused = this.portalFillStatuses()[applicationId]?.automation_state === 'paused';
+    const previous = this.portalFillStatuses()[applicationId];
+    if (
+      previous?.automation_state === status.automation_state &&
+      previous?.action_needed_reason === status.action_needed_reason
+    ) {
+      return; // unveränderter Tick - kein Signal-Write/Change-Detection-Zyklus nötig
+    }
+    const wasPaused = previous?.automation_state === 'paused';
     this.portalFillStatuses.update((map) => ({ ...map, [applicationId]: status }));
     if (status.automation_state === 'paused' && !wasPaused) {
       this.tabTitleService.markGenerationSettled();
     }
   }
 
-  /** Bounded Poll-Phase, solange der Lauf `running` ist - exakt dasselbe RxJS-Muster wie
+  /** Pollt eine Phase (`running`: bounded per Timeout; `paused`: unbounded, da R10/R11 menschengesteuert
+   * und damit von Natur aus zeitlich offen sind) - exakt dasselbe RxJS-Muster wie
    * `ApplicationEditorComponent.pollForRunningGeneration` (timer + switchMap + per-Tick catchError +
-   * takeUntilDestroyed), nur zusätzlich mit `takeWhile`, um bei einem Statuswechsel weg von `running`
-   * (paused/submitted/failed) sauber zu stoppen, ohne den letzten Stand zu verlieren. */
-  private pollPortalFillRunning(applicationId: number): void {
-    const timedOut$ = timer(ApplicationsComponent.PORTAL_FILL_RUNNING_TIMEOUT_MS);
+   * takeUntilDestroyed), zusätzlich mit `takeWhile`, um bei einem Wechsel in die jeweils andere Phase
+   * sauber zu stoppen, ohne den letzten Stand zu verlieren. Wechselt der Status in die andere Phase,
+   * übernimmt ein rekursiver Aufruf mit der neuen Phase weiter. */
+  private pollPortalFillPhase(applicationId: number, phase: 'running' | 'paused'): void {
+    const otherPhase = phase === 'running' ? 'paused' : 'running';
+    const poll$ = timer(
+      ApplicationsComponent.PORTAL_FILL_POLL_INTERVAL_MS,
+      ApplicationsComponent.PORTAL_FILL_POLL_INTERVAL_MS,
+    ).pipe(
+      switchMap(() =>
+        this.applicationService.getPortalFillStatus(applicationId).pipe(catchError(() => of(null))),
+      ),
+      takeWhile((status) => status === null || status.automation_state === phase, true),
+    );
 
-    timer(ApplicationsComponent.PORTAL_FILL_POLL_INTERVAL_MS, ApplicationsComponent.PORTAL_FILL_POLL_INTERVAL_MS)
-      .pipe(
-        switchMap(() =>
-          this.applicationService.getPortalFillStatus(applicationId).pipe(catchError(() => of(null))),
-        ),
-        takeWhile((status) => status === null || status.automation_state === 'running', true),
-        takeUntil(timedOut$),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe((status) => {
-        if (status === null) {
-          return;
-        }
-        this.setPortalFillStatus(applicationId, status);
-        if (status.automation_state === 'paused') {
-          this.pollPortalFillPaused(applicationId);
-        }
-      });
-  }
+    // Bounded nur in der `running`-Phase (mirrort die ursprüngliche, für den einzelnen LLM-Call
+    // bemessene `pollForRunningGeneration`-Semantik) - `paused` bleibt bewusst unbounded (R10/R11).
+    const bounded$ =
+      phase === 'running'
+        ? poll$.pipe(takeUntil(timer(ApplicationsComponent.PORTAL_FILL_RUNNING_TIMEOUT_MS)))
+        : poll$;
 
-  /** Unbounded Poll-Phase, solange der Lauf `paused` ist (R10/R11 - menschengesteuert, daher bewusst ohne
-   * Timeout) - endet nur über einen Terminal-Status oder `takeUntilDestroyed`. Wechselt der Lauf wieder auf
-   * `running` (z. B. nach Continue), übernimmt `pollPortalFillRunning` erneut die bounded Phase. */
-  private pollPortalFillPaused(applicationId: number): void {
-    timer(ApplicationsComponent.PORTAL_FILL_POLL_INTERVAL_MS, ApplicationsComponent.PORTAL_FILL_POLL_INTERVAL_MS)
-      .pipe(
-        switchMap(() =>
-          this.applicationService.getPortalFillStatus(applicationId).pipe(catchError(() => of(null))),
-        ),
-        takeWhile((status) => status === null || status.automation_state === 'paused', true),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe((status) => {
-        if (status === null) {
-          return;
-        }
-        this.setPortalFillStatus(applicationId, status);
-        if (status.automation_state === 'running') {
-          this.pollPortalFillRunning(applicationId);
-        }
-      });
+    bounded$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((status) => {
+      if (status === null) {
+        return;
+      }
+      this.setPortalFillStatus(applicationId, status);
+      if (status.automation_state === otherPhase) {
+        this.pollPortalFillPhase(applicationId, otherPhase);
+      }
+    });
   }
 }

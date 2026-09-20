@@ -24,11 +24,28 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
+
+from sqlalchemy.orm import Session as DBSession
 
 from app.db.database import SessionLocal
 from app.models.application import Application
+
+
+@contextmanager
+def _db_session() -> Iterator[DBSession]:
+    """Kurzlebige DB-Session außerhalb des Request-Zyklus (kein `get_db`-
+    Dependency verfügbar, da dieser Code im Session-Hintergrund-Thread bzw.
+    in Startup-/Shutdown-Hooks läuft). Gemeinsam genutzt von `_set_state`/
+    `reset_stale_automation_state` hier sowie `personio.py`s
+    `_load_answering_context`/`_record_submission`."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 logger = logging.getLogger(__name__)
 
@@ -117,8 +134,7 @@ class PortalFillSession:
     def _set_state(self, automation_state: str, action_needed_reason: str | None) -> None:
         """Persistiert einen Automations-Statusübergang. Darf von jedem
         Thread aufgerufen werden - reine DB-Arbeit, keine Playwright-API."""
-        db = SessionLocal()
-        try:
+        with _db_session() as db:
             application = db.get(Application, self.application_id)
             if application is None:
                 return
@@ -127,8 +143,17 @@ class PortalFillSession:
             if automation_state == "running" and application.automation_started_at is None:
                 application.automation_started_at = datetime.now(timezone.utc)
             db.commit()
-        finally:
-            db.close()
+
+    def _abort(self, reason: str) -> None:
+        """Gemeinsamer Terminal-Abbruch-Ablauf (R10/KTD1/KTD4): Browser
+        schließen, `automation_state="failed"` + `reason` persistieren,
+        Registry-Eintrag entfernen. Der Aufrufer wirft danach selbst die
+        passende `_StopRun`-Subklasse (`PauseTimedOutError`/
+        `RunCancelledError`/`IframeNotFoundError`) - dieser Schritt macht
+        nur die Bereinigung gemeinsam, nicht das Werfen selbst."""
+        self.close()
+        self._set_state("failed", reason)
+        _unregister(self.application_id)
 
     # --- Browser-Lebenszyklus (NUR vom besitzenden Thread!) -------------
 
@@ -182,9 +207,7 @@ class PortalFillSession:
         self._set_state("paused", reason)
         resumed = self._resume_event.wait(timeout=self._pause_timeout_seconds)
         if not resumed:
-            self.close()
-            self._set_state("failed", "timeout")
-            _unregister(self.application_id)
+            self._abort("timeout")
             raise PauseTimedOutError()
         self._resume_event.clear()
         self.check_cancel()
@@ -195,9 +218,7 @@ class PortalFillSession:
         Ausfüllschritten in späteren Units). Bricht bei gesetztem
         `cancel_requested` den Lauf sauber ab (R10)."""
         if self.cancel_requested.is_set():
-            self.close()
-            self._set_state("failed", "cancelled_by_user")
-            _unregister(self.application_id)
+            self._abort("cancelled_by_user")
             raise RunCancelledError()
 
     def resume(self) -> None:
@@ -309,8 +330,7 @@ def reset_stale_automation_state() -> None:
     Die In-Memory-Registry überlebt einen Prozessneustart nie - jede solche
     Zeile ist also zwangsläufig verwaist (der zugehörige Browser/Thread
     existiert nicht mehr)."""
-    db = SessionLocal()
-    try:
+    with _db_session() as db:
         stale = (
             db.query(Application)
             .filter(Application.automation_state.in_(["running", "paused"]))
@@ -321,8 +341,6 @@ def reset_stale_automation_state() -> None:
             application.action_needed_reason = "interrupted_by_restart"
         if stale:
             db.commit()
-    finally:
-        db.close()
 
 
 def shutdown_all_sessions() -> None:

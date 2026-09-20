@@ -192,14 +192,15 @@ def select_dropdown_option(
     if locator is None:
         return FieldFillResult(matched=False, field_label=field_label, reason=FIELD_NOT_FOUND)
 
-    options = locator.locator("option").all()
-    option_labels = [option.inner_text().strip() for option in options]
-    # Fehlt das `value`-Attribut im Markup, fällt der Browser auf den
-    # Textinhalt zurück (HTML-Spezifikation) - dasselbe hier nachbilden,
-    # damit `select_option(value=...)` unten immer den korrekten Wert trifft.
-    option_values = [
-        (option.get_attribute("value") or option_labels[i]) for i, option in enumerate(options)
-    ]
+    # `evaluate_all` liest Label+Value aller Optionen in EINEM Browser-
+    # Roundtrip statt eines Roundtrips pro `<option>` (ein Länder-Dropdown
+    # hat leicht 190+ Optionen) - Fallback-Semantik (fehlendes `value`
+    # -> Textinhalt, wie in der HTML-Spezifikation) bleibt identisch.
+    raw_options = locator.locator("option").evaluate_all(
+        "opts => opts.map(o => ({label: o.innerText.trim(), value: o.getAttribute('value')}))"
+    )
+    option_labels = [opt["label"] for opt in raw_options]
+    option_values = [(opt["value"] or opt["label"]) for opt in raw_options]
 
     best_index = best_fuzzy_match_index(profile_value, option_labels, option_values, threshold=threshold)
     if best_index is None:
