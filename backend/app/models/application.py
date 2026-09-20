@@ -64,6 +64,10 @@ class Application(Base):
     # "failed" der Fehlgrund (timeout/iframe_not_found/unhandled_error/
     # cancelled_by_user). Wird von U1 selbst nicht beschrieben.
     action_needed_reason: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # Konkretes Feld/Frage-Label zur Pause (R9/KTD1) - ergänzt
+    # `action_needed_reason` um das "wo". Wird bei jedem Zustandsübergang ohne
+    # Detail auf `None` zurückgesetzt.
+    action_needed_detail: Mapped[str | None] = mapped_column(String(80), nullable=True)
     automation_started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

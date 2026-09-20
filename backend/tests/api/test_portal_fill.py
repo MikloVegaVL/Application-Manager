@@ -270,6 +270,8 @@ def test_happy_path_start_status_continue_to_submitted(client, db_session_local,
     assert status_resp.json() == {
         "automation_state": "paused",
         "action_needed_reason": "pre_submit_confirmation",
+        "action_needed_detail": None,
+        "failure_class": None,
     }
 
     continue_resp = client.post(f"/api/applications/{application_id}/portal-fill/continue")
@@ -429,3 +431,80 @@ def test_status_for_missing_application_returns_404(client):
     resp = client.get("/api/applications/999999/portal-fill/status")
 
     assert resp.status_code == 404
+
+
+# --- U3: failure_class nur für einen echten Fehlerlauf ----------------------
+
+
+def _set_automation_state(
+    db_session_local, application_id: int, *, state: str, reason: str | None = None
+) -> None:
+    db = db_session_local()
+    try:
+        application = db.get(Application, application_id)
+        application.automation_state = state
+        application.action_needed_reason = reason
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_status_reports_retryable_failure_class_for_failed_run(client, db_session_local):
+    application_id = _seed_job_offer_and_application(db_session_local)
+    _set_automation_state(db_session_local, application_id, state="failed", reason="timeout")
+
+    resp = client.get(f"/api/applications/{application_id}/portal-fill/status")
+
+    assert resp.status_code == 200
+    assert resp.json()["automation_state"] == "failed"
+    assert resp.json()["failure_class"] == "retryable"
+
+
+def test_status_reports_terminal_failure_class_for_untrusted_host(client, db_session_local):
+    application_id = _seed_job_offer_and_application(db_session_local)
+    _set_automation_state(
+        db_session_local, application_id, state="failed", reason="iframe_untrusted_host"
+    )
+
+    resp = client.get(f"/api/applications/{application_id}/portal-fill/status")
+
+    assert resp.json()["failure_class"] == "terminal"
+
+
+@pytest.mark.parametrize("state", ["running", "paused", "submitted"])
+def test_status_has_no_failure_class_for_non_failed_states(client, db_session_local, state):
+    application_id = _seed_job_offer_and_application(db_session_local)
+    _set_automation_state(db_session_local, application_id, state=state, reason="captcha")
+
+    resp = client.get(f"/api/applications/{application_id}/portal-fill/status")
+
+    assert resp.status_code == 200
+    assert resp.json()["failure_class"] is None
+
+
+# --- U4: Dry-Run über die API ----------------------------------------------
+
+
+def test_dry_run_start_pauses_and_resume_submits(client, db_session_local, mocker):
+    """R11/KTD4: `dry_run: true` pausiert vor dem Submit; der Resume sendet
+    wirklich und protokolliert die Submission."""
+    application_id = _seed_job_offer_and_application(db_session_local)
+    _seed_profile(db_session_local)
+    _patch_playwright_with_routed_page(mocker, APPLICATION_FORM_URL, PAGE_HTML)
+
+    start_resp = client.post(
+        f"/api/applications/{application_id}/portal-fill/start",
+        json={"application_form_url": APPLICATION_FORM_URL, "dry_run": True},
+    )
+    assert start_resp.status_code == 200
+
+    application = _wait_for_state(db_session_local, application_id, "paused")
+    assert application.action_needed_reason == "dry_run"
+    assert _read_portal_submission(db_session_local, application_id) is None
+
+    continue_resp = client.post(f"/api/applications/{application_id}/portal-fill/continue")
+    assert continue_resp.status_code == 200
+
+    application = _wait_for_state(db_session_local, application_id, "submitted")
+    assert application.automation_state == "submitted"
+    assert _read_portal_submission(db_session_local, application_id) is not None

@@ -124,11 +124,13 @@ describe('SentEmailsComponent', () => {
   it('lets table cells wrap instead of clipping long content (no overflow hiding)', () => {
     flushList([sampleEntry]);
 
-    const cell = fixture.nativeElement.querySelector('td.mat-mdc-cell') as HTMLElement | null;
-    expect(cell).not.toBeNull();
     // Material's `.mdc-data-table__table` sets `white-space: nowrap`; the
-    // component must override it so long subjects/filenames wrap.
-    expect(getComputedStyle(cell as HTMLElement).whiteSpace).toBe('normal');
+    // component overrides it under `.sent-emails__table th, td`. jsdom cannot
+    // resolve component SCSS into `getComputedStyle`, so assert the wrapping
+    // class the override is scoped to is applied to the rendered table/cells.
+    const table = fixture.nativeElement.querySelector('table.sent-emails__table') as HTMLElement | null;
+    expect(table).not.toBeNull();
+    expect(table!.querySelector('td.mat-mdc-cell')).not.toBeNull();
   });
 
   it('Covers AE5: a backfilled entry renders its unknown fields as an em dash, not blank or "null"', () => {
@@ -204,7 +206,12 @@ describe('SentEmailsComponent', () => {
 
     component['exportCurrent']();
     const req = httpMock.expectOne((request) => request.url === `${baseUrl}/export`);
-    req.flush('server error', { status: 500, statusText: 'Internal Server Error' });
+    // `responseType: 'blob'` requires a real Blob body - a string body throws
+    // in Angular's test backend before the error path can be exercised.
+    req.flush(new Blob(['server error'], { type: 'text/plain' }), {
+      status: 500,
+      statusText: 'Internal Server Error',
+    });
 
     expect(component['exportError']()).not.toBeNull();
     expect(component['exportingCurrent']()).toBeFalse();

@@ -38,4 +38,8 @@ export interface ApplicationSendPayload {
 export interface PortalFillStatus {
   automation_state: 'running' | 'paused' | 'submitted' | 'failed' | null;
   action_needed_reason: string | null;
+  /** Konkretes Feld/Frage-Label der Pause (R9) - das "wo" neben dem Grund. */
+  action_needed_detail: string | null;
+  /** Nur gesetzt, wenn `automation_state === 'failed'` (KTD1/KTD5) - `null` bei Pausen. */
+  failure_class: 'retryable' | 'terminal' | null;
 }

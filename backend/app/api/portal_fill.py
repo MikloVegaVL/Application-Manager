@@ -27,6 +27,7 @@ from app.schemas.application import ApplicationRead
 from app.schemas.portal_fill import PortalFillStartRequest, PortalFillStatusResponse
 from app.services.portal_agents import personio as personio_module
 from app.services.portal_agents import session as session_module
+from app.services.portal_agents.outcome import RunState, failure_class_for
 from app.services.portal_agents.personio import PersonioField
 from app.services.portal_agents.session import SessionAlreadyActiveError
 
@@ -120,7 +121,7 @@ def start_portal_fill(
         )
 
     fields = _build_personio_fields(profile)
-    run_fn = personio_module.build_personio_run_fn(fields)
+    run_fn = personio_module.build_personio_run_fn(fields, dry_run=payload.dry_run)
 
     try:
         session_module.start_session(application_id, payload.application_form_url, run_fn)
@@ -147,9 +148,19 @@ def get_portal_fill_status(application_id: int, db: Session = Depends(get_db)) -
     application = db.get(Application, application_id)
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung wurde nicht gefunden.")
+
+    # KTD1/KTD5: `failure_class` NUR für einen echten Fehlerlauf ableiten -
+    # ein Pausen-Grund (z. B. "captcha") darf nie als terminaler Fehler
+    # gelesen werden.
+    failure_class = None
+    if application.automation_state == RunState.FAILED.value:
+        failure_class = failure_class_for(application.action_needed_reason).value
+
     return PortalFillStatusResponse(
         automation_state=application.automation_state,
         action_needed_reason=application.action_needed_reason,
+        action_needed_detail=application.action_needed_detail,
+        failure_class=failure_class,
     )
 
 

@@ -23,9 +23,10 @@ from pathlib import Path
 
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
-from alembic.command import upgrade
+from alembic.command import downgrade, upgrade
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import create_engine
+from alembic.script import ScriptDirectory
+from sqlalchemy import create_engine, inspect
 
 from app import models  # noqa: F401 - registriert alle Modelle in Base.metadata
 from app.db.database import Base
@@ -62,3 +63,41 @@ def test_alembic_migrations_match_current_models() -> None:
         "Modelle und Alembic-Migrationen sind nicht mehr synchron - fehlt eine "
         f"neue Migration (`alembic revision --autogenerate`)? Diff: {diff}"
     )
+
+
+def test_alembic_has_a_single_head() -> None:
+    """Nach der neuen U7-Revision darf der Graph genau EINEN Head haben -
+    ein zweiter Head würde `alembic upgrade head` mit "Multiple head
+    revisions" abbrechen lassen."""
+    alembic_cfg = Config(str(_ALEMBIC_INI_PATH))
+    heads = ScriptDirectory.from_config(alembic_cfg).get_heads()
+
+    assert len(heads) == 1, f"Erwartet genau einen Alembic-Head, gefunden: {heads}"
+    assert "9c1d2e3f4a5b" in heads
+
+
+def test_action_needed_detail_migration_upgrades_and_downgrades() -> None:
+    """U7-Testszenario: die neue `action_needed_detail`-Migration läuft auf
+    einer frischen SQLite-DB vor UND wieder zurück."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        db_path = Path(tmp_dir) / "action-needed-detail-check.db"
+        database_url = f"sqlite:///{db_path}"
+
+        alembic_cfg = Config(str(_ALEMBIC_INI_PATH))
+        alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+        upgrade(alembic_cfg, "head")
+
+        assert "action_needed_detail" in _application_columns(database_url)
+
+        downgrade(alembic_cfg, "a41edaf603a3")
+
+        assert "action_needed_detail" not in _application_columns(database_url)
+
+
+def _application_columns(database_url: str) -> set[str]:
+    engine = create_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            return {column["name"] for column in inspect(connection).get_columns("applications")}
+    finally:
+        engine.dispose()

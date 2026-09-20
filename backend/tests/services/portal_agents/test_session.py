@@ -24,6 +24,7 @@ from app.db.database import Base
 from app.models.application import Application
 from app.models.job_offer import JobOffer
 from app.services.portal_agents import session as session_module
+from app.services.portal_agents.outcome import FailureClass, failure_class_for
 
 
 # --- Fixtures: DB + Playwright-Fake -----------------------------------------
@@ -389,11 +390,11 @@ def test_launch_failure_surfaces_synchronously_from_start_session(db_session_loc
         )
 
     assert application_id not in session_module._active_sessions
-    # Ein Launch-Fehler passiert VOR dem "running"-Übergang - der Status
-    # bleibt also unverändert (kein DB-Schreiben durch `start_session` in
-    # diesem Pfad).
+    # KTD7: ein Startfehler wird jetzt als klassifizierter Outcome
+    # persistiert (retryable) - nicht mehr als "kein Status".
     application = _read_application(db_session_local, application_id)
-    assert application.automation_state is None
+    assert application.automation_state == "failed"
+    assert application.action_needed_reason == "browser_launch_failed"
 
 
 # --- Error path: unbehandelter Fehler mitten im Lauf ------------------------
@@ -459,10 +460,10 @@ def test_abort_unregisters_session_even_if_set_state_db_write_fails(db_session_l
     # Lauf überhaupt bis zum Abbruch-Pfad kommt, den dieser Test prüft.
     original_set_state = session_module.PortalFillSession._set_state
 
-    def _flaky_set_state(self, automation_state, action_needed_reason):
+    def _flaky_set_state(self, automation_state, action_needed_reason, action_needed_detail=None):
         if automation_state == "failed":
             raise RuntimeError("DB ist gerade nicht erreichbar")
-        return original_set_state(self, automation_state, action_needed_reason)
+        return original_set_state(self, automation_state, action_needed_reason, action_needed_detail)
 
     mocker.patch.object(session_module.PortalFillSession, "_set_state", _flaky_set_state)
 
@@ -571,3 +572,117 @@ def test_shutdown_hook_closes_browser_of_a_running_session(db_session_local, moc
 
     assert not session.thread.is_alive()
     browser.close.assert_called_once()
+
+
+# --- U3/KTD7: begrenzter Browser-Start --------------------------------------
+
+
+def test_launch_passes_configured_timeout_to_chromium(db_session_local, mocker):
+    application_id = _create_application(db_session_local)
+    factory, browser = _fake_playwright()
+    _patch_sync_playwright(mocker, factory)
+    mocker.patch.object(session_module.settings, "BROWSER_LAUNCH_TIMEOUT_MS", 12345)
+
+    session = session_module.start_session(
+        application_id,
+        "https://portal.example/apply",
+        _looping_run_fn(steps=1000, delay=0.005),
+        headed=False,
+    )
+
+    playwright = factory.return_value.__enter__.return_value
+    playwright.chromium.launch.assert_called_once_with(headless=True, timeout=12345)
+
+    session.request_cancel()
+    session.thread.join(timeout=2)
+
+
+def test_launch_backstop_marks_failed_and_never_writes_running(db_session_local, mocker):
+    """KTD7: hängt der Browser-Start über den Backstop hinaus, persistiert
+    `start_session()` sofort `failed`/`browser_launch_failed` und
+    deregistriert; der spät erfolgreiche Start darf danach KEIN `running`
+    mehr schreiben."""
+    application_id = _create_application(db_session_local)
+    release = threading.Event()
+
+    def _slow_enter():
+        release.wait(timeout=5)
+        playwright = MagicMock()
+        browser = MagicMock()
+        browser.new_page = MagicMock(return_value=MagicMock())
+        playwright.chromium.launch = MagicMock(return_value=browser)
+        return playwright
+
+    playwright_cm = MagicMock()
+    playwright_cm.__enter__ = MagicMock(side_effect=_slow_enter)
+    playwright_cm.__exit__ = MagicMock(return_value=False)
+    factory = MagicMock(return_value=playwright_cm)
+    _patch_sync_playwright(mocker, factory)
+    mocker.patch.object(session_module.settings, "BROWSER_LAUNCH_TIMEOUT_MS", 50)
+    mocker.patch.object(session_module, "LAUNCH_BACKSTOP_GRACE_SECONDS", 0.05)
+
+    started = time.monotonic()
+    with pytest.raises(session_module.LaunchTimedOutError):
+        session_module.start_session(
+            application_id, "https://portal.example/apply", _looping_run_fn()
+        )
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 2
+    assert application_id not in session_module._active_sessions
+    application = _read_application(db_session_local, application_id)
+    assert application.automation_state == "failed"
+    assert application.action_needed_reason == "browser_launch_failed"
+    assert (
+        failure_class_for(application.action_needed_reason) is FailureClass.RETRYABLE
+    )
+
+    # Den blockierten Thread jetzt freigeben - sein späterer Erfolg darf den
+    # Status nicht mehr auf "running" zurücksetzen.
+    release.set()
+    for thread in threading.enumerate():
+        if thread.name == f"portal-fill-{application_id}":
+            thread.join(timeout=5)
+            break
+    application = _read_application(db_session_local, application_id)
+    assert application.automation_state == "failed"
+    assert application.action_needed_reason == "browser_launch_failed"
+
+
+# --- U3/KTD5: Fehlklassifikation an den bestehenden Ausgängen ---------------
+
+
+def test_startup_hook_records_interrupted_by_restart_as_retryable(db_session_local):
+    application_id = _create_application(db_session_local, automation_state="paused")
+
+    session_module.reset_stale_automation_state()
+
+    application = _read_application(db_session_local, application_id)
+    assert application.automation_state == "failed"
+    assert application.action_needed_reason == "interrupted_by_restart"
+    assert (
+        failure_class_for(application.action_needed_reason) is FailureClass.RETRYABLE
+    )
+
+
+def test_cancelled_by_user_is_terminal(db_session_local, mocker):
+    application_id = _create_application(db_session_local)
+    factory, browser = _fake_playwright()
+    _patch_sync_playwright(mocker, factory)
+
+    session = session_module.start_session(
+        application_id, "https://portal.example/apply", _pausing_run_fn("captcha")
+    )
+    deadline = time.monotonic() + 2
+    application = _read_application(db_session_local, application_id)
+    while application.automation_state != "paused" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        application = _read_application(db_session_local, application_id)
+
+    session.request_cancel()
+    session.resume()
+    session.thread.join(timeout=2)
+
+    application = _read_application(db_session_local, application_id)
+    assert application.action_needed_reason == "cancelled_by_user"
+    assert failure_class_for(application.action_needed_reason) is FailureClass.TERMINAL

@@ -54,10 +54,12 @@ export class ApplicationService {
     return this.http.delete<void>(`${this.baseUrl}/${applicationId}`);
   }
 
-  /** Startet einen Personio-Portal-Auto-Fill-Lauf für eine bestehende Bewerbung (siehe `app.api.portal_fill`). */
-  start(applicationId: number, applicationFormUrl: string): Observable<Application> {
+  /** Startet einen Personio-Portal-Auto-Fill-Lauf für eine bestehende Bewerbung (siehe `app.api.portal_fill`).
+   * `dryRun` (KTD4/R11) füllt das Formular, pausiert aber vor dem Submit. */
+  start(applicationId: number, applicationFormUrl: string, dryRun = false): Observable<Application> {
     return this.http.post<Application>(`${this.baseUrl}/${applicationId}/portal-fill/start`, {
       application_form_url: applicationFormUrl,
+      dry_run: dryRun,
     });
   }
 

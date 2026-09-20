@@ -79,7 +79,7 @@ class TestAnswerFreetextQuestionHappyPath:
             QUESTION, profile, job_offer, cover_letter_text
         )
 
-        assert answer == VALID_RESULT.answer
+        assert answer is VALID_RESULT
 
         mock_generate.assert_called_once()
         called_model_cls, called_messages = mock_generate.call_args[0]
@@ -102,7 +102,7 @@ class TestAnswerFreetextQuestionNoCoverLetterYet:
 
         answer = answering.answer_freetext_question(QUESTION, profile, job_offer, None)
 
-        assert answer == VALID_RESULT.answer
+        assert answer is VALID_RESULT
         user_content = mock_generate.call_args[0][1][1]["content"]
         assert QUESTION in user_content
         assert profile.full_name in user_content
@@ -141,3 +141,52 @@ class TestAnsweringDoesNotBuildItsOwnLlmClient:
         assert "import ollama" not in source
         assert "ollama.Client" not in source
         assert "generate_structured" in source
+
+
+class TestIsScreeningQuestion:
+    """R12/KTD6: Screening-Familien werden deny-by-default erkannt."""
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "Besitzen Sie eine gültige Arbeitserlaubnis?",
+            "Sind Sie berechtigt, in Deutschland zu arbeiten?",
+            "Welche Staatsangehörigkeit haben Sie?",
+            "Benötigen Sie ein Visum oder Sponsoring?",
+            "Haben Sie Vorstrafen?",
+            "Do you require visa sponsorship?",
+            "Are you authorized to work in the EU?",
+            "Please provide a criminal record check.",
+        ],
+    )
+    def test_matches_screening_families(self, question):
+        assert answering.is_screening_question(question) is True
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "Warum möchten Sie bei uns arbeiten?",
+            "Was sind Ihre Gehaltsvorstellungen?",
+            "Wann können Sie anfangen?",
+        ],
+    )
+    def test_non_screening_question_is_not_flagged(self, question):
+        assert answering.is_screening_question(question) is False
+
+    def test_case_and_umlaut_variants_match(self):
+        assert answering.is_screening_question("ARBEITSERLAUBNIS") is True
+        assert answering.is_screening_question("Staatsangehörigkeit") is True
+        assert answering.is_screening_question("Führungszeugnis") is True
+
+    def test_none_or_empty_is_not_screening(self):
+        assert answering.is_screening_question(None) is False
+        assert answering.is_screening_question("") is False
+
+
+class TestPortalAnswerResultSchema:
+    def test_insufficient_information_defaults_to_false(self):
+        assert PortalAnswerResult(answer="Antwort").insufficient_information is False
+
+    def test_insufficient_information_can_be_set(self):
+        result = PortalAnswerResult(answer="", insufficient_information=True)
+        assert result.insufficient_information is True

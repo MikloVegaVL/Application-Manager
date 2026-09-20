@@ -30,8 +30,14 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session as DBSession
 
+from app.core.config import settings
 from app.db.database import SessionLocal
 from app.models.application import Application
+from app.services.portal_agents.outcome import (
+    FailureReason,
+    PauseReason,
+    RunState,
+)
 
 
 @contextmanager
@@ -68,6 +74,12 @@ PAUSE_TIMEOUT_SECONDS = 3600
 # Chromium-Kindprozess wird spätestens beim Prozessende vom OS beendet.
 SHUTDOWN_GRACE_SECONDS = 5.0
 
+# Zusätzlicher Puffer über `settings.BROWSER_LAUNCH_TIMEOUT_MS` hinaus, bevor
+# `start_session()`s Backstop für einen hängenden Browser-Start greift (KTD7):
+# `chromium.launch(timeout=...)` sollte selbst schon rechtzeitig werfen; der
+# Backstop fängt den seltenen Fall ab, dass der Start darüber hinaus hängt.
+LAUNCH_BACKSTOP_GRACE_SECONDS = 5.0
+
 _active_sessions: dict[int, "PortalFillSession"] = {}
 _active_sessions_lock = threading.Lock()
 
@@ -100,6 +112,14 @@ class RunCancelledError(_StopRun):
     """Der Lauf wurde per `request_cancel()` abgebrochen."""
 
 
+class LaunchTimedOutError(Exception):
+    """Der Browser-Start hat `start_session()`s Backstop überschritten (KTD7).
+
+    `start_session()` hat den Lauf bereits als `failed`/`browser_launch_failed`
+    persistiert und den Registry-Eintrag entfernt - der wartende Aufrufer
+    (API) mappt das auf einen Fehler-Response."""
+
+
 class PortalFillSession:
     """Eine einzelne Portal-Auto-Fill-Sitzung für genau eine `Application`.
 
@@ -119,6 +139,21 @@ class PortalFillSession:
 
         self._resume_event = threading.Event()
         self.cancel_requested = threading.Event()
+        # KTD7: vom Backstop in `start_session()` gesetzt, wenn der Browser-
+        # Start zu lange hängt - der besitzende Thread prüft das, BEVOR er
+        # "running" schreibt, damit ein spät erfolgreicher Start keinen
+        # Zombie-Lauf erzeugt.
+        self.abandoned = threading.Event()
+        # P2b: serialisiert den Check-then-act zwischen dem besitzenden Thread
+        # (re-check `abandoned`, dann `running` schreiben + `launch_done`
+        # setzen) und dem Backstop (Flag setzen + `failed` schreiben). Beide
+        # nehmen dieselbe Lock, damit kein Interleaving einen Zombie-Lauf
+        # erzeugen kann.
+        self._abandon_lock = threading.Lock()
+        # KTD2: nach einem erfolgreich gelösten Captcha bleibt dessen Widget-
+        # iframe im DOM - dieses Flag verhindert ein erneutes Lösen/Prüfen
+        # über bloße Präsenz für den Rest des Laufs.
+        self.captcha_resolved = False
 
         self._playwright_cm = None
         self.playwright = None
@@ -131,20 +166,35 @@ class PortalFillSession:
 
     # --- DB-Statusübergänge --------------------------------------------
 
-    def _set_state(self, automation_state: str, action_needed_reason: str | None) -> None:
+    def _set_state(
+        self,
+        automation_state: RunState,
+        action_needed_reason: PauseReason | FailureReason | None,
+        action_needed_detail: str | None = None,
+    ) -> None:
         """Persistiert einen Automations-Statusübergang. Darf von jedem
-        Thread aufgerufen werden - reine DB-Arbeit, keine Playwright-API."""
+        Thread aufgerufen werden - reine DB-Arbeit, keine Playwright-API.
+
+        `action_needed_detail` (R9/U7) wird bei jedem Übergang gesetzt - ohne
+        Detail also auf `None` zurückgesetzt."""
+        state = RunState(automation_state)
+        reason = (
+            action_needed_reason.value
+            if isinstance(action_needed_reason, (PauseReason, FailureReason))
+            else action_needed_reason
+        )
         with _db_session() as db:
             application = db.get(Application, self.application_id)
             if application is None:
                 return
-            application.automation_state = automation_state
-            application.action_needed_reason = action_needed_reason
-            if automation_state == "running" and application.automation_started_at is None:
+            application.automation_state = state.value
+            application.action_needed_reason = reason
+            application.action_needed_detail = action_needed_detail
+            if state is RunState.RUNNING and application.automation_started_at is None:
                 application.automation_started_at = datetime.now(timezone.utc)
             db.commit()
 
-    def _abort(self, reason: str) -> None:
+    def _abort(self, reason: FailureReason) -> None:
         """Gemeinsamer Terminal-Abbruch-Ablauf (R10/KTD1/KTD4): Browser
         schließen, `automation_state="failed"` + `reason` persistieren,
         Registry-Eintrag entfernen. Der Aufrufer wirft danach selbst die
@@ -160,7 +210,7 @@ class PortalFillSession:
         der Browser bereits geschlossen und der Thread bereits beendet ist."""
         self.close()
         try:
-            self._set_state("failed", reason)
+            self._set_state(RunState.FAILED, FailureReason(reason))
         except Exception:  # noqa: BLE001 - ein DB-Fehler darf den Registry-Cleanup nicht verhindern
             logger.exception(
                 "Automations-Status (reason=%s) konnte nach Abbruch nicht persistiert werden "
@@ -175,13 +225,19 @@ class PortalFillSession:
     def launch(self, *, headed: bool = True) -> None:
         """Startet Chromium. Muss vom besitzenden (Hintergrund-)Thread
         aufgerufen werden. Eine Startfehlfunktion (fehlendes Display,
-        fehlende Browser-Binaries, ...) propagiert als Exception."""
+        fehlende Browser-Binaries, ...) propagiert als Exception.
+
+        Der Start ist über `settings.BROWSER_LAUNCH_TIMEOUT_MS` zeitlich
+        begrenzt (KTD7), damit ein hängender Chromium-Start nicht ewig
+        blockiert."""
         if sync_playwright is None:
             raise RuntimeError("Playwright ist nicht installiert.")
         self._playwright_cm = sync_playwright()
         self.playwright = self._playwright_cm.__enter__()
         try:
-            self.browser = self.playwright.chromium.launch(headless=not headed)
+            self.browser = self.playwright.chromium.launch(
+                headless=not headed, timeout=settings.BROWSER_LAUNCH_TIMEOUT_MS
+            )
             self.page = self.browser.new_page()
         except Exception:
             self._playwright_cm.__exit__(None, None, None)
@@ -205,10 +261,11 @@ class PortalFillSession:
 
     # --- Pause/Resume/Cancel --------------------------------------------
 
-    def pause(self, reason: str) -> None:
-        """Pausiert den Lauf (R10/R11): persistiert `automation_state=
-        "paused"` + `reason`, dann blockiert der AUFRUFENDE (besitzende)
-        Thread, bis `resume()` das Event setzt oder der Timeout abläuft.
+    def pause(self, reason: PauseReason, *, detail: str | None = None) -> None:
+        """Pausiert den Lauf (R9/R10/R11): persistiert `automation_state=
+        "paused"` + `reason` + optionales `detail` (das betroffene Feld/
+        die Frage), dann blockiert der AUFRUFENDE (besitzende) Thread, bis
+        `resume()` das Event setzt oder der Timeout abläuft.
 
         Läuft der Timeout ab, schließt diese Methode selbst den Browser,
         setzt `automation_state="failed"`/`"timeout"`, entfernt den
@@ -237,10 +294,10 @@ class PortalFillSession:
         `wait()` trotzdem korrekt erkannt.
         """
         self._resume_event.clear()
-        self._set_state("paused", reason)
+        self._set_state(RunState.PAUSED, PauseReason(reason), detail)
         resumed = self._resume_event.wait(timeout=self._pause_timeout_seconds)
         if not resumed:
-            self._abort("timeout")
+            self._abort(FailureReason.TIMEOUT)
             raise PauseTimedOutError()
         self._resume_event.clear()
         self.check_cancel()
@@ -251,7 +308,7 @@ class PortalFillSession:
         Ausfüllschritten in späteren Units). Bricht bei gesetztem
         `cancel_requested` den Lauf sauber ab (R10)."""
         if self.cancel_requested.is_set():
-            self._abort("cancelled_by_user")
+            self._abort(FailureReason.CANCELLED_BY_USER)
             raise RunCancelledError()
 
     def resume(self) -> None:
@@ -264,6 +321,15 @@ class PortalFillSession:
         Flag - fasst nie ein Playwright-Objekt an. Der Run-Loop bemerkt den
         Abbruch beim nächsten `check_cancel()`/`pause()`-Aufwachen."""
         self.cancel_requested.set()
+
+    def abandon(self) -> None:
+        """Vom `start_session()`-Backstop aufzurufen, wenn der Browser-Start
+        hängt (KTD7). Setzt nur ein Flag - der besitzende Thread prüft es,
+        bevor er `running` schreibt, und beendet sich dann ohne weiteren
+        Statuswechsel. Nimmt dieselbe Lock wie der besitzende Thread (P2b),
+        damit Flag-Setzen und `running`-Schreiben nicht interleaven."""
+        with self._abandon_lock:
+            self.abandoned.set()
 
 
 def _unregister(application_id: int) -> None:
@@ -306,16 +372,48 @@ def start_session(
             session.launch(headed=headed)
         except Exception as exc:  # noqa: BLE001 - an den wartenden Aufrufer weiterreichen
             launch_error.append(exc)
+            # KTD7: auch ein Startfehler ist ein klassifizierter Outcome -
+            # sofern der Backstop ihn nicht schon geschrieben hat. P2b: der
+            # Check-then-act läuft unter derselben Lock wie der Backstop.
+            with session._abandon_lock:
+                if not session.abandoned.is_set():
+                    try:
+                        session._set_state(RunState.FAILED, FailureReason.BROWSER_LAUNCH_FAILED)
+                    except Exception:  # noqa: BLE001 - ein DB-Fehler darf den Registry-Cleanup nicht verhindern
+                        logger.exception(
+                            "Automations-Status (browser_launch_failed) konnte nicht persistiert werden "
+                            "für application_id=%s",
+                            application_id,
+                        )
             _unregister(application_id)
             launch_done.set()
             return
 
-        # "running" wird VOR `launch_done.set()` persistiert: der wartende
-        # `start_session()`-Aufrufer soll erst zurückkehren, nachdem der
-        # DB-Status tatsächlich auf "running" steht (kein Race zwischen
-        # Rückkehr und diesem Schreibvorgang).
-        session._set_state("running", None)
-        launch_done.set()
+        # P2b: Re-check `abandoned` UND das `running`-Schreiben + `launch_done`
+        # laufen atomar unter derselben Lock, die der Backstop zum Setzen des
+        # Flags nutzt. Gewinnt der besitzende Thread die Lock zuerst, sieht der
+        # Backstop `launch_done` gesetzt und schreibt kein `failed` mehr;
+        # gewinnt der Backstop, sieht dieser Thread `abandoned` gesetzt und
+        # schreibt kein `running` (kein Zombie-Lauf).
+        with session._abandon_lock:
+            if session.abandoned.is_set():
+                # Der Backstop hat den Lauf bereits als
+                # failed/browser_launch_failed persistiert und deregistriert -
+                # hier nur noch den spät gestarteten Browser schließen.
+                try:
+                    session.close()
+                except Exception:  # noqa: BLE001 - Schließen darf den Fehlerpfad nicht verdecken
+                    logger.exception("Browser konnte nach Backstop nicht sauber geschlossen werden.")
+                _unregister(application_id)
+                launch_done.set()
+                return
+
+            # "running" wird VOR `launch_done.set()` persistiert: der wartende
+            # `start_session()`-Aufrufer soll erst zurückkehren, nachdem der
+            # DB-Status tatsächlich auf "running" steht (kein Race zwischen
+            # Rückkehr und diesem Schreibvorgang).
+            session._set_state(RunState.RUNNING, None)
+            launch_done.set()
         try:
             run_fn(session)
         except _StopRun:
@@ -331,7 +429,7 @@ def start_session(
             except Exception:  # noqa: BLE001 - Schließen darf den Fehlerpfad nicht verdecken
                 logger.exception("Browser konnte nach Fehler nicht sauber geschlossen werden.")
             try:
-                session._set_state("failed", "unhandled_error")
+                session._set_state(RunState.FAILED, FailureReason.UNHANDLED_ERROR)
             except Exception:  # noqa: BLE001 - ein DB-Fehler darf den Registry-Cleanup nicht verhindern
                 logger.exception(
                     "Automations-Status konnte nach unbehandeltem Fehler nicht persistiert werden "
@@ -353,8 +451,35 @@ def start_session(
     thread.start()
 
     # Blockiert nur bis der Start-Versuch feststeht (schnell: Erfolg oder
-    # sofortiger Startfehler) - NICHT bis `run_fn` fertig ist.
-    launch_done.wait()
+    # sofortiger Startfehler) - NICHT bis `run_fn` fertig ist. Der Backstop
+    # (KTD7) begrenzt einen hängenden Browser-Start.
+    backstop_seconds = settings.BROWSER_LAUNCH_TIMEOUT_MS / 1000.0 + LAUNCH_BACKSTOP_GRACE_SECONDS
+    launch_done.wait(timeout=backstop_seconds)
+    if not launch_done.is_set():
+        # P2b: Flag-Setzen und `failed`-Schreiben unter derselben Lock wie der
+        # besitzende Thread. Das `launch_done`-Recheck INNERHALB der Lock
+        # schließt die Restlücke: hat der Thread zwischen dem `wait()`-Timeout
+        # und dem Lock-Erwerb doch noch `running` geschrieben + `launch_done`
+        # gesetzt, darf der Backstop nicht mehr überschreiben.
+        timed_out = False
+        with session._abandon_lock:
+            if not launch_done.is_set():
+                session.abandoned.set()
+                try:
+                    session._set_state(RunState.FAILED, FailureReason.BROWSER_LAUNCH_FAILED)
+                except Exception:  # noqa: BLE001 - ein DB-Fehler darf den Registry-Cleanup nicht verhindern
+                    logger.exception(
+                        "Automations-Status (browser_launch_failed) konnte nach Backstop nicht "
+                        "persistiert werden für application_id=%s",
+                        application_id,
+                    )
+                timed_out = True
+        if timed_out:
+            _unregister(application_id)
+            raise LaunchTimedOutError(
+                f"Browser-Start für application_id={application_id} hat das Zeitlimit von "
+                f"{settings.BROWSER_LAUNCH_TIMEOUT_MS}ms überschritten."
+            )
     if launch_error:
         raise launch_error[0]
     return session
@@ -377,8 +502,9 @@ def reset_stale_automation_state() -> None:
             .all()
         )
         for application in stale:
-            application.automation_state = "failed"
-            application.action_needed_reason = "interrupted_by_restart"
+            application.automation_state = RunState.FAILED.value
+            application.action_needed_reason = FailureReason.INTERRUPTED_BY_RESTART.value
+            application.action_needed_detail = None
         if stale:
             db.commit()
 

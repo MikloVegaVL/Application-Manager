@@ -7,6 +7,7 @@ import { catchError, of, switchMap, takeUntil, takeWhile, timer } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatCardModule } from '@angular/material/card';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -29,21 +30,56 @@ import {
 
 type AutomationState = PortalFillStatus['automation_state'];
 
+/** Alle Pausengründe aus der U1-Vokabel (`PauseReason`) - Grundlage für die Copy-Vollständigkeit. */
+export const PAUSE_REASONS = [
+  'captcha',
+  'low_confidence_field',
+  'pre_submit_confirmation',
+  'dry_run',
+  'screening_question',
+] as const;
+
+/** Alle Fehlgründe aus der U1-Vokabel (`FailureReason`). */
+export const FAILURE_REASONS = [
+  'timeout',
+  'iframe_not_found',
+  'unhandled_error',
+  'browser_launch_failed',
+  'cancelled_by_user',
+  'interrupted_by_restart',
+  'iframe_untrusted_host',
+] as const;
+
+/** KTD5: Fehlgründe, die gefahrlos erneut versucht werden dürfen - alles andere (auch unbekannt) gilt terminal. */
+export const RETRYABLE_FAILURE_REASONS: ReadonlySet<string> = new Set<string>([
+  'timeout',
+  'iframe_not_found',
+  'unhandled_error',
+  'browser_launch_failed',
+  'interrupted_by_restart',
+]);
+
 /** Copy je `action_needed_reason` während einer Pause (R10/R11) - unbekannte/neue Gründe fallen auf einen
  * generischen Hinweis zurück statt nichts anzuzeigen. */
-const ACTION_NEEDED_COPY: Record<string, string> = {
+export const ACTION_NEEDED_COPY: Record<string, string> = {
   captcha: 'A captcha appeared — solve it in the browser window, then Continue.',
   low_confidence_field: 'A field needs your review — check the browser window, then Continue.',
   pre_submit_confirmation: 'Form is filled — review it in the browser window, then Continue to submit.',
+  dry_run:
+    'Dry run complete — the form is filled but nothing was submitted. Review it in the browser window, then submit for real.',
+  screening_question:
+    'A screening question needs a factual answer — answer it in the browser window, then Continue.',
 };
 
 /** Menschenlesbare Übersetzung der rohen `action_needed_reason`-Werte bei `failed` (siehe `session.py`). */
-const FAILURE_REASON_COPY: Record<string, string> = {
+export const FAILURE_REASON_COPY: Record<string, string> = {
   timeout: 'The run timed out waiting for you.',
   iframe_not_found: "Couldn't find the application form on that page.",
   unhandled_error: 'Something went wrong during the run.',
+  browser_launch_failed: 'The browser could not be launched.',
   cancelled_by_user: 'Cancelled.',
   interrupted_by_restart: 'Interrupted by a backend restart.',
+  iframe_untrusted_host: 'The application form is hosted on an untrusted site.',
 };
 
 /** Auswahl der Status-Filter über der Bewerbungsliste. */
@@ -57,6 +93,7 @@ type ApplicationFilter = 'all' | ApplicationStatus;
     MatButtonModule,
     MatButtonToggleModule,
     MatCardModule,
+    MatCheckboxModule,
     MatChipsModule,
     MatFormFieldModule,
     MatIconModule,
@@ -294,6 +331,22 @@ export class ApplicationsComponent implements OnInit {
     return application.action_needed_reason ?? null;
   }
 
+  /** Konkretes Feld/Frage-Label der Pause (R9) - nur aus dem Live-Status, da `ApplicationRead` es nicht liefert. */
+  protected actionNeededDetail(application: Application): string | null {
+    return this.portalFillStatuses()[application.id]?.action_needed_detail ?? null;
+  }
+
+  /** KTD5: retryable vs. terminal. Bevorzugt das vom Backend abgeleitete `failure_class`; fällt auf eine
+   * lokale Ableitung aus dem Grund zurück, solange kein Live-Status vorliegt (z. B. direkt nach `list()`). */
+  protected failureClass(application: Application): 'retryable' | 'terminal' {
+    const live = this.portalFillStatuses()[application.id];
+    if (live?.failure_class) {
+      return live.failure_class;
+    }
+    const reason = this.actionNeededReason(application);
+    return reason && RETRYABLE_FAILURE_REASONS.has(reason) ? 'retryable' : 'terminal';
+  }
+
   /** Ob für diese Karte die URL-Eingabe/der Start-Button gezeigt werden soll: noch nie gestartet, oder der
    * letzte Lauf ist fehlgeschlagen (R1) - während `running`/`paused`/`submitted` nicht. */
   protected showPortalFillTrigger(application: Application): boolean {
@@ -326,6 +379,18 @@ export class ApplicationsComponent implements OnInit {
     return (reason && FAILURE_REASON_COPY[reason]) ?? 'The run failed.';
   }
 
+  /** R3/KTD5: Label, ob der Fehler erneut versucht werden darf - inkl. Einstiegspunkt für den Retry. */
+  protected failureRetryabilityCopy(application: Application): string {
+    return this.failureClass(application) === 'retryable'
+      ? 'This failure is retryable — re-enter the form URL below and start again.'
+      : 'This failure is not retryable.';
+  }
+
+  /** KTD4: der Resume-Button einer Dry-Run-Pause muss ausdrücklich sagen, dass er wirklich sendet. */
+  protected continueActionLabel(application: Application): string {
+    return this.actionNeededReason(application) === 'dry_run' ? 'Submit for real' : 'Continue';
+  }
+
   protected submittedDateLabel(application: Application): string {
     const iso = application.automation_started_at ?? new Date().toISOString();
     return new Date(iso).toLocaleString();
@@ -335,7 +400,7 @@ export class ApplicationsComponent implements OnInit {
     this.dismissedFailureIds.update((ids) => new Set(ids).add(application.id));
   }
 
-  protected onStartPortalFill(application: Application, applicationFormUrl: string): void {
+  protected onStartPortalFill(application: Application, applicationFormUrl: string, dryRun = false): void {
     const url = applicationFormUrl.trim();
     if (!url || this.portalFillStartingId() !== null) {
       return;
@@ -351,13 +416,15 @@ export class ApplicationsComponent implements OnInit {
       return next;
     });
 
-    this.applicationService.start(application.id, url).subscribe({
+    this.applicationService.start(application.id, url, dryRun).subscribe({
       next: (updated) => {
         this.portalFillStartingId.set(null);
         this.replaceApplication(updated);
         this.setPortalFillStatus(application.id, {
           automation_state: updated.automation_state ?? null,
           action_needed_reason: updated.action_needed_reason ?? null,
+          action_needed_detail: null,
+          failure_class: null,
         });
         this.pollPortalFillPhase(application.id, 'running');
       },
@@ -386,6 +453,8 @@ export class ApplicationsComponent implements OnInit {
         this.setPortalFillStatus(application.id, {
           automation_state: updated.automation_state ?? null,
           action_needed_reason: updated.action_needed_reason ?? null,
+          action_needed_detail: null,
+          failure_class: null,
         });
       },
       error: (error: HttpErrorResponse) => {
@@ -409,7 +478,9 @@ export class ApplicationsComponent implements OnInit {
     const previous = this.portalFillStatuses()[applicationId];
     if (
       previous?.automation_state === status.automation_state &&
-      previous?.action_needed_reason === status.action_needed_reason
+      previous?.action_needed_reason === status.action_needed_reason &&
+      previous?.action_needed_detail === status.action_needed_detail &&
+      previous?.failure_class === status.failure_class
     ) {
       return; // unveränderter Tick - kein Signal-Write/Change-Detection-Zyklus nötig
     }

@@ -39,7 +39,9 @@ from app.models.application import Application
 from app.models.job_offer import JobOffer
 from app.models.portal_submission import PortalSubmission
 from app.models.profile_attachment import ProfileAttachment
+from app.schemas.portal_fill import PortalAnswerResult
 from app.services.portal_agents import base as base_module
+from app.services.portal_agents import captcha as captcha_module
 from app.services.portal_agents import personio as personio_module
 from app.services.portal_agents import session as session_module
 
@@ -264,14 +266,14 @@ def test_no_matching_iframe_fails_run_with_iframe_not_found_reason(db_session_lo
     assert application_id not in session_module._active_sessions
 
 
-def test_iframe_with_spoofed_personio_substring_in_src_is_treated_as_not_found(db_session_local):
+def test_iframe_with_spoofed_personio_substring_in_src_is_terminal_untrusted_host(db_session_local):
     """P1-Security-Regression (security-reviewer): `PERSONIO_IFRAME_SELECTOR`
     matched als reiner Substring-Anywhere-Check jedes iframe, dessen `src`
     IRGENDWO die Zeichenkette "personio" enthält - auch ein Pfadsegment einer
     gespoofften Fremd-Domain (z. B. "https://attacker.example/personio-
-    widget"). `_locate_frame()` muss den tatsächlichen Hostnamen prüfen und
-    einen solchen Treffer GENAUSO wie "kein iframe gefunden" behandeln, statt
-    echte Profildaten/Anhänge in den falschen Frame zu füllen."""
+    widget"). `_locate_frame()` prüft den tatsächlichen Hostnamen und bricht
+    einen solchen Treffer mit dem TERMINALEN Grund `iframe_untrusted_host` ab
+    (KTD5), statt echte Profildaten/Anhänge in den falschen Frame zu füllen."""
     application_id = _create_application(db_session_local)
     # Enthält "personio" als Pfadsegment, die Domain selbst ist aber
     # eindeutig KEINE echte Personio-Domain.
@@ -286,7 +288,7 @@ def test_iframe_with_spoofed_personio_substring_in_src_is_treated_as_not_found(d
     assert not session.thread.is_alive()
     application = _read_application(db_session_local, application_id)
     assert application.automation_state == "failed"
-    assert application.action_needed_reason == "iframe_not_found"
+    assert application.action_needed_reason == "iframe_untrusted_host"
     assert application_id not in session_module._active_sessions
 
 
@@ -454,7 +456,9 @@ def test_fill_freetext_questions_answers_unfilled_textarea_and_fills_it(
         '<label>Extra Frage<textarea></textarea></label>'
     )
     mock_answer = mocker.patch.object(
-        personio_module, "answer_freetext_question", return_value="Meine kurze Antwort."
+        personio_module,
+        "answer_freetext_question",
+        return_value=PortalAnswerResult(answer="Meine kurze Antwort."),
     )
 
     class _FakeSession:
@@ -521,3 +525,533 @@ def test_mandatory_pre_submit_pause_fires_before_any_submit_click(db_session_loc
     assert submission.company == "Acme GmbH"
     assert submission.job_title == "Backend Engineer"
     assert application_id not in session_module._active_sessions
+
+
+# --- U2: Captcha-Solver-Seam (KTD2) ----------------------------------------
+
+
+class _RecordingSolver:
+    """Minimaler `CaptchaSolver`-Stand-in, der seine Aufruf-Argumente
+    festhält und ein festes Ergebnis liefert."""
+
+    def __init__(self, status: "captcha_module.CaptchaSolveStatus") -> None:
+        self._status = status
+        self.calls: list[dict] = []
+
+    def solve(self, *, page_url, sitekey, frame, timeout_seconds):
+        self.calls.append(
+            {
+                "page_url": page_url,
+                "sitekey": sitekey,
+                "frame": frame,
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+        return captcha_module.CaptchaSolveResult(self._status)
+
+
+class _ConfigurableSolver:
+    """Stand-in, der wahlweise einen Status liefert, wirft oder verzögert -
+    für die personio-level Abdeckung von `unsupported`/raising/overrun (P2d)."""
+
+    def __init__(self, *, status=None, error=None, delay: float = 0.0) -> None:
+        self._status = status
+        self._error = error
+        self._delay = delay
+
+    def solve(self, *, page_url, sitekey, frame, timeout_seconds):
+        if self._delay:
+            time.sleep(self._delay)
+        if self._error is not None:
+            raise self._error
+        return captcha_module.CaptchaSolveResult(self._status)
+
+
+def test_captcha_solver_resolved_continues_and_does_not_repause_on_presence(
+    db_session_local, cv_file, mocker
+):
+    """R4/KTD2: ein `resolved`-Solver lässt den Lauf weiterlaufen - das
+    Widget-iframe bleibt im DOM, darf aber NICHT erneut eine Pause auslösen.
+    Der Solver bekommt nur minimalen Kontext (URL/Sitekey/Frame) und das
+    konfigurierte Zeitlimit."""
+    application_id = _create_application(db_session_local)
+    captcha_html = '<div class="g-recaptcha" data-sitekey="fake-sitekey"></div>' + FORM_FIELDS_HTML
+    page_html = _iframe_page("https://acme.jobs.personio.de/job/1", captcha_html)
+    fields = _standard_fields(cv_file)
+    results: dict = {}
+    run_fn = _capturing_run_fn(fields, results)
+
+    solver = _RecordingSolver(captcha_module.CaptchaSolveStatus.RESOLVED)
+    mocker.patch.object(
+        personio_module.captcha_module, "get_captcha_solver", return_value=solver
+    )
+
+    session = session_module.start_session(
+        application_id, _data_url(page_html), run_fn, headed=False
+    )
+    session.thread.join(timeout=10)
+
+    assert not session.thread.is_alive()
+    # Lauf ist durchgelaufen (keine erneute Captcha-Pause) und Felder sind
+    # gefüllt.
+    assert results["full_name"] == "Max Mustermann"
+    assert results["email"] == "max@example.com"
+    application = _read_application(db_session_local, application_id)
+    assert application.automation_state == "running"
+
+    assert len(solver.calls) == 1
+    assert solver.calls[0]["sitekey"] == "fake-sitekey"
+    assert solver.calls[0]["timeout_seconds"] == personio_module.settings.CAPTCHA_SOLVE_TIMEOUT_SECONDS
+
+
+def test_captcha_solver_failed_pauses_with_captcha_reason(db_session_local, mocker):
+    """R4/R6/KTD2: ein fehlgeschlagener Löseversuch eskaliert als
+    `paused`/`captcha`."""
+    application_id = _create_application(db_session_local)
+    captcha_html = '<div class="g-recaptcha" data-sitekey="fake"></div>' + FORM_FIELDS_HTML
+    page_html = _iframe_page("https://acme.jobs.personio.de/job/1", captcha_html)
+    solver = _RecordingSolver(captcha_module.CaptchaSolveStatus.FAILED)
+    mocker.patch.object(
+        personio_module.captcha_module, "get_captcha_solver", return_value=solver
+    )
+
+    session = session_module.start_session(
+        application_id,
+        _data_url(page_html),
+        personio_module.build_personio_run_fn([], iframe_wait_timeout_ms=3000),
+        headed=False,
+    )
+    application = _wait_for_state(db_session_local, application_id, "paused")
+
+    assert application.automation_state == "paused"
+    assert application.action_needed_reason == "captcha"
+
+    session.request_cancel()
+    session.resume()
+    session.thread.join(timeout=5)
+
+
+@pytest.mark.parametrize(
+    "status",
+    [captcha_module.CaptchaSolveStatus.UNSUPPORTED, captcha_module.CaptchaSolveStatus.FAILED],
+)
+def test_captcha_solver_non_resolved_status_pauses_with_captcha_reason(
+    db_session_local, mocker, status
+):
+    """P2d/R4/R6/KTD2: `unsupported` (wie `failed`) eskaliert als
+    `paused`/`captcha` - personio-level, nicht nur auf der Seam-Ebene."""
+    application_id = _create_application(db_session_local)
+    captcha_html = '<div class="g-recaptcha" data-sitekey="fake"></div>' + FORM_FIELDS_HTML
+    page_html = _iframe_page("https://acme.jobs.personio.de/job/1", captcha_html)
+    solver = _ConfigurableSolver(status=status)
+    mocker.patch.object(
+        personio_module.captcha_module, "get_captcha_solver", return_value=solver
+    )
+
+    session = session_module.start_session(
+        application_id,
+        _data_url(page_html),
+        personio_module.build_personio_run_fn([], iframe_wait_timeout_ms=3000),
+        headed=False,
+    )
+    application = _wait_for_state(db_session_local, application_id, "paused")
+
+    assert application.automation_state == "paused"
+    assert application.action_needed_reason == "captcha"
+
+    session.request_cancel()
+    session.resume()
+    session.thread.join(timeout=5)
+
+
+def test_captcha_solver_raising_pauses_with_captcha_reason(db_session_local, mocker):
+    """P2d/R6/KTD2: eine Exception aus `solve()` eskaliert als
+    `paused`/`captcha` statt den Lauf zu beenden."""
+    application_id = _create_application(db_session_local)
+    captcha_html = '<div class="g-recaptcha" data-sitekey="fake"></div>' + FORM_FIELDS_HTML
+    page_html = _iframe_page("https://acme.jobs.personio.de/job/1", captcha_html)
+    solver = _ConfigurableSolver(error=RuntimeError("provider down"))
+    mocker.patch.object(
+        personio_module.captcha_module, "get_captcha_solver", return_value=solver
+    )
+
+    session = session_module.start_session(
+        application_id,
+        _data_url(page_html),
+        personio_module.build_personio_run_fn([], iframe_wait_timeout_ms=3000),
+        headed=False,
+    )
+    application = _wait_for_state(db_session_local, application_id, "paused")
+
+    assert application.automation_state == "paused"
+    assert application.action_needed_reason == "captcha"
+
+    session.request_cancel()
+    session.resume()
+    session.thread.join(timeout=5)
+
+
+def test_captcha_solver_overrun_pauses_with_captcha_reason(db_session_local, mocker):
+    """P2d/R6/KTD2: ein Solver, der das Zeitlimit überzieht, eskaliert als
+    `paused`/`captcha` - der Lauf blockiert nicht (P2a)."""
+    application_id = _create_application(db_session_local)
+    captcha_html = '<div class="g-recaptcha" data-sitekey="fake"></div>' + FORM_FIELDS_HTML
+    page_html = _iframe_page("https://acme.jobs.personio.de/job/1", captcha_html)
+    mocker.patch.object(personio_module.settings, "CAPTCHA_SOLVE_TIMEOUT_SECONDS", 0.05)
+    solver = _ConfigurableSolver(
+        status=captcha_module.CaptchaSolveStatus.RESOLVED, delay=0.5
+    )
+    mocker.patch.object(
+        personio_module.captcha_module, "get_captcha_solver", return_value=solver
+    )
+
+    session = session_module.start_session(
+        application_id,
+        _data_url(page_html),
+        personio_module.build_personio_run_fn([], iframe_wait_timeout_ms=3000),
+        headed=False,
+    )
+    application = _wait_for_state(db_session_local, application_id, "paused")
+
+    assert application.automation_state == "paused"
+    assert application.action_needed_reason == "captcha"
+
+    session.request_cancel()
+    session.resume()
+    session.thread.join(timeout=5)
+
+
+# --- U5: Screening-Guard (KTD6) --------------------------------------------
+
+
+class _RecordingSession:
+    """Minimaler Session-Stand-in für direkte `_fill_freetext_questions()`-
+    Aufrufe: hält Pausen fest, statt zu blockieren."""
+
+    def __init__(self, application_id: int, page) -> None:
+        self.application_id = application_id
+        self.page = page
+        self.pauses: list[tuple] = []
+        self.captcha_resolved = False
+
+    def check_cancel(self) -> None:
+        pass
+
+    def pause(self, reason, *, detail=None) -> None:
+        self.pauses.append((reason, detail))
+
+
+def test_screening_freetext_question_pauses_without_calling_llm(db_session_local, page, mocker):
+    """R12/KTD6: eine Arbeitserlaubnis-Frage pausiert mit
+    `screening_question`, BEVOR das LLM aufgerufen wird - das Feld bleibt
+    leer."""
+    application_id = _create_application(db_session_local)
+    page.set_content(
+        '<label>Arbeitserlaubnis<textarea></textarea></label>'
+    )
+    mock_answer = mocker.patch.object(
+        personio_module, "answer_freetext_question", return_value=PortalAnswerResult(answer="x")
+    )
+    fake_session = _RecordingSession(application_id, page)
+
+    personio_module._fill_freetext_questions(fake_session, page)
+
+    mock_answer.assert_not_called()
+    assert fake_session.pauses == [(personio_module.PauseReason.SCREENING_QUESTION, "Arbeitserlaubnis")]
+    assert page.get_by_label("Arbeitserlaubnis").input_value() == ""
+
+
+def test_insufficient_information_from_llm_pauses_as_screening_question(
+    db_session_local, page, mocker
+):
+    """R12/KTD6: ein paraphrasierte Screening-Frage, die der Keyword-Detektor
+    nicht erkennt, wird durch das `insufficient_information`-Signal des LLM
+    abgefangen - das Feld bleibt leer."""
+    application_id = _create_application(db_session_local)
+    page.set_content('<label>Paraphrased Frage<textarea></textarea></label>')
+    mocker.patch.object(
+        personio_module,
+        "answer_freetext_question",
+        return_value=PortalAnswerResult(answer="", insufficient_information=True),
+    )
+    fake_session = _RecordingSession(application_id, page)
+
+    personio_module._fill_freetext_questions(fake_session, page)
+
+    assert fake_session.pauses == [
+        (personio_module.PauseReason.SCREENING_QUESTION, "Paraphrased Frage")
+    ]
+    assert page.get_by_label("Paraphrased Frage").input_value() == ""
+
+
+def test_llm_failure_on_non_screening_question_pauses_with_low_confidence(
+    db_session_local, page, mocker
+):
+    application_id = _create_application(db_session_local)
+    page.set_content('<label>Warum bei uns?<textarea></textarea></label>')
+    mocker.patch.object(
+        personio_module, "answer_freetext_question", side_effect=RuntimeError("ollama down")
+    )
+    fake_session = _RecordingSession(application_id, page)
+
+    personio_module._fill_freetext_questions(fake_session, page)
+
+    assert fake_session.pauses == [
+        (personio_module.PauseReason.LOW_CONFIDENCE_FIELD, "Warum bei uns?")
+    ]
+
+
+def test_radio_screening_question_is_left_unanswered(db_session_local, page, mocker):
+    """KTD6: Screening-Fragen als Radio/Select werden nicht automatisch
+    beantwortet - nur `<textarea>`-Freitexte werden angefasst, ein Radio
+    bleibt unfilled."""
+    application_id = _create_application(db_session_local)
+    page.set_content(
+        '<fieldset><legend>Arbeitserlaubnis</legend>'
+        '<label><input type="radio" name="work_permit" value="yes" /> Ja</label>'
+        '<label><input type="radio" name="work_permit" value="no" /> Nein</label>'
+        "</fieldset>"
+    )
+    mock_answer = mocker.patch.object(
+        personio_module, "answer_freetext_question", return_value=PortalAnswerResult(answer="x")
+    )
+    fake_session = _RecordingSession(application_id, page)
+
+    personio_module._fill_freetext_questions(fake_session, page)
+
+    mock_answer.assert_not_called()
+    assert fake_session.pauses == []
+    assert page.locator('input[name="work_permit"]:checked').count() == 0
+
+
+# --- U4: Auto-Submit-Policy + Dry-Run (KTD3/KTD4) --------------------------
+
+
+def test_auto_submit_off_pauses_before_submit(db_session_local, cv_file):
+    """R8/KTD3: Default (aus) pausiert IMMER vor dem Submit."""
+    application_id = _create_application(db_session_local)
+    page_html = _iframe_page("https://acme.jobs.personio.de/job/1", FORM_FIELDS_WITH_SUBMIT_HTML)
+    fields = _standard_fields(cv_file)
+
+    session = session_module.start_session(
+        application_id,
+        _data_url(page_html),
+        personio_module.build_personio_run_fn(fields, iframe_wait_timeout_ms=3000),
+        headed=False,
+    )
+    application = _wait_for_state(db_session_local, application_id, "paused")
+
+    assert application.action_needed_reason == "pre_submit_confirmation"
+
+    session.request_cancel()
+    session.resume()
+    session.thread.join(timeout=5)
+
+
+def test_auto_submit_on_with_all_fields_confident_submits_without_pause(
+    db_session_local, cv_file, mocker
+):
+    """R7/KTD3: Auto-Submit an + alle Felder gemappt + kein Captcha => der
+    Lauf sendet ohne jede Pause."""
+    mocker.patch.object(personio_module.settings, "AUTO_SUBMIT_ENABLED", True)
+    application_id = _create_application(db_session_local)
+    page_html = _iframe_page("https://acme.jobs.personio.de/job/1", FORM_FIELDS_WITH_SUBMIT_HTML)
+    fields = _standard_fields(cv_file)
+
+    session = session_module.start_session(
+        application_id,
+        _data_url(page_html),
+        personio_module.build_personio_run_fn(fields, iframe_wait_timeout_ms=3000),
+        headed=False,
+    )
+    session.thread.join(timeout=10)
+
+    assert not session.thread.is_alive()
+    application = _read_application(db_session_local, application_id)
+    assert application.automation_state == "submitted"
+    assert _read_portal_submission(db_session_local, application_id) is not None
+
+
+def test_auto_submit_on_with_unmapped_field_does_not_submit(db_session_local, mocker):
+    """R7/AE3: ein nicht gemapptes Feld blockiert den Auto-Submit."""
+    mocker.patch.object(personio_module.settings, "AUTO_SUBMIT_ENABLED", True)
+    application_id = _create_application(db_session_local)
+    page_html = _iframe_page("https://acme.jobs.personio.de/job/1", FORM_FIELDS_WITH_SUBMIT_HTML)
+    fields = [personio_module.PersonioField(kind="select", value="Narnia", label="Country")]
+
+    session = session_module.start_session(
+        application_id,
+        _data_url(page_html),
+        personio_module.build_personio_run_fn(fields, iframe_wait_timeout_ms=3000),
+        headed=False,
+    )
+    application = _wait_for_state(db_session_local, application_id, "paused")
+
+    assert application.action_needed_reason == "low_confidence_field"
+    assert application.action_needed_detail == "Country"
+    assert _read_portal_submission(db_session_local, application_id) is None
+
+    session.request_cancel()
+    session.resume()
+    session.thread.join(timeout=5)
+
+
+def test_auto_submit_on_with_llm_freetext_answer_does_not_submit(
+    db_session_local, mocker
+):
+    """KTD3/KTD6: eine LLM-generierte Freitext-Antwort gilt als unbestätigt
+    und blockiert den Auto-Submit."""
+    mocker.patch.object(personio_module.settings, "AUTO_SUBMIT_ENABLED", True)
+    application_id = _create_application(db_session_local)
+    page_html = _iframe_page(
+        "https://acme.jobs.personio.de/job/1",
+        '<label>Warum bei uns?<textarea></textarea></label>' + FORM_FIELDS_WITH_SUBMIT_HTML,
+    )
+    mocker.patch.object(
+        personio_module,
+        "answer_freetext_question",
+        return_value=PortalAnswerResult(answer="Weil es passt."),
+    )
+
+    session = session_module.start_session(
+        application_id,
+        _data_url(page_html),
+        personio_module.build_personio_run_fn([], iframe_wait_timeout_ms=3000),
+        headed=False,
+    )
+    application = _wait_for_state(db_session_local, application_id, "paused")
+
+    assert application.action_needed_reason == "pre_submit_confirmation"
+    assert _read_portal_submission(db_session_local, application_id) is None
+
+    session.request_cancel()
+    session.resume()
+    session.thread.join(timeout=5)
+
+
+def test_auto_submit_on_with_remaining_captcha_does_not_submit(db_session_local, cv_file, mocker):
+    """P2d/R7/KTD3: Auto-Submit an, aber ein Captcha verbleibt (kein Solver
+    konfiguriert) - der Lauf pausiert mit `captcha` und sendet NICHT."""
+    mocker.patch.object(personio_module.settings, "AUTO_SUBMIT_ENABLED", True)
+    application_id = _create_application(db_session_local)
+    captcha_html = '<div class="g-recaptcha" data-sitekey="fake"></div>' + FORM_FIELDS_WITH_SUBMIT_HTML
+    page_html = _iframe_page("https://acme.jobs.personio.de/job/1", captcha_html)
+    fields = _standard_fields(cv_file)
+
+    session = session_module.start_session(
+        application_id,
+        _data_url(page_html),
+        personio_module.build_personio_run_fn(fields, iframe_wait_timeout_ms=3000),
+        headed=False,
+    )
+    application = _wait_for_state(db_session_local, application_id, "paused")
+
+    assert application.automation_state == "paused"
+    assert application.action_needed_reason == "captcha"
+    assert _read_portal_submission(db_session_local, application_id) is None
+
+    session.request_cancel()
+    session.resume()
+    session.thread.join(timeout=5)
+
+
+def test_required_screening_radio_blocks_auto_submit(db_session_local, mocker):
+    """P1a/R12/KTD3: ein required Screening-Radio, das NICHT in der
+    `fields`-Liste des Aufrufers steht, ist für `_fill_known_fields`
+    unsichtbar. Die Pre-Submit-Sonde erkennt es, pausiert mit
+    `screening_question` und verhindert so einen Auto-Submit mit leerem
+    Pflichtfeld."""
+    mocker.patch.object(personio_module.settings, "AUTO_SUBMIT_ENABLED", True)
+    application_id = _create_application(db_session_local)
+    screening_radio = (
+        "<fieldset><legend>Arbeitserlaubnis</legend>"
+        '<label><input type="radio" name="work_permit" value="yes" required '
+        'aria-label="Arbeitserlaubnis" /> Ja</label>'
+        '<label><input type="radio" name="work_permit" value="no" /> Nein</label>'
+        "</fieldset>"
+    )
+    page_html = _iframe_page(
+        "https://acme.jobs.personio.de/job/1", screening_radio + FORM_FIELDS_WITH_SUBMIT_HTML
+    )
+
+    session = session_module.start_session(
+        application_id,
+        _data_url(page_html),
+        personio_module.build_personio_run_fn([], iframe_wait_timeout_ms=3000),
+        headed=False,
+    )
+    application = _wait_for_state(db_session_local, application_id, "paused")
+
+    assert application.automation_state == "paused"
+    assert application.action_needed_reason == "screening_question"
+    assert application.action_needed_detail == "Arbeitserlaubnis"
+    assert _read_portal_submission(db_session_local, application_id) is None
+
+    session.request_cancel()
+    session.resume()
+    session.thread.join(timeout=5)
+
+
+def test_dry_run_pauses_without_submitting_and_resume_submits(db_session_local, cv_file):
+    """R11/KTD4: ein Dry-Run pausiert mit `dry_run` und schreibt KEINE
+    `PortalSubmission`; erst der Resume sendet wirklich."""
+    application_id = _create_application(db_session_local)
+    page_html = _iframe_page("https://acme.jobs.personio.de/job/1", FORM_FIELDS_WITH_SUBMIT_HTML)
+    fields = _standard_fields(cv_file)
+
+    session = session_module.start_session(
+        application_id,
+        _data_url(page_html),
+        personio_module.build_personio_run_fn(
+            fields, iframe_wait_timeout_ms=3000, dry_run=True
+        ),
+        headed=False,
+    )
+    application = _wait_for_state(db_session_local, application_id, "paused")
+
+    assert application.automation_state == "paused"
+    assert application.action_needed_reason == "dry_run"
+    assert _read_portal_submission(db_session_local, application_id) is None
+
+    session.resume()
+    session.thread.join(timeout=10)
+
+    assert not session.thread.is_alive()
+    application = _read_application(db_session_local, application_id)
+    assert application.automation_state == "submitted"
+    assert _read_portal_submission(db_session_local, application_id) is not None
+
+
+def test_dry_run_with_auto_submit_on_still_pauses_and_resume_submits(
+    db_session_local, cv_file, mocker
+):
+    """P2d/R11/KTD4: `dry_run` schlägt den Auto-Submit - auch bei
+    `AUTO_SUBMIT_ENABLED=True` pausiert der Lauf zuerst mit `dry_run` und
+    schreibt KEINE `PortalSubmission`; erst der Resume sendet wirklich."""
+    mocker.patch.object(personio_module.settings, "AUTO_SUBMIT_ENABLED", True)
+    application_id = _create_application(db_session_local)
+    page_html = _iframe_page("https://acme.jobs.personio.de/job/1", FORM_FIELDS_WITH_SUBMIT_HTML)
+    fields = _standard_fields(cv_file)
+
+    session = session_module.start_session(
+        application_id,
+        _data_url(page_html),
+        personio_module.build_personio_run_fn(
+            fields, iframe_wait_timeout_ms=3000, dry_run=True
+        ),
+        headed=False,
+    )
+    application = _wait_for_state(db_session_local, application_id, "paused")
+
+    assert application.automation_state == "paused"
+    assert application.action_needed_reason == "dry_run"
+    assert _read_portal_submission(db_session_local, application_id) is None
+
+    session.resume()
+    session.thread.join(timeout=10)
+
+    assert not session.thread.is_alive()
+    application = _read_application(db_session_local, application_id)
+    assert application.automation_state == "submitted"
+    assert _read_portal_submission(db_session_local, application_id) is not None
+

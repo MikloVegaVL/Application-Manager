@@ -20,10 +20,72 @@ from app.models.job_offer import JobOffer
 from app.models.master_profile import MasterProfile
 from app.schemas.portal_fill import PortalAnswerResult
 from app.services import llm_client
+from app.services.portal_agents import base as base_module
 
 # Begrenzt die an die KI gesendete Stellenbeschreibung (Kosten-/Token-Schutz),
 # analog zu `ai_generator._MAX_JOB_DESCRIPTION_CHARS`.
 _MAX_JOB_DESCRIPTION_CHARS = 6_000
+
+# Screening-Frage-Familien (R12/KTD6), die NIE automatisch beantwortet werden:
+# Arbeitserlaubnis, Staatsangehörigkeit, Visum/Sponsoring, Vorstrafen. Die
+# Erkennung ist bewusst keyword-basiert (kein Modellaufruf) und deny-by-default
+# - ein Treffer pausiert VOR jedem LLM-Aufruf.
+_SCREENING_KEYWORDS: tuple[str, ...] = (
+    # Arbeitserlaubnis / Arbeitsberechtigung
+    "arbeitserlaubnis",
+    "arbeitsberechtigung",
+    "arbeitsberechtigt",
+    "berechtigt",
+    "arbeitsgenehmigung",
+    "aufenthaltstitel",
+    "niederlassungserlaubnis",
+    "work authorization",
+    "work authorisation",
+    "authorized to work",
+    "authorised to work",
+    "work permit",
+    "right to work",
+    # Visum / Sponsoring
+    "visum",
+    "visa",
+    "sponsorship",
+    "sponsor",
+    # Staatsangehörigkeit
+    "staatsangehorigkeit",
+    "staatsangehoerigkeit",
+    "citizenship",
+    "nationality",
+    "nationalitat",
+    "nationalitaet",
+    # Vorstrafen
+    "vorstrafe",
+    "vorstrafen",
+    "fuhrungszeugnis",
+    "fuehrungszeugnis",
+    "criminal",
+    "criminal record",
+    "criminal history",
+)
+
+# Vorab (case-/umlaut-insensitiv) normalisierte Schlagwörter - dieselbe
+# Normalisierung wie `base._normalize_for_matching` (KTD6).
+_NORMALIZED_SCREENING_KEYWORDS: tuple[str, ...] = tuple(
+    base_module._normalize_for_matching(keyword) for keyword in _SCREENING_KEYWORDS
+)
+
+
+def is_screening_question(question: str | None) -> bool:
+    """Erkennt eine Screening-Frage (R12/KTD6) - case- und umlaut-insensitiv.
+
+    Ein Treffer pausiert den Lauf, bevor überhaupt ein LLM aufgerufen wird.
+    Die Erkennung ist absichtlich konservativ (Over-Triggering pausiert nur,
+    ist also sicher); ein übersehenes paraphrased Frage wird durch das
+    `insufficient_information`-Signal des LLM abgefangen."""
+    if not question:
+        return False
+    normalized = base_module._normalize_for_matching(question)
+    return any(keyword in normalized for keyword in _NORMALIZED_SCREENING_KEYWORDS)
+
 
 _SYSTEM_PROMPT = """\
 Du bist ein erfahrener Karriereberater und Texter für Bewerbungsunterlagen \
@@ -39,12 +101,18 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt exakt in folgender Form \
 (keine Erklärtexte, kein Markdown, keine Code-Fences):
 
 {
-  "answer": "<Antwort: 1 kurzer, überzeugender Absatz, keine Anrede/Grußformel>"
+  "answer": "<Antwort: 1 kurzer, überzeugender Absatz, keine Anrede/Grußformel>",
+  "insufficient_information": false
 }
 
 Regeln:
 - Erfinde KEINE Fakten (Firmen, Zeiträume, Abschlüsse, Institutionen), die \
 nicht im Bewerberprofil stehen.
+- Kannst du die Frage NICHT allein aus dem Bewerberprofil beantworten, setze \
+"insufficient_information" auf true und fülle "answer" mit einem leeren \
+String. Das gilt insbesondere für Screening-Fragen wie Arbeitserlaubnis, \
+Staatsangehörigkeit, Visum/Sponsoring oder Vorstrafen - rate dort NIEMALS \
+eine Antwort.
 - Die Antwort ist EIN kurzer Absatz (2-4 Sätze) - kein vollständiges \
 Anschreiben, keine Liste, keine Anrede oder Grußformel.
 - Keine Füllsatz-Einleitungen oder leere Standardfloskeln ("Mit großem \
@@ -108,10 +176,14 @@ def answer_freetext_question(
     profile: MasterProfile,
     job_offer: JobOffer,
     cover_letter_text: str | None = None,
-) -> str:
+) -> PortalAnswerResult:
     """Erzeugt eine kurze Antwort auf `question` (R7/R8), gestützt auf
     `profile`, `job_offer` und - falls vorhanden - `cover_letter_text` (das
     für diese Bewerbung bereits generierte Anschreiben).
+
+    Liefert das volle `PortalAnswerResult` zurück (nicht nur den Text), damit
+    der Aufrufer `insufficient_information` (KTD6) auswerten und den Lauf
+    stattdessen pausieren kann.
 
     Lässt Fehler aus `llm_client.generate_structured` UNVERÄNDERT durch -
     kein eigenes Fangen/Übersetzen hier (siehe Moduldoc, KTD6).
@@ -123,5 +195,4 @@ def answer_freetext_question(
             "content": _build_user_prompt(question, profile, job_offer, cover_letter_text),
         },
     ]
-    result = llm_client.generate_structured(PortalAnswerResult, messages)
-    return result.answer
+    return llm_client.generate_structured(PortalAnswerResult, messages)

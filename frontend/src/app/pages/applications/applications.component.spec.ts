@@ -7,7 +7,13 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { of } from 'rxjs';
 import { vi } from 'vitest';
 
-import { ApplicationsComponent } from './applications.component';
+import {
+  ACTION_NEEDED_COPY,
+  ApplicationsComponent,
+  FAILURE_REASON_COPY,
+  FAILURE_REASONS,
+  PAUSE_REASONS,
+} from './applications.component';
 import { Application } from '../../core/models/application.model';
 import { JobOfferRead } from '../../core/models/job-offer.model';
 import { TabTitleService } from '../../core/services/tab-title.service';
@@ -379,7 +385,10 @@ describe('ApplicationsComponent', () => {
     function startRun(): void {
       component['onStartPortalFill'](sampleApplication, 'https://portal.example/apply');
       const startReq = httpMock.expectOne((request) => request.url === startUrl && request.method === 'POST');
-      expect(startReq.request.body).toEqual({ application_form_url: 'https://portal.example/apply' });
+      expect(startReq.request.body).toEqual({
+        application_form_url: 'https://portal.example/apply',
+        dry_run: false,
+      });
       startReq.flush({ ...sampleApplication, automation_state: 'running', action_needed_reason: null });
       fixture.detectChanges();
     }
@@ -571,5 +580,153 @@ describe('ApplicationsComponent', () => {
       expect(settledSpy).toHaveBeenCalledTimes(1);
       fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
     }));
+
+    it('Covers R11: the dry-run checkbox sends dry_run: true on start', fakeAsync(() => {
+      flushList([sampleApplication]);
+
+      component['onStartPortalFill'](sampleApplication, 'https://portal.example/apply', true);
+      const startReq = httpMock.expectOne((request) => request.url === startUrl && request.method === 'POST');
+      expect(startReq.request.body).toEqual({
+        application_form_url: 'https://portal.example/apply',
+        dry_run: true,
+      });
+      startReq.flush({ ...sampleApplication, automation_state: 'running', action_needed_reason: null });
+      fixture.detectChanges();
+
+      tick(5000);
+      expectStatusPoll().flush({
+        automation_state: 'running',
+        action_needed_reason: null,
+        action_needed_detail: null,
+        failure_class: null,
+      });
+      fixture.destroy(); // still `running` - stop the periodic poll so fakeAsync can settle.
+    }));
+
+    it('Covers R3/KTD5: the status poll carries failure_class into a retryable failure notice', fakeAsync(() => {
+      flushList([sampleApplication]);
+      startRun();
+
+      tick(5000);
+      expectStatusPoll().flush({
+        automation_state: 'failed',
+        action_needed_reason: 'browser_launch_failed',
+        action_needed_detail: null,
+        failure_class: 'retryable',
+      });
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('The browser could not be launched.');
+      expect(text).toContain('This failure is retryable');
+      expect(text).toContain('re-enter the form URL below');
+    }));
+
+    it('Covers R3/KTD5: a terminal failure is labeled as not retryable', fakeAsync(() => {
+      flushList([sampleApplication]);
+      startRun();
+
+      tick(5000);
+      expectStatusPoll().flush({
+        automation_state: 'failed',
+        action_needed_reason: 'iframe_untrusted_host',
+        action_needed_detail: null,
+        failure_class: 'terminal',
+      });
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('hosted on an untrusted site');
+      expect(text).toContain('This failure is not retryable');
+      expect(text).not.toContain('This failure is retryable');
+    }));
+
+    it('Covers R9: the pause notice renders action_needed_detail for low_confidence_field and screening_question', fakeAsync(() => {
+      flushList([sampleApplication]);
+      startRun();
+
+      tick(5000);
+      expectStatusPoll().flush({
+        automation_state: 'paused',
+        action_needed_reason: 'low_confidence_field',
+        action_needed_detail: 'Berufserfahrung',
+        failure_class: null,
+      });
+      fixture.detectChanges();
+
+      let text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('A field needs your review');
+      expect(text).toContain('Berufserfahrung');
+
+      tick(5000);
+      expectStatusPoll().flush({
+        automation_state: 'paused',
+        action_needed_reason: 'screening_question',
+        action_needed_detail: 'Arbeitserlaubnis',
+        failure_class: null,
+      });
+      fixture.detectChanges();
+
+      text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('A screening question needs a factual answer');
+      expect(text).toContain('Arbeitserlaubnis');
+      expect(text).not.toContain('Berufserfahrung');
+      fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
+    }));
+
+    it('Covers KTD4/R11: the dry-run pause copy and resume action differ from pre_submit_confirmation', fakeAsync(() => {
+      flushList([sampleApplication]);
+      startRun();
+
+      tick(5000);
+      expectStatusPoll().flush({
+        automation_state: 'paused',
+        action_needed_reason: 'dry_run',
+        action_needed_detail: null,
+        failure_class: null,
+      });
+      fixture.detectChanges();
+
+      let text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('Dry run complete');
+      expect(text).not.toContain('Form is filled');
+      expect(text).toContain('Submit for real');
+      expect(text).not.toContain('Continue');
+
+      tick(5000);
+      expectStatusPoll().flush({
+        automation_state: 'paused',
+        action_needed_reason: 'pre_submit_confirmation',
+        action_needed_detail: null,
+        failure_class: null,
+      });
+      fixture.detectChanges();
+
+      text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('Form is filled');
+      expect(text).toContain('Continue');
+      expect(text).not.toContain('Submit for real');
+      fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
+    }));
+  });
+
+  describe('portal auto-fill outcome copy (U6)', () => {
+    it('Covers U6: every pause and failure reason has specific copy', () => {
+      flushList([]);
+
+      for (const reason of PAUSE_REASONS) {
+        expect(ACTION_NEEDED_COPY[reason]).toBeTruthy();
+      }
+      for (const reason of FAILURE_REASONS) {
+        expect(FAILURE_REASON_COPY[reason]).toBeTruthy();
+      }
+    });
+
+    it('Covers U6: unknown reasons are absent from the maps so the component fallback applies', () => {
+      flushList([]);
+
+      expect(ACTION_NEEDED_COPY['not_a_reason']).toBeUndefined();
+      expect(FAILURE_REASON_COPY['not_a_reason']).toBeUndefined();
+    });
   });
 });
