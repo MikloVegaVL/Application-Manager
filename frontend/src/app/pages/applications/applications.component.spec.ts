@@ -708,6 +708,129 @@ describe('ApplicationsComponent', () => {
       expect(text).not.toContain('Submit for real');
       fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
     }));
+
+    describe('pause-time screenshot (R2/U2/U4)', () => {
+      const screenshotUrl = `${environment.apiBaseUrl}/applications/1/portal-fill/screenshot`;
+
+      function queryScreenshotImg(): HTMLImageElement | null {
+        return fixture.nativeElement.querySelector('.application-card__portal-fill-screenshot');
+      }
+
+      it('renders the screenshot image on a pause, pointing at the screenshot endpoint', fakeAsync(() => {
+        flushList([sampleApplication]);
+        startRun();
+
+        tick(5000);
+        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'pre_submit_confirmation' });
+        fixture.detectChanges();
+
+        const img = queryScreenshotImg();
+        expect(img).not.toBeNull();
+        expect(img!.getAttribute('src')).toBe(`${screenshotUrl}?t=0`);
+        fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
+      }));
+
+      it('does not render the screenshot image outside a pause', fakeAsync(() => {
+        flushList([sampleApplication]);
+        startRun();
+
+        tick(5000);
+        expectStatusPoll().flush({ automation_state: 'running', action_needed_reason: null });
+        fixture.detectChanges();
+
+        expect(queryScreenshotImg()).toBeNull();
+        fixture.destroy(); // still `running` - stop the periodic poll so fakeAsync can settle.
+      }));
+
+      it('Refresh re-requests the image with a new cache-busting token', fakeAsync(() => {
+        flushList([sampleApplication]);
+        startRun();
+
+        tick(5000);
+        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'pre_submit_confirmation' });
+        fixture.detectChanges();
+
+        component['onRefreshScreenshot'](sampleApplication);
+        fixture.detectChanges();
+
+        expect(queryScreenshotImg()!.getAttribute('src')).toBe(`${screenshotUrl}?t=1`);
+        fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
+      }));
+
+      it('hides the image instead of a broken-image icon on any load failure', fakeAsync(() => {
+        flushList([sampleApplication]);
+        startRun();
+
+        tick(5000);
+        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'pre_submit_confirmation' });
+        fixture.detectChanges();
+
+        queryScreenshotImg()!.dispatchEvent(new Event('error'));
+        fixture.detectChanges();
+
+        expect(queryScreenshotImg()).toBeNull();
+        fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
+      }));
+
+      it('a fresh pause clears a previous load failure and shows the image again', fakeAsync(() => {
+        flushList([sampleApplication]);
+        startRun();
+
+        tick(5000);
+        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'low_confidence_field' });
+        fixture.detectChanges();
+        queryScreenshotImg()!.dispatchEvent(new Event('error'));
+        fixture.detectChanges();
+        expect(queryScreenshotImg()).toBeNull();
+
+        component['onContinuePortalFill'](sampleApplication);
+        httpMock.expectOne((request) => request.url === continueUrl && request.method === 'POST').flush({
+          ...sampleApplication,
+          automation_state: 'running',
+          action_needed_reason: null,
+        });
+        tick(5000);
+        expectStatusPoll().flush({ automation_state: 'running', action_needed_reason: null });
+        fixture.detectChanges();
+
+        tick(5000);
+        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'pre_submit_confirmation' });
+        fixture.detectChanges();
+
+        expect(queryScreenshotImg()).not.toBeNull();
+        fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
+      }));
+
+      it('shows the live connection instructions only for a captcha pause', fakeAsync(() => {
+        flushList([sampleApplication]);
+        startRun();
+
+        tick(5000);
+        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
+        fixture.detectChanges();
+
+        let text = fixture.nativeElement.textContent as string;
+        expect(text).toContain('localhost:9222');
+
+        component['onContinuePortalFill'](sampleApplication);
+        httpMock.expectOne((request) => request.url === continueUrl && request.method === 'POST').flush({
+          ...sampleApplication,
+          automation_state: 'running',
+          action_needed_reason: null,
+        });
+        tick(5000);
+        expectStatusPoll().flush({ automation_state: 'running', action_needed_reason: null });
+        fixture.detectChanges();
+
+        tick(5000);
+        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'pre_submit_confirmation' });
+        fixture.detectChanges();
+
+        text = fixture.nativeElement.textContent as string;
+        expect(text).not.toContain('localhost:9222');
+        fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
+      }));
+    });
   });
 
   describe('portal auto-fill outcome copy (U6)', () => {

@@ -68,6 +68,13 @@ export class ApplicationService {
     return this.http.get<PortalFillStatus>(`${this.baseUrl}/${applicationId}/portal-fill/status`);
   }
 
+  /** URL des Pause-Screenshots (R2/U2) - bewusst NUR die URL, kein `Observable<Blob>`: die Vorlage bindet
+   * sie direkt an `<img [src]>`, genau wie andere binäre Inhalte in dieser Codebasis (siehe `download_photo`-
+   * Analogie im Backend). */
+  portalFillScreenshotUrl(applicationId: number): string {
+    return `${this.baseUrl}/${applicationId}/portal-fill/screenshot`;
+  }
+
   /** Setzt einen pausierten Portal-Auto-Fill-Lauf fort (R10/R11). */
   continuePortalFill(applicationId: number): Observable<Application> {
     return this.http.post<Application>(`${this.baseUrl}/${applicationId}/portal-fill/continue`, {});

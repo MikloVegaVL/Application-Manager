@@ -60,16 +60,22 @@ export const RETRYABLE_FAILURE_REASONS: ReadonlySet<string> = new Set<string>([
 ]);
 
 /** Copy je `action_needed_reason` während einer Pause (R10/R11) - unbekannte/neue Gründe fallen auf einen
- * generischen Hinweis zurück statt nichts anzuzeigen. */
+ * generischen Hinweis zurück statt nichts anzuzeigen. Referenziert seit KTD1 (headless überall) die
+ * Screenshot-Ansicht statt eines sichtbaren Browser-Fensters (das es nicht mehr gibt). */
 export const ACTION_NEEDED_COPY: Record<string, string> = {
-  captcha: 'A captcha appeared — solve it in the browser window, then Continue.',
-  low_confidence_field: 'A field needs your review — check the browser window, then Continue.',
-  pre_submit_confirmation: 'Form is filled — review it in the browser window, then Continue to submit.',
+  captcha: 'A captcha appeared — solve it using the live connection below, then Continue.',
+  low_confidence_field: 'A field needs your review — check the screenshot below, then Continue.',
+  pre_submit_confirmation: 'Form is filled — review the screenshot below, then Continue to submit.',
   dry_run:
-    'Dry run complete — the form is filled but nothing was submitted. Review it in the browser window, then submit for real.',
+    'Dry run complete — the form is filled but nothing was submitted. Review the screenshot below, then submit for real.',
   screening_question:
-    'A screening question needs a factual answer — answer it in the browser window, then Continue.',
+    'A screening question needs a factual answer — check the screenshot below, then Continue.',
 };
+
+/** KTD8: fester Debug-Port aus `settings.PORTAL_FILL_DEBUG_PORT` (Backend-Default, siehe
+ * `backend/app/core/config.py`) - reine Deployment-Konstante, kein Laufzeitzustand, daher hier fest
+ * hinterlegt statt über die API geliefert. Bei Änderung des Backend-Defaults hier mitziehen. */
+const PORTAL_FILL_DEBUG_PORT = 9222;
 
 /** Menschenlesbare Übersetzung der rohen `action_needed_reason`-Werte bei `failed` (siehe `session.py`). */
 export const FAILURE_REASON_COPY: Record<string, string> = {
@@ -142,6 +148,13 @@ export class ApplicationsComponent implements OnInit {
   protected readonly portalFillStatuses = signal<Record<number, PortalFillStatus>>({});
   /** IDs, für die die `failed`-Meldung bereits weggeklickt wurde (bleibt bis zum nächsten Start gesetzt). */
   protected readonly dismissedFailureIds = signal<ReadonlySet<number>>(new Set());
+  /** Cache-Bust-Zähler je Bewerbung für den Pause-Screenshot (R2/U2) - der Screenshot ist eine
+   * Zeitpunktaufnahme (KTD6), kein Live-Feed, daher erzwingt ein Refresh-Klick oder eine neue Pause einen
+   * frischen `<img>`-Request statt der zwischengespeicherten vorherigen Antwort. */
+  protected readonly screenshotRefreshTokens = signal<Record<number, number>>({});
+  /** IDs, deren Screenshot-`<img>` gerade fehlschlägt (404/500/Netzwerkfehler gleichermaßen) - blendet das
+   * Bild aus statt ein kaputtes Icon zu zeigen. */
+  protected readonly screenshotLoadFailedIds = signal<ReadonlySet<number>>(new Set());
 
   /** Nach dem gewählten Filter reduzierte Liste (rein clientseitig, `applications` bleibt vollständig). */
   protected readonly filteredApplications = computed(() => {
@@ -371,7 +384,55 @@ export class ApplicationsComponent implements OnInit {
 
   protected actionNeededCopy(application: Application): string {
     const reason = this.actionNeededReason(application);
-    return (reason && ACTION_NEEDED_COPY[reason]) ?? 'Action needed — check the browser window, then Continue.';
+    return (reason && ACTION_NEEDED_COPY[reason]) ?? 'Action needed — check the screenshot below, then Continue.';
+  }
+
+  /** R3/KTD8: nur bei einer Captcha-Pause zeigt die Karte den Hinweis auf die native Chromium-Remote-
+   * Debugging-Verbindung (siehe `PORTAL_FILL_DEBUG_PORT`) - alle anderen Pausengründe kommen mit dem
+   * Screenshot allein aus (KTD2). */
+  protected isCaptchaPause(application: Application): boolean {
+    return this.actionNeededReason(application) === 'captcha';
+  }
+
+  protected readonly captchaConnectionInstructions =
+    `Open http://localhost:${PORTAL_FILL_DEBUG_PORT} (or chrome://inspect, configured with that address) for a live, clickable view of the page.`;
+
+  /** URL des Pause-Screenshots inkl. Cache-Bust-Token (R2/U2) - siehe `screenshotRefreshTokens`. */
+  protected screenshotUrl(application: Application): string {
+    const token = this.screenshotRefreshTokens()[application.id] ?? 0;
+    return `${this.applicationService.portalFillScreenshotUrl(application.id)}?t=${token}`;
+  }
+
+  protected screenshotAvailable(application: Application): boolean {
+    return !this.screenshotLoadFailedIds().has(application.id);
+  }
+
+  protected onScreenshotLoadError(application: Application): void {
+    this.screenshotLoadFailedIds.update((ids) => {
+      if (ids.has(application.id)) {
+        return ids;
+      }
+      return new Set(ids).add(application.id);
+    });
+  }
+
+  protected onRefreshScreenshot(application: Application): void {
+    this.clearScreenshotLoadFailure(application.id);
+    this.screenshotRefreshTokens.update((tokens) => ({
+      ...tokens,
+      [application.id]: (tokens[application.id] ?? 0) + 1,
+    }));
+  }
+
+  private clearScreenshotLoadFailure(applicationId: number): void {
+    this.screenshotLoadFailedIds.update((ids) => {
+      if (!ids.has(applicationId)) {
+        return ids;
+      }
+      const next = new Set(ids);
+      next.delete(applicationId);
+      return next;
+    });
   }
 
   protected failureCopy(application: Application): string {
@@ -488,6 +549,9 @@ export class ApplicationsComponent implements OnInit {
     this.portalFillStatuses.update((map) => ({ ...map, [applicationId]: status }));
     if (status.automation_state === 'paused' && !wasPaused) {
       this.tabTitleService.markGenerationSettled();
+      // Neue Pause: ein vorheriger Lade-Fehlschlag darf die Karte nicht dauerhaft ohne Screenshot
+      // lassen - der neue Pause-Screenshot verdient einen frischen Ladeversuch.
+      this.clearScreenshotLoadFailure(applicationId);
     }
   }
 
