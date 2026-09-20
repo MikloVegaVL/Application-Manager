@@ -150,9 +150,24 @@ class PortalFillSession:
         Registry-Eintrag entfernen. Der Aufrufer wirft danach selbst die
         passende `_StopRun`-Subklasse (`PauseTimedOutError`/
         `RunCancelledError`/`IframeNotFoundError`) - dieser Schritt macht
-        nur die Bereinigung gemeinsam, nicht das Werfen selbst."""
+        nur die Bereinigung gemeinsam, nicht das Werfen selbst.
+
+        Der `_set_state()`-Aufruf ist bewusst genauso wie `close()` gegen
+        eigene Fehler abgesichert (P1-Fix, reliability-reviewer): schlägt der
+        DB-Schreibvorgang selbst fehl (z. B. transiente DB-Störung), muss
+        `_unregister()` TROTZDEM laufen - sonst bliebe der In-Memory-
+        Registry-Eintrag bis zum nächsten Prozessneustart verwaist, obwohl
+        der Browser bereits geschlossen und der Thread bereits beendet ist."""
         self.close()
-        self._set_state("failed", reason)
+        try:
+            self._set_state("failed", reason)
+        except Exception:  # noqa: BLE001 - ein DB-Fehler darf den Registry-Cleanup nicht verhindern
+            logger.exception(
+                "Automations-Status (reason=%s) konnte nach Abbruch nicht persistiert werden "
+                "für application_id=%s",
+                reason,
+                self.application_id,
+            )
         _unregister(self.application_id)
 
     # --- Browser-Lebenszyklus (NUR vom besitzenden Thread!) -------------
@@ -203,7 +218,25 @@ class PortalFillSession:
 
         War stattdessen ein Abbruch angefordert, während pausiert wurde,
         wird das nach dem Aufwachen genauso behandelt wie `check_cancel()`.
+
+        WICHTIG (P0-Fix, adversarial-reviewer): `_resume_event` wird HIER,
+        VOR dem Persistieren des "paused"-Status und VOR `wait()`, geleert -
+        nicht erst nach einem erfolgreichen Aufwachen. `_resume_event` ist
+        ein einziges, über die gesamte Session-Lebensdauer geteiltes Event
+        (nicht pro Pause neu erzeugt) - ohne dieses vorherige Clear kann ein
+        doppelt gesendeter `resume()`-Aufruf (z. B. Doppelklick auf
+        "Weiter", kein Disabled-Guard im Frontend während ein Resume-Request
+        unterwegs ist) einen `.set()` hinterlassen, der NACH dieser Pause,
+        aber VOR der nächsten (z. B. der zwingenden
+        `pre_submit_confirmation`-Pause, R11) ankommt - die nächste Pause
+        würde dann sofort durchlaufen, ohne dass für SIE tatsächlich
+        `resume()` aufgerufen wurde (R11: "no setting skips this"). Da
+        `threading.Event` level-getriggert (nicht edge-getriggert) ist, gibt
+        es zwischen diesem `clear()` und dem `wait()` unten keine Race-Lücke -
+        ein `resume()`-Aufruf genau in diesem winzigen Fenster wird von
+        `wait()` trotzdem korrekt erkannt.
         """
+        self._resume_event.clear()
         self._set_state("paused", reason)
         resumed = self._resume_event.wait(timeout=self._pause_timeout_seconds)
         if not resumed:
@@ -297,7 +330,14 @@ def start_session(
                 session.close()
             except Exception:  # noqa: BLE001 - Schließen darf den Fehlerpfad nicht verdecken
                 logger.exception("Browser konnte nach Fehler nicht sauber geschlossen werden.")
-            session._set_state("failed", "unhandled_error")
+            try:
+                session._set_state("failed", "unhandled_error")
+            except Exception:  # noqa: BLE001 - ein DB-Fehler darf den Registry-Cleanup nicht verhindern
+                logger.exception(
+                    "Automations-Status konnte nach unbehandeltem Fehler nicht persistiert werden "
+                    "für application_id=%s",
+                    application_id,
+                )
             _unregister(application_id)
         else:
             # `run_fn` ist regulär durchgelaufen (z. B. nach erfolgreichem

@@ -174,10 +174,16 @@ def continue_portal_fill(application_id: int, db: Session = Depends(get_db)) -> 
 
 @router.post("/{application_id}/portal-fill/cancel", response_model=ApplicationRead)
 def cancel_portal_fill(application_id: int, db: Session = Depends(get_db)) -> Application:
-    """Setzt nur das Abbruch-Flag (R10) - der besitzende Session-Thread
-    schließt den Browser selbst beim nächsten Checkpoint (siehe
-    `session.py`). 404, wenn für diese `application_id` keine Sitzung in der
-    Registry aktiv ist."""
+    """Setzt das Abbruch-Flag (R10) - der besitzende Session-Thread schließt
+    den Browser selbst beim nächsten Checkpoint (siehe `session.py`). 404,
+    wenn für diese `application_id` keine Sitzung in der Registry aktiv ist.
+
+    P1-Fix (mehrere Reviewer): zusätzlich zu `request_cancel()` wird auch
+    `resume()` aufgerufen - genau wie `shutdown_all_sessions()` in
+    `session.py` es bereits vormacht. Ohne das bliebe eine PAUSIERTE Sitzung
+    in `pause()`s `wait()` hängen (`cancel_requested` wird dort erst NACH dem
+    Aufwachen geprüft) und der Abbruch würde erst nach bis zu
+    `PAUSE_TIMEOUT_SECONDS` (aktuell 1h) wirksam."""
     session = _get_active_session(application_id)
     if session is None:
         raise HTTPException(
@@ -185,6 +191,7 @@ def cancel_portal_fill(application_id: int, db: Session = Depends(get_db)) -> Ap
             detail="Für diese Bewerbung läuft aktuell kein Portal-Auto-Fill-Lauf.",
         )
     session.request_cancel()
+    session.resume()
 
     application = db.get(Application, application_id)
     if application is None:

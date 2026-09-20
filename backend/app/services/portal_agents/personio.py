@@ -24,6 +24,7 @@ Testszenarien es verlangen (Fixtures aus ein paar Textfeldern, einem
 from __future__ import annotations
 
 import re
+import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -44,6 +45,16 @@ from app.services.portal_agents.session import PortalFillSession
 # erkennen (R4) - NIE eine fest kodierte Employer-Subdomain (jeder Kunde hat
 # seine eigene, z. B. "acme.jobs.personio.de", "acme.jobs.personio.com").
 PERSONIO_IFRAME_SELECTOR = 'iframe[src*="personio"]'
+
+# P1-Security-Fix (security-reviewer): `PERSONIO_IFRAME_SELECTOR` matched als
+# reiner Substring-Anywhere-Check jedes iframe, dessen `src` IRGENDWO
+# "personio" enthält - auch ein Pfadsegment/Query-String einer gespoofften
+# Fremd-Domain (z. B. "https://attacker.example/personio-widget"). Da echte
+# PII/Anhänge/LLM-Freitexte VOR der zwingenden `pre_submit_confirmation`-Pause
+# in den gefundenen Frame gefüllt werden, validiert `_locate_frame()`
+# zusätzlich den tatsächlichen HOSTNAMEN des `src`-Attributs gegen diese
+# Suffixe (Personios reale Hosting-Domains), bevor irgendetwas gefüllt wird.
+PERSONIO_HOSTNAME_SUFFIXES: tuple[str, ...] = (".personio.de", ".personio.com")
 
 # Wie lange auf das Erscheinen des Personio-iframes gewartet wird, bevor der
 # Lauf als "iframe_not_found" (KTD4) fehlschlägt. `None` = Playwrights
@@ -177,11 +188,33 @@ def _fill_field(frame, field: PersonioField) -> base_module.FieldFillResult:
     raise ValueError(f"Unbekannte PersonioField.kind: {field.kind!r}")
 
 
+def _iframe_src_is_trusted_personio_domain(page) -> bool:
+    """Härtet die generische, substring-basierte iframe-Erkennung (R4) gegen
+    Spoofing (P1-Security-Fix): liest das TATSÄCHLICHE `src`-Attribut des per
+    `PERSONIO_IFRAME_SELECTOR` gefundenen iframes über das DOM aus (nicht
+    `Frame.url` - bei einem `srcdoc`-Embed, wie es Personios Formulare NICHT
+    verwenden, unsere eigenen Testfixtures aber zur Cross-Origin-Simulation
+    einsetzen, wäre das `about:srcdoc`, nicht die tatsächliche `src`-Domain)
+    und prüft dessen HOSTNAMEN gegen `PERSONIO_HOSTNAME_SUFFIXES` - statt nur
+    "enthält die Zeichenkette 'personio' irgendwo im `src`"."""
+    src = page.locator(PERSONIO_IFRAME_SELECTOR).first.get_attribute("src")
+    if not src:
+        return False
+    hostname = urllib.parse.urlparse(src).hostname or ""
+    return hostname.endswith(PERSONIO_HOSTNAME_SUFFIXES)
+
+
 def _locate_frame(session: PortalFillSession, iframe_wait_timeout_ms: float | None):
     """Navigiert zur Formular-URL und lokalisiert das Personio-iframe (R4).
     Ausgelagert aus `run()`, damit U4s eigene Tests (Feld-Ausfüllen,
     iframe-Erkennung) diesen Schritt unabhängig von der später (U6)
-    angehängten Freitext-/Pre-Submit-/Submit-Pipeline aufrufen können."""
+    angehängten Freitext-/Pre-Submit-/Submit-Pipeline aufrufen können.
+
+    Ein DOM-Treffer mit "personio"-Substring im `src`, dessen tatsächlicher
+    Hostname aber keine echte Personio-Domain ist (Spoofing, P1-Security-
+    Fix), wird IDENTISCH zum "kein iframe gefunden"-Fall behandelt (`
+    IframeNotFoundError`/`"iframe_not_found"`) - bewusst kein separater,
+    weniger sicherer Ausgang."""
     session.page.goto(session.application_form_url)
 
     frame = session.page.frame_locator(PERSONIO_IFRAME_SELECTOR)
@@ -191,6 +224,11 @@ def _locate_frame(session: PortalFillSession, iframe_wait_timeout_ms: float | No
     except PlaywrightTimeoutError as exc:
         session._abort("iframe_not_found")
         raise IframeNotFoundError() from exc
+
+    if not _iframe_src_is_trusted_personio_domain(session.page):
+        session._abort("iframe_not_found")
+        raise IframeNotFoundError()
+
     return frame
 
 

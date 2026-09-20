@@ -238,6 +238,75 @@ def test_pause_sets_state_and_resume_unblocks_the_owning_thread(db_session_local
     assert application_id not in session_module._active_sessions
 
 
+def test_duplicate_resume_during_gap_between_pauses_does_not_skip_the_next_pause(
+    db_session_local, mocker
+):
+    """P0-Regression (adversarial-reviewer): ein Doppelklick auf "Weiter"
+    (kein Disabled-Guard im Frontend während ein Resume-Request unterwegs
+    ist) kann zwei `resume()`-Aufrufe für DENSELBEN Pause-Schritt auslösen.
+    Landet der zweite (überzählige) Aufruf NACH dem Aufwachen der ersten
+    Pause, aber BEVOR die nächste (hier: die zwingende
+    `pre_submit_confirmation`-Pause, R11) zu warten beginnt, darf er diese
+    nächste Pause NICHT vorzeitig auflösen - sonst würde die
+    Pflichtbestätigung vor dem echten Submit stillschweigend übersprungen.
+    `pause()` leert `_resume_event` deshalb jetzt VOR jedem `wait()` (nicht
+    erst danach), damit ein solcher "stale" Set-Zustand verworfen wird."""
+    application_id = _create_application(db_session_local)
+    factory, browser = _fake_playwright()
+    _patch_sync_playwright(mocker, factory)
+
+    gap_reached = threading.Event()
+    allow_second_pause = threading.Event()
+
+    def _run(session: session_module.PortalFillSession) -> None:
+        session.pause("captcha")
+        gap_reached.set()
+        allow_second_pause.wait(timeout=5)
+        session.pause("pre_submit_confirmation")
+
+    session = session_module.start_session(application_id, "https://portal.example/apply", _run)
+
+    deadline = time.monotonic() + 2
+    application = _read_application(db_session_local, application_id)
+    while application.automation_state != "paused" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        application = _read_application(db_session_local, application_id)
+    assert application.action_needed_reason == "captcha"
+
+    # Erster Klick: löst die captcha-Pause auf.
+    session.resume()
+    assert gap_reached.wait(timeout=2)
+
+    # Doppelklick-Simulation: EIN zweiter, überzähliger `resume()`-Aufruf,
+    # während der Lauf sich noch in der Lücke zwischen den beiden Pausen
+    # befindet (noch nicht bei `pre_submit_confirmation` angekommen).
+    session.resume()
+
+    # Jetzt erst darf der Lauf in die nächste (zwingende) Pause eintreten.
+    allow_second_pause.set()
+
+    deadline = time.monotonic() + 2
+    application = _read_application(db_session_local, application_id)
+    while application.action_needed_reason != "pre_submit_confirmation" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        application = _read_application(db_session_local, application_id)
+    assert application.automation_state == "paused"
+    assert application.action_needed_reason == "pre_submit_confirmation"
+
+    # Der überzählige `resume()` darf diese Pause NICHT bereits aufgelöst
+    # haben - kurz stabil bleiben lassen und erneut prüfen.
+    time.sleep(0.2)
+    application = _read_application(db_session_local, application_id)
+    assert application.automation_state == "paused"
+    assert application.action_needed_reason == "pre_submit_confirmation"
+
+    # Erst ein DRITTER, expliziter `resume()`-Aufruf löst diese Pause auf.
+    session.resume()
+    session.thread.join(timeout=2)
+    assert not session.thread.is_alive()
+    assert application_id not in session_module._active_sessions
+
+
 # --- Edge case: cancel während running/paused -------------------------------
 
 
@@ -370,6 +439,53 @@ def test_pause_timeout_marks_application_failed_with_timeout_reason(db_session_l
     assert application.automation_state == "failed"
     assert application.action_needed_reason == "timeout"
     assert application_id not in session_module._active_sessions
+
+
+def test_abort_unregisters_session_even_if_set_state_db_write_fails(db_session_local, mocker):
+    """P1-Regression (reliability-reviewer): schlägt der `_set_state()`-DB-
+    Schreibvorgang im Abbruch-/Cleanup-Pfad selbst fehl (z. B. transiente
+    DB-Störung), darf der In-Memory-Registry-Eintrag TROTZDEM nicht
+    verwaisen - sonst bliebe `application_id` bis zum nächsten
+    Prozessneustart fälschlich als "aktiv" markiert und ein erneuter
+    `start_session()`-Aufruf würde dauerhaft mit
+    `SessionAlreadyActiveError` fehlschlagen, obwohl Browser/Thread längst
+    beendet sind."""
+    application_id = _create_application(db_session_local)
+    factory, browser = _fake_playwright()
+    _patch_sync_playwright(mocker, factory)
+
+    # Nur die "failed"-Transition (der Abbruch-/Cleanup-Pfad) schlägt fehl -
+    # "running"/"paused" müssen weiterhin normal funktionieren, damit der
+    # Lauf überhaupt bis zum Abbruch-Pfad kommt, den dieser Test prüft.
+    original_set_state = session_module.PortalFillSession._set_state
+
+    def _flaky_set_state(self, automation_state, action_needed_reason):
+        if automation_state == "failed":
+            raise RuntimeError("DB ist gerade nicht erreichbar")
+        return original_set_state(self, automation_state, action_needed_reason)
+
+    mocker.patch.object(session_module.PortalFillSession, "_set_state", _flaky_set_state)
+
+    session = session_module.start_session(
+        application_id, "https://portal.example/apply", _pausing_run_fn("captcha")
+    )
+    session.request_cancel()
+    session.resume()
+    session.thread.join(timeout=2)
+
+    assert not session.thread.is_alive()
+    # Der Registry-Eintrag wurde entfernt, OBWOHL der DB-Schreibvorgang im
+    # Abbruch-Pfad geworfen hat - ein erneuter Start für dieselbe
+    # `application_id` muss deshalb wieder möglich sein.
+    assert application_id not in session_module._active_sessions
+    factory2, browser2 = _fake_playwright()
+    _patch_sync_playwright(mocker, factory2)
+    second_session = session_module.start_session(
+        application_id, "https://portal.example/apply", _pausing_run_fn("captcha")
+    )
+    second_session.request_cancel()
+    second_session.resume()
+    second_session.thread.join(timeout=2)
 
 
 # --- Integration: Startup-Hook (verwaister Zustand nach Neustart) ----------

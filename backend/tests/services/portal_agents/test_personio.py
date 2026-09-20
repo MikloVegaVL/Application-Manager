@@ -264,6 +264,32 @@ def test_no_matching_iframe_fails_run_with_iframe_not_found_reason(db_session_lo
     assert application_id not in session_module._active_sessions
 
 
+def test_iframe_with_spoofed_personio_substring_in_src_is_treated_as_not_found(db_session_local):
+    """P1-Security-Regression (security-reviewer): `PERSONIO_IFRAME_SELECTOR`
+    matched als reiner Substring-Anywhere-Check jedes iframe, dessen `src`
+    IRGENDWO die Zeichenkette "personio" enthält - auch ein Pfadsegment einer
+    gespoofften Fremd-Domain (z. B. "https://attacker.example/personio-
+    widget"). `_locate_frame()` muss den tatsächlichen Hostnamen prüfen und
+    einen solchen Treffer GENAUSO wie "kein iframe gefunden" behandeln, statt
+    echte Profildaten/Anhänge in den falschen Frame zu füllen."""
+    application_id = _create_application(db_session_local)
+    # Enthält "personio" als Pfadsegment, die Domain selbst ist aber
+    # eindeutig KEINE echte Personio-Domain.
+    page_html = _iframe_page("https://attacker.example/personio-widget", FORM_FIELDS_HTML)
+    run_fn = personio_module.build_personio_run_fn([], iframe_wait_timeout_ms=3000)
+
+    session = session_module.start_session(
+        application_id, _data_url(page_html), run_fn, headed=False
+    )
+    session.thread.join(timeout=10)
+
+    assert not session.thread.is_alive()
+    application = _read_application(db_session_local, application_id)
+    assert application.automation_state == "failed"
+    assert application.action_needed_reason == "iframe_not_found"
+    assert application_id not in session_module._active_sessions
+
+
 # --- Pause path: Captcha-Präsenz pausiert vor weiterem Ausfüllen (R10) -----
 
 

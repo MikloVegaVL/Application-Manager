@@ -916,6 +916,67 @@ def test_portal_submission_can_be_created_and_read_back_via_relationship(
         session.close()
 
 
+def test_delete_application_returns_409_while_automation_is_active(
+    client: TestClient, db_session_local
+) -> None:
+    # P0-Regression (adversarial-reviewer): eine `Application` mit aktivem
+    # Portal-Auto-Fill-Lauf darf nicht gelöscht werden - sonst könnte z. B.
+    # während der pausierten `pre_submit_confirmation` die Bewerbung gelöscht
+    # und danach per `continue` trotzdem der echte Submit auf dem externen
+    # Portal ausgelöst werden, ohne jede lokale Spur (`_record_submission()`/
+    # `_set_state()` fänden die Zeile dann nicht mehr).
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/portal-delete-1"
+        )
+        application = Application(job_offer_id=job_offer.id, automation_state="paused")
+        session.add(application)
+        session.commit()
+        session.refresh(application)
+        application_id = application.id
+    finally:
+        session.close()
+
+    response = client.delete(f"/api/applications/{application_id}")
+
+    assert response.status_code == 409
+
+    session = db_session_local()
+    try:
+        assert session.get(Application, application_id) is not None
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("automation_state", [None, "failed", "submitted"])
+def test_delete_application_still_succeeds_when_automation_is_not_active(
+    client: TestClient, db_session_local, automation_state
+) -> None:
+    # Kein Regressionsrisiko durch den neuen Guard: eine `Application`, die
+    # nie automatisiert wurde oder deren Lauf bereits terminal beendet ist,
+    # muss weiterhin normal löschbar bleiben.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session,
+            title="Backend Engineer",
+            company="Acme GmbH",
+            source_url=f"https://example.com/job/portal-delete-{automation_state}",
+        )
+        application = Application(job_offer_id=job_offer.id, automation_state=automation_state)
+        session.add(application)
+        session.commit()
+        session.refresh(application)
+        application_id = application.id
+    finally:
+        session.close()
+
+    response = client.delete(f"/api/applications/{application_id}")
+
+    assert response.status_code == 204
+
+
 def test_deleting_application_sets_portal_submission_application_id_to_null_not_the_row(
     client: TestClient, db_session_local
 ) -> None:

@@ -376,6 +376,47 @@ def test_continue_without_active_session_returns_404(client, db_session_local):
     assert resp.status_code == 404
 
 
+def test_cancel_via_http_endpoint_unblocks_a_paused_session_and_marks_failed(
+    client, db_session_local, mocker
+):
+    """P1-Regression (correctness-/security-adjacent-/adversarial-reviewer,
+    alle drei unabhängig gefunden): `cancel_portal_fill()` rief bisher nur
+    `request_cancel()` auf - der besitzende Thread bemerkt das aber erst NACH
+    dem Aufwachen aus `pause()`s `wait()`, das ohne `resume()` bis zu
+    `PAUSE_TIMEOUT_SECONDS` (aktuell 1h) blockiert. `shutdown_all_sessions()`
+    paart `request_cancel()` deshalb schon immer mit `resume()` - dieser Test
+    beweist über den ECHTEN HTTP-Endpunkt (nicht durch direkten Aufruf von
+    `session.request_cancel()`/`session.resume()`), dass der Cancel-Handler
+    denselben Effekt hat."""
+    application_id = _seed_job_offer_and_application(db_session_local)
+    _seed_profile(db_session_local)
+    _patch_playwright_with_routed_page(mocker, APPLICATION_FORM_URL, PAGE_HTML)
+    mocker.patch(
+        "app.api.portal_fill.personio_module.build_personio_run_fn",
+        return_value=lambda session: session.pause("captcha"),
+    )
+
+    start_resp = client.post(
+        f"/api/applications/{application_id}/portal-fill/start",
+        json={"application_form_url": APPLICATION_FORM_URL},
+    )
+    assert start_resp.status_code == 200
+
+    application = _wait_for_state(db_session_local, application_id, "paused")
+    assert application.automation_state == "paused"
+
+    cancel_resp = client.post(f"/api/applications/{application_id}/portal-fill/cancel")
+    assert cancel_resp.status_code == 200
+
+    # Ohne den fehlenden `resume()`-Aufruf im Handler würde der Lauf bis
+    # `PAUSE_TIMEOUT_SECONDS` bei "paused" hängen bleiben - hier muss er
+    # innerhalb einer kurzen, begrenzten Wartezeit tatsächlich "failed"
+    # erreichen.
+    application = _wait_for_state(db_session_local, application_id, "failed", timeout=5.0)
+    assert application.automation_state == "failed"
+    assert application.action_needed_reason == "cancelled_by_user"
+
+
 def test_cancel_without_active_session_returns_404(client, db_session_local):
     application_id = _seed_job_offer_and_application(db_session_local)
 
