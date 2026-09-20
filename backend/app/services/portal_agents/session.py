@@ -211,13 +211,27 @@ class PortalFillSession:
         `RunCancelledError`/`IframeNotFoundError`) - dieser Schritt macht
         nur die Bereinigung gemeinsam, nicht das Werfen selbst.
 
-        Der `_set_state()`-Aufruf ist bewusst genauso wie `close()` gegen
-        eigene Fehler abgesichert (P1-Fix, reliability-reviewer): schlägt der
-        DB-Schreibvorgang selbst fehl (z. B. transiente DB-Störung), muss
-        `_unregister()` TROTZDEM laufen - sonst bliebe der In-Memory-
-        Registry-Eintrag bis zum nächsten Prozessneustart verwaist, obwohl
-        der Browser bereits geschlossen und der Thread bereits beendet ist."""
-        self.close()
+        Der `close()`-Aufruf ist bewusst genauso wie `_set_state()` gegen
+        eigene Fehler abgesichert (P1-Fix, reliability-reviewer auf KTD10):
+        `close()`s eigenes `try/finally` setzt zwar den lokalen Zustand
+        zurück, unterdrückt eine `browser.close()`-Exception aber NICHT -
+        ohne dieses `try/except` hier würde eine solche Exception
+        `_unregister()` überspringen und den Registry-Eintrag für immer
+        verwaist zurücklassen. Seit KTD10 (prozessweiter Guard statt nur
+        pro `application_id`) blockiert ein verwaister Eintrag nicht mehr
+        nur EINEN künftigen Lauf, sondern JEDEN - bis zum nächsten
+        Prozessneustart. Schlägt der DB-Schreibvorgang selbst fehl (z. B.
+        transiente DB-Störung), muss `_unregister()` ebenso TROTZDEM
+        laufen."""
+        try:
+            self.close()
+        except Exception:  # noqa: BLE001 - Schließen darf den Registry-Cleanup nicht verhindern
+            logger.exception(
+                "Browser konnte bei Abbruch (reason=%s) nicht sauber geschlossen werden "
+                "für application_id=%s",
+                reason,
+                self.application_id,
+            )
         try:
             self._set_state(RunState.FAILED, FailureReason(reason))
         except Exception:  # noqa: BLE001 - ein DB-Fehler darf den Registry-Cleanup nicht verhindern

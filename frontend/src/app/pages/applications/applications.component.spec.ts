@@ -726,7 +726,9 @@ describe('ApplicationsComponent', () => {
 
         const img = queryScreenshotImg();
         expect(img).not.toBeNull();
-        expect(img!.getAttribute('src')).toBe(`${screenshotUrl}?t=0`);
+        // t=1, not t=0: a new pause bumps the token too (not just manual Refresh),
+        // so a second pause within the same run can't reuse a stale cached image.
+        expect(img!.getAttribute('src')).toBe(`${screenshotUrl}?t=1`);
         fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
       }));
 
@@ -753,7 +755,7 @@ describe('ApplicationsComponent', () => {
         component['onRefreshScreenshot'](sampleApplication);
         fixture.detectChanges();
 
-        expect(queryScreenshotImg()!.getAttribute('src')).toBe(`${screenshotUrl}?t=1`);
+        expect(queryScreenshotImg()!.getAttribute('src')).toBe(`${screenshotUrl}?t=2`);
         fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
       }));
 
@@ -798,6 +800,36 @@ describe('ApplicationsComponent', () => {
         fixture.detectChanges();
 
         expect(queryScreenshotImg()).not.toBeNull();
+        fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
+      }));
+
+      it('a second, different pause within the same run gets a distinct screenshot URL, not a stale cached one', fakeAsync(() => {
+        flushList([sampleApplication]);
+        startRun();
+
+        tick(5000);
+        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
+        fixture.detectChanges();
+        const firstSrc = queryScreenshotImg()!.getAttribute('src');
+
+        component['onContinuePortalFill'](sampleApplication);
+        httpMock.expectOne((request) => request.url === continueUrl && request.method === 'POST').flush({
+          ...sampleApplication,
+          automation_state: 'running',
+          action_needed_reason: null,
+        });
+        tick(5000);
+        expectStatusPoll().flush({ automation_state: 'running', action_needed_reason: null });
+        fixture.detectChanges();
+
+        tick(5000);
+        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'pre_submit_confirmation' });
+        fixture.detectChanges();
+
+        // Without a fresh cache-busting token, this second pause's <img> would carry the SAME
+        // URL as the captcha pause above, and a browser that already cached that URL's response
+        // would keep showing the stale, wrong screenshot during this later, mandatory review.
+        expect(queryScreenshotImg()!.getAttribute('src')).not.toBe(firstSrc);
         fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
       }));
 

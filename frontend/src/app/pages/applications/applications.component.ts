@@ -550,8 +550,18 @@ export class ApplicationsComponent implements OnInit {
     if (status.automation_state === 'paused' && !wasPaused) {
       this.tabTitleService.markGenerationSettled();
       // Neue Pause: ein vorheriger Lade-Fehlschlag darf die Karte nicht dauerhaft ohne Screenshot
-      // lassen - der neue Pause-Screenshot verdient einen frischen Ladeversuch.
+      // lassen - der neue Pause-Screenshot verdient einen frischen Ladeversuch. Das Cache-Bust-
+      // Token MUSS hier ebenfalls erhöht werden (nicht nur bei manuellem Refresh, siehe
+      // `onRefreshScreenshot`) - sonst bleibt `screenshotUrl()` zwischen zwei Pausen INNERHALB
+      // desselben Laufs (z. B. captcha -> continue -> pre_submit_confirmation) byte-identisch,
+      // und ein `<img>`, das die erste URL bereits geladen hat, zeigt den veralteten Screenshot
+      // der ERSTEN Pause an, statt den der neuen - genau während der Review, die R10/R11 als
+      // sicherheitsrelevant markieren.
       this.clearScreenshotLoadFailure(applicationId);
+      this.screenshotRefreshTokens.update((tokens) => ({
+        ...tokens,
+        [applicationId]: (tokens[applicationId] ?? 0) + 1,
+      }));
     }
   }
 

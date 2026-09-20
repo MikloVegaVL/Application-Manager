@@ -543,6 +543,75 @@ def test_abort_unregisters_session_even_if_set_state_db_write_fails(db_session_l
     second_session.thread.join(timeout=2)
 
 
+def test_abort_unregisters_session_even_if_browser_close_fails(db_session_local, mocker):
+    """P1-Regression (reliability-reviewer, KTD10): schlägt `browser.close()`
+    im Abbruch-Pfad fehl (z. B. der Chromium-Prozess ist bereits
+    abgestürzt), darf der In-Memory-Registry-Eintrag TROTZDEM nicht
+    verwaisen. Seit KTD10 (prozessweiter statt nur pro-`application_id`
+    Concurrent-Run-Guard) würde ein verwaister Eintrag sonst nicht nur
+    diese eine `application_id`, sondern JEDEN künftigen Lauf dauerhaft
+    blockieren."""
+    application_id = _create_application(db_session_local)
+    factory, browser = _fake_playwright()
+    browser.close = MagicMock(side_effect=RuntimeError("Chromium ist bereits abgestürzt"))
+    _patch_sync_playwright(mocker, factory)
+
+    session = session_module.start_session(
+        application_id, "https://portal.example/apply", _pausing_run_fn("captcha")
+    )
+    session.request_cancel()
+    session.resume()
+    session.thread.join(timeout=2)
+
+    assert not session.thread.is_alive()
+    application = _read_application(db_session_local, application_id)
+    assert application.automation_state == "failed"
+    assert application.action_needed_reason == "cancelled_by_user"
+    # Der Registry-Eintrag wurde entfernt, OBWOHL `browser.close()` geworfen hat -
+    # ein erneuter Start (für DIESELBE oder eine ANDERE application_id, KTD10) muss
+    # deshalb wieder möglich sein.
+    assert application_id not in session_module._active_sessions
+    factory2, browser2 = _fake_playwright()
+    _patch_sync_playwright(mocker, factory2)
+    second_session = session_module.start_session(
+        application_id, "https://portal.example/apply", _pausing_run_fn("captcha")
+    )
+    second_session.request_cancel()
+    second_session.resume()
+    second_session.thread.join(timeout=2)
+
+
+def test_second_start_is_rejected_while_the_first_is_paused_not_just_running(db_session_local, mocker):
+    """KTD10: der prozessweite Guard muss auch greifen, während die aktive
+    Sitzung PAUSIERT ist (nicht nur während sie noch `running` ist) - genau
+    das Szenario, das eine vergessene Captcha-Pause zu einer stundenlangen
+    Blockade für JEDE andere Bewerbung macht (siehe Non-Goals/Risks im Plan,
+    KTD10 bewusst akzeptiert)."""
+    first_application_id = _create_application(db_session_local)
+    second_application_id = _create_application(db_session_local, source_url="https://example.com/jobs/3")
+    factory, browser = _fake_playwright()
+    _patch_sync_playwright(mocker, factory)
+
+    session = session_module.start_session(
+        first_application_id, "https://portal.example/apply", _pausing_run_fn("captcha")
+    )
+    deadline = time.monotonic() + 2
+    application = _read_application(db_session_local, first_application_id)
+    while application.automation_state != "paused" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        application = _read_application(db_session_local, first_application_id)
+    assert application.automation_state == "paused"
+
+    with pytest.raises(session_module.SessionAlreadyActiveError) as exc_info:
+        session_module.start_session(
+            second_application_id, "https://portal.example/apply", _looping_run_fn()
+        )
+    assert exc_info.value.application_id == first_application_id
+
+    session.resume()
+    session.thread.join(timeout=2)
+
+
 # --- Integration: Startup-Hook (verwaister Zustand nach Neustart) ----------
 
 

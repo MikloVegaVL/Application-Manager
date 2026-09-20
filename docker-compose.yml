@@ -82,6 +82,16 @@ services:
       # veröffentlichen und damit jedem im selben Netzwerk volle,
       # unauthentifizierte Kontrolle über den Automations-Browser geben,
       # statt nur "der eigenen Maschine" wie in R3 vorausgesetzt.
+      #
+      # ACHTUNG (Reviewer-Fund, correctness/adversarial): dieser Literal
+      # MUSS manuell mit backend/.env(.example)s PORTAL_FILL_DEBUG_PORT und
+      # applications.component.ts' `PORTAL_FILL_DEBUG_PORT`-Konstante
+      # synchron gehalten werden - `${PORTAL_FILL_DEBUG_PORT}` würde hier
+      # NICHT funktionieren, da Compose-Variablensubstitution die WURZEL-
+      # `.env` liest (POSTGRES_USER etc.), nicht backend/.env (das nur per
+      # `env_file:` in den Container geladen wird). Ändert sich der Wert nur
+      # in backend/.env, bleibt dieses Mapping stumm auf dem alten Port -
+      # keine Fehlermeldung, die Live-Ansicht zeigt einfach nichts mehr an.
       - "127.0.0.1:9222:9222"
     restart: unless-stopped
 
