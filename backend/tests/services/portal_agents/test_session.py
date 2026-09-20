@@ -239,6 +239,58 @@ def test_pause_sets_state_and_resume_unblocks_the_owning_thread(db_session_local
     assert application_id not in session_module._active_sessions
 
 
+# --- R2/KTD6/KTD7: Screenshot bei Pause --------------------------------------
+
+
+def test_pause_captures_screenshot_bytes(db_session_local, mocker):
+    application_id = _create_application(db_session_local)
+    factory, browser = _fake_playwright()
+    browser.new_page.return_value.screenshot = MagicMock(return_value=b"fake-png-bytes")
+    _patch_sync_playwright(mocker, factory)
+
+    session = session_module.start_session(
+        application_id, "https://portal.example/apply", _pausing_run_fn("dry_run")
+    )
+
+    deadline = time.monotonic() + 2
+    application = _read_application(db_session_local, application_id)
+    while application.automation_state != "paused" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        application = _read_application(db_session_local, application_id)
+
+    assert session.screenshot_bytes() == b"fake-png-bytes"
+
+    session.resume()
+    session.thread.join(timeout=2)
+
+
+def test_pause_survives_a_screenshot_failure(db_session_local, mocker):
+    """P1-Fix-Analogie zu `_abort()`: eine fehlgeschlagene Screenshot-Aufnahme
+    darf die Pause selbst (Statuswechsel + Warten auf Resume) nicht
+    verhindern."""
+    application_id = _create_application(db_session_local)
+    factory, browser = _fake_playwright()
+    browser.new_page.return_value.screenshot = MagicMock(side_effect=RuntimeError("boom"))
+    _patch_sync_playwright(mocker, factory)
+
+    session = session_module.start_session(
+        application_id, "https://portal.example/apply", _pausing_run_fn("dry_run")
+    )
+
+    deadline = time.monotonic() + 2
+    application = _read_application(db_session_local, application_id)
+    while application.automation_state != "paused" and time.monotonic() < deadline:
+        time.sleep(0.01)
+        application = _read_application(db_session_local, application_id)
+
+    assert application.automation_state == "paused"
+    assert session.screenshot_bytes() is None
+
+    session.resume()
+    session.thread.join(timeout=2)
+    assert not session.thread.is_alive()
+
+
 def test_duplicate_resume_during_gap_between_pauses_does_not_skip_the_next_pause(
     db_session_local, mocker
 ):

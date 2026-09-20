@@ -18,6 +18,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
@@ -162,6 +163,24 @@ def get_portal_fill_status(application_id: int, db: Session = Depends(get_db)) -
         action_needed_detail=application.action_needed_detail,
         failure_class=failure_class,
     )
+
+
+@router.get("/{application_id}/portal-fill/screenshot")
+def get_portal_fill_screenshot(application_id: int) -> Response:
+    """Liefert den Screenshot der letzten Pause dieser Sitzung (R2/U2) - im
+    Gegensatz zu `get_portal_fill_status()` braucht dieser Endpunkt eine
+    AKTIVE Registry-Sitzung (der Screenshot lebt nur in-memory auf der
+    `PortalFillSession`, siehe `session.py`s `KTD7`), daher 404 sowohl ohne
+    aktive Sitzung als auch ohne bisherige Pause. Reine Byte-Rückgabe wie
+    `download_photo()` in `app.api.profile` - kein neues Antwortmuster."""
+    session = _get_active_session(application_id)
+    screenshot = session.screenshot_bytes() if session is not None else None
+    if screenshot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Für diese Bewerbung ist aktuell kein Pause-Screenshot verfügbar.",
+        )
+    return Response(content=screenshot, media_type="image/png")
 
 
 @router.post("/{application_id}/portal-fill/continue", response_model=ApplicationRead)

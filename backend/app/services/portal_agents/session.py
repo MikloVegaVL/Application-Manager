@@ -164,6 +164,12 @@ class PortalFillSession:
         # der Shutdown-Hook braucht ihn zum Joinen.
         self.thread: threading.Thread | None = None
 
+        # R2: Screenshot der zuletzt erreichten Pause (KTD6/KTD7) - vom
+        # besitzenden Thread in `pause()` gesetzt, von JEDEM Thread lesbar
+        # (reine Bytes, kein Playwright-Objekt). In-Memory only, analog zur
+        # restlichen Session-Registry - kein File, kein Cleanup nötig.
+        self._last_screenshot: bytes | None = None
+
     # --- DB-Statusübergänge --------------------------------------------
 
     def _set_state(
@@ -294,6 +300,14 @@ class PortalFillSession:
         `wait()` trotzdem korrekt erkannt.
         """
         self._resume_event.clear()
+        try:
+            self._last_screenshot = self.page.screenshot()
+        except Exception:  # noqa: BLE001 - eine Screenshot-Störung darf die Pause selbst nicht verhindern
+            logger.exception(
+                "Screenshot bei Pause (reason=%s) konnte nicht aufgenommen werden für application_id=%s",
+                reason,
+                self.application_id,
+            )
         self._set_state(RunState.PAUSED, PauseReason(reason), detail)
         resumed = self._resume_event.wait(timeout=self._pause_timeout_seconds)
         if not resumed:
@@ -301,6 +315,14 @@ class PortalFillSession:
             raise PauseTimedOutError()
         self._resume_event.clear()
         self.check_cancel()
+
+    def screenshot_bytes(self) -> bytes | None:
+        """Liefert den zuletzt bei einer Pause aufgenommenen Screenshot
+        (R2/KTD6/KTD7) oder `None`, wenn noch keine Pause stattfand oder die
+        Aufnahme fehlgeschlagen ist. Von JEDEM Thread aufrufbar - liest nur
+        einen bereits abgelegten `bytes`-Wert, fasst kein Playwright-Objekt
+        an (siehe Moduldoc R9)."""
+        return self._last_screenshot
 
     def check_cancel(self) -> None:
         """An natürlichen Checkpoints vom besitzenden Thread aufzurufen

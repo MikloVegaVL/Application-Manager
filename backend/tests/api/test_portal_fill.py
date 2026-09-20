@@ -27,6 +27,7 @@ from __future__ import annotations
 import html as html_module
 import os
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 
@@ -431,6 +432,75 @@ def test_status_for_missing_application_returns_404(client):
     resp = client.get("/api/applications/999999/portal-fill/status")
 
     assert resp.status_code == 404
+
+
+# --- U2/R2: Pause-Screenshot -------------------------------------------------
+
+
+def test_screenshot_available_during_pause_returns_png(client, db_session_local, mocker):
+    application_id = _seed_job_offer_and_application(db_session_local)
+    _seed_profile(db_session_local)
+    _patch_playwright_with_routed_page(mocker, APPLICATION_FORM_URL, PAGE_HTML)
+
+    start_resp = client.post(
+        f"/api/applications/{application_id}/portal-fill/start",
+        json={"application_form_url": APPLICATION_FORM_URL},
+    )
+    assert start_resp.status_code == 200
+    _wait_for_state(db_session_local, application_id, "paused")
+
+    resp = client.get(f"/api/applications/{application_id}/portal-fill/screenshot")
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/png"
+    assert resp.content.startswith(b"\x89PNG")
+
+    # Aufräumen: den Lauf zu Ende bringen, statt einen hängenden Chromium-
+    # Prozess über das Testende hinaus leben zu lassen.
+    continue_resp = client.post(f"/api/applications/{application_id}/portal-fill/continue")
+    assert continue_resp.status_code == 200
+    _wait_for_state(db_session_local, application_id, "submitted")
+
+
+def test_screenshot_without_active_session_returns_404(client, db_session_local):
+    application_id = _seed_job_offer_and_application(db_session_local)
+
+    resp = client.get(f"/api/applications/{application_id}/portal-fill/screenshot")
+
+    assert resp.status_code == 404
+
+
+def test_screenshot_before_any_pause_returns_404(client, db_session_local, mocker):
+    application_id = _seed_job_offer_and_application(db_session_local)
+    _seed_profile(db_session_local)
+    _patch_playwright_with_routed_page(mocker, APPLICATION_FORM_URL, PAGE_HTML)
+    release = threading.Event()
+
+    def _stand_in_run_fn(session) -> None:
+        release.wait(timeout=5)
+        session.pause("captcha")
+
+    mocker.patch(
+        "app.api.portal_fill.personio_module.build_personio_run_fn",
+        return_value=_stand_in_run_fn,
+    )
+
+    start_resp = client.post(
+        f"/api/applications/{application_id}/portal-fill/start",
+        json={"application_form_url": APPLICATION_FORM_URL},
+    )
+    assert start_resp.status_code == 200
+
+    resp = client.get(f"/api/applications/{application_id}/portal-fill/screenshot")
+    assert resp.status_code == 404
+
+    # Aufräumen: den Stand-in-Lauf freigeben und sauber beenden.
+    release.set()
+    session = session_module._active_sessions.get(application_id)
+    if session is not None:
+        session.request_cancel()
+        session.resume()
+        session.thread.join(timeout=5)
 
 
 # --- U3: failure_class nur für einen echten Fehlerlauf ----------------------
