@@ -1,6 +1,6 @@
 """Sitzungsverwaltung für den Portal-Auto-Fill-Agenten (U2).
 
-Besitzt den headed-Playwright-Browser-Lebenszyklus (Start/Pause/Resume/
+Besitzt den Playwright-Browser-Lebenszyklus (Start/Pause/Resume/
 Abbruch) unabhängig vom Feld-Mapping (spätere Units U3/U4). Siehe
 docs/plans/2026-09-19-002-feat-portal-application-auto-fill-agent-plan.md.
 
@@ -222,10 +222,10 @@ class PortalFillSession:
 
     # --- Browser-Lebenszyklus (NUR vom besitzenden Thread!) -------------
 
-    def launch(self, *, headed: bool = True) -> None:
-        """Startet Chromium. Muss vom besitzenden (Hintergrund-)Thread
-        aufgerufen werden. Eine Startfehlfunktion (fehlendes Display,
-        fehlende Browser-Binaries, ...) propagiert als Exception.
+    def launch(self) -> None:
+        """Startet Chromium headless. Muss vom besitzenden (Hintergrund-)
+        Thread aufgerufen werden. Eine Startfehlfunktion (fehlende Browser-
+        Binaries, Ressourcenknappheit, ...) propagiert als Exception.
 
         Der Start ist über `settings.BROWSER_LAUNCH_TIMEOUT_MS` zeitlich
         begrenzt (KTD7), damit ein hängender Chromium-Start nicht ewig
@@ -236,7 +236,7 @@ class PortalFillSession:
         self.playwright = self._playwright_cm.__enter__()
         try:
             self.browser = self.playwright.chromium.launch(
-                headless=not headed, timeout=settings.BROWSER_LAUNCH_TIMEOUT_MS
+                headless=True, timeout=settings.BROWSER_LAUNCH_TIMEOUT_MS
             )
             self.page = self.browser.new_page()
         except Exception:
@@ -342,7 +342,6 @@ def start_session(
     application_form_url: str,
     run_fn: Callable[[PortalFillSession], None],
     *,
-    headed: bool = True,
     pause_timeout_seconds: float = PAUSE_TIMEOUT_SECONDS,
 ) -> PortalFillSession:
     """Startet eine neue Portal-Auto-Fill-Sitzung für `application_id`.
@@ -369,7 +368,7 @@ def start_session(
 
     def _thread_body() -> None:
         try:
-            session.launch(headed=headed)
+            session.launch()
         except Exception as exc:  # noqa: BLE001 - an den wartenden Aufrufer weiterreichen
             launch_error.append(exc)
             # KTD7: auch ein Startfehler ist ein klassifizierter Outcome -

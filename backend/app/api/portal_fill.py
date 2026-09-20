@@ -101,7 +101,7 @@ def start_portal_fill(
     application_id: int, payload: PortalFillStartRequest, db: Session = Depends(get_db)
 ) -> Application:
     """Startet einen Personio-Auto-Fill-Lauf für `application_id` in einem
-    headed Browser (R1/R2). Lehnt eine Nicht-`https://`-URL sofort ab -
+    headless Browser (R1/R2). Lehnt eine Nicht-`https://`-URL sofort ab -
     bevor überhaupt ein Browser geöffnet wird (KTD11)."""
     if not payload.application_form_url.startswith("https://"):
         raise HTTPException(

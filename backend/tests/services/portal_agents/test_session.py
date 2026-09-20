@@ -587,7 +587,6 @@ def test_launch_passes_configured_timeout_to_chromium(db_session_local, mocker):
         application_id,
         "https://portal.example/apply",
         _looping_run_fn(steps=1000, delay=0.005),
-        headed=False,
     )
 
     playwright = factory.return_value.__enter__.return_value

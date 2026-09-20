@@ -4,8 +4,8 @@ Deckt die U4-Testszenarien des Plans ab:
 docs/plans/2026-09-19-002-feat-portal-application-auto-fill-agent-plan.md
 
 Läuft gegen einen ECHTEN (headless) Chromium-Browser über
-`session_module.start_session(..., headed=False)` - `sync_playwright` wird
-hier bewusst NICHT gemockt (im Gegensatz zu `test_session.py`), weil die
+`session_module.start_session(...)` - `sync_playwright` wird hier bewusst
+NICHT gemockt (im Gegensatz zu `test_session.py`), weil die
 Tests echtes Cross-Frame-DOM-Verhalten prüfen wollen (Label-Assoziation
 INNERHALB eines iframes, `frame_locator`-Auflösung, Captcha-Präsenz-Marker).
 Das entspricht `test_base.py`s Konvention (echter Browser statt Mock), nur
@@ -228,7 +228,7 @@ def test_fields_inside_personio_iframe_are_filled_via_frame_locator(
     run_fn = _capturing_run_fn(fields, results)
 
     session = session_module.start_session(
-        application_id, _data_url(page_html), run_fn, headed=False
+        application_id, _data_url(page_html), run_fn
     )
     session.thread.join(timeout=10)
     assert not session.thread.is_alive()
@@ -255,7 +255,7 @@ def test_no_matching_iframe_fails_run_with_iframe_not_found_reason(db_session_lo
     run_fn = personio_module.build_personio_run_fn([], iframe_wait_timeout_ms=300)
 
     session = session_module.start_session(
-        application_id, _data_url(page_html), run_fn, headed=False
+        application_id, _data_url(page_html), run_fn
     )
     session.thread.join(timeout=10)
 
@@ -281,7 +281,7 @@ def test_iframe_with_spoofed_personio_substring_in_src_is_terminal_untrusted_hos
     run_fn = personio_module.build_personio_run_fn([], iframe_wait_timeout_ms=3000)
 
     session = session_module.start_session(
-        application_id, _data_url(page_html), run_fn, headed=False
+        application_id, _data_url(page_html), run_fn
     )
     session.thread.join(timeout=10)
 
@@ -303,7 +303,7 @@ def test_captcha_presence_pauses_before_any_field_is_filled(db_session_local, cv
     run_fn = personio_module.build_personio_run_fn(fields, iframe_wait_timeout_ms=3000)
 
     session = session_module.start_session(
-        application_id, _data_url(page_html), run_fn, headed=False
+        application_id, _data_url(page_html), run_fn
     )
     application = _wait_for_state(db_session_local, application_id, "paused")
 
@@ -335,7 +335,7 @@ def test_unmapped_field_pauses_with_low_confidence_reason(db_session_local):
     run_fn = personio_module.build_personio_run_fn(fields, iframe_wait_timeout_ms=3000)
 
     session = session_module.start_session(
-        application_id, _data_url(page_html), run_fn, headed=False
+        application_id, _data_url(page_html), run_fn
     )
     application = _wait_for_state(db_session_local, application_id, "paused")
 
@@ -373,7 +373,7 @@ def test_full_detect_fill_pause_on_captcha_resume_continue_sequence(db_session_l
     run_fn = _capturing_run_fn(fields, results)
 
     session = session_module.start_session(
-        application_id, _data_url(page_html), run_fn, headed=False
+        application_id, _data_url(page_html), run_fn
     )
 
     application = _wait_for_state(db_session_local, application_id, "paused")
@@ -502,7 +502,7 @@ def test_mandatory_pre_submit_pause_fires_before_any_submit_click(db_session_loc
     run_fn = personio_module.build_personio_run_fn(fields, iframe_wait_timeout_ms=3000)
 
     session = session_module.start_session(
-        application_id, _data_url(page_html), run_fn, headed=False
+        application_id, _data_url(page_html), run_fn
     )
 
     application = _wait_for_state(db_session_local, application_id, "paused")
@@ -587,7 +587,7 @@ def test_captcha_solver_resolved_continues_and_does_not_repause_on_presence(
     )
 
     session = session_module.start_session(
-        application_id, _data_url(page_html), run_fn, headed=False
+        application_id, _data_url(page_html), run_fn
     )
     session.thread.join(timeout=10)
 
@@ -619,7 +619,6 @@ def test_captcha_solver_failed_pauses_with_captcha_reason(db_session_local, mock
         application_id,
         _data_url(page_html),
         personio_module.build_personio_run_fn([], iframe_wait_timeout_ms=3000),
-        headed=False,
     )
     application = _wait_for_state(db_session_local, application_id, "paused")
 
@@ -652,7 +651,6 @@ def test_captcha_solver_non_resolved_status_pauses_with_captcha_reason(
         application_id,
         _data_url(page_html),
         personio_module.build_personio_run_fn([], iframe_wait_timeout_ms=3000),
-        headed=False,
     )
     application = _wait_for_state(db_session_local, application_id, "paused")
 
@@ -679,7 +677,6 @@ def test_captcha_solver_raising_pauses_with_captcha_reason(db_session_local, moc
         application_id,
         _data_url(page_html),
         personio_module.build_personio_run_fn([], iframe_wait_timeout_ms=3000),
-        headed=False,
     )
     application = _wait_for_state(db_session_local, application_id, "paused")
 
@@ -709,7 +706,6 @@ def test_captcha_solver_overrun_pauses_with_captcha_reason(db_session_local, moc
         application_id,
         _data_url(page_html),
         personio_module.build_personio_run_fn([], iframe_wait_timeout_ms=3000),
-        headed=False,
     )
     application = _wait_for_state(db_session_local, application_id, "paused")
 
@@ -837,7 +833,6 @@ def test_auto_submit_off_pauses_before_submit(db_session_local, cv_file):
         application_id,
         _data_url(page_html),
         personio_module.build_personio_run_fn(fields, iframe_wait_timeout_ms=3000),
-        headed=False,
     )
     application = _wait_for_state(db_session_local, application_id, "paused")
 
@@ -862,7 +857,6 @@ def test_auto_submit_on_with_all_fields_confident_submits_without_pause(
         application_id,
         _data_url(page_html),
         personio_module.build_personio_run_fn(fields, iframe_wait_timeout_ms=3000),
-        headed=False,
     )
     session.thread.join(timeout=10)
 
@@ -883,7 +877,6 @@ def test_auto_submit_on_with_unmapped_field_does_not_submit(db_session_local, mo
         application_id,
         _data_url(page_html),
         personio_module.build_personio_run_fn(fields, iframe_wait_timeout_ms=3000),
-        headed=False,
     )
     application = _wait_for_state(db_session_local, application_id, "paused")
 
@@ -917,7 +910,6 @@ def test_auto_submit_on_with_llm_freetext_answer_does_not_submit(
         application_id,
         _data_url(page_html),
         personio_module.build_personio_run_fn([], iframe_wait_timeout_ms=3000),
-        headed=False,
     )
     application = _wait_for_state(db_session_local, application_id, "paused")
 
@@ -942,7 +934,6 @@ def test_auto_submit_on_with_remaining_captcha_does_not_submit(db_session_local,
         application_id,
         _data_url(page_html),
         personio_module.build_personio_run_fn(fields, iframe_wait_timeout_ms=3000),
-        headed=False,
     )
     application = _wait_for_state(db_session_local, application_id, "paused")
 
@@ -978,7 +969,6 @@ def test_required_screening_radio_blocks_auto_submit(db_session_local, mocker):
         application_id,
         _data_url(page_html),
         personio_module.build_personio_run_fn([], iframe_wait_timeout_ms=3000),
-        headed=False,
     )
     application = _wait_for_state(db_session_local, application_id, "paused")
 
@@ -1005,7 +995,6 @@ def test_dry_run_pauses_without_submitting_and_resume_submits(db_session_local, 
         personio_module.build_personio_run_fn(
             fields, iframe_wait_timeout_ms=3000, dry_run=True
         ),
-        headed=False,
     )
     application = _wait_for_state(db_session_local, application_id, "paused")
 
@@ -1039,7 +1028,6 @@ def test_dry_run_with_auto_submit_on_still_pauses_and_resume_submits(
         personio_module.build_personio_run_fn(
             fields, iframe_wait_timeout_ms=3000, dry_run=True
         ),
-        headed=False,
     )
     application = _wait_for_state(db_session_local, application_id, "paused")
 
