@@ -85,7 +85,10 @@ _active_sessions_lock = threading.Lock()
 
 
 class SessionAlreadyActiveError(Exception):
-    """Für diese `application_id` läuft bereits ein Portal-Auto-Fill-Lauf.
+    """Es läuft bereits IRGENDEIN Portal-Auto-Fill-Lauf, prozessweit (KTD10) -
+    nicht mehr auf dieselbe `application_id` beschränkt, seit KTD8s fester
+    Chromium-Remote-Debugging-Port keine zwei gleichzeitigen Browser-Starts
+    mehr zulässt. `application_id` benennt die tatsächlich aktive Sitzung.
 
     Vom Aufrufer (spätere API-Unit U6) auf HTTP 409 zu mappen.
     """
@@ -235,14 +238,22 @@ class PortalFillSession:
 
         Der Start ist über `settings.BROWSER_LAUNCH_TIMEOUT_MS` zeitlich
         begrenzt (KTD7), damit ein hängender Chromium-Start nicht ewig
-        blockiert."""
+        blockiert. `--remote-debugging-port` (R3/KTD3/KTD8) läuft für die
+        gesamte Lebensdauer des Browsers, nicht nur während einer Captcha-
+        Pause - `start_session()`s KTD10-Guard verhindert, dass zwei Läufe
+        gleichzeitig denselben festen Port belegen wollen."""
         if sync_playwright is None:
             raise RuntimeError("Playwright ist nicht installiert.")
         self._playwright_cm = sync_playwright()
         self.playwright = self._playwright_cm.__enter__()
         try:
             self.browser = self.playwright.chromium.launch(
-                headless=True, timeout=settings.BROWSER_LAUNCH_TIMEOUT_MS
+                headless=True,
+                timeout=settings.BROWSER_LAUNCH_TIMEOUT_MS,
+                args=[
+                    f"--remote-debugging-port={settings.PORTAL_FILL_DEBUG_PORT}",
+                    "--remote-debugging-address=0.0.0.0",
+                ],
             )
             self.page = self.browser.new_page()
         except Exception:
@@ -368,18 +379,23 @@ def start_session(
 ) -> PortalFillSession:
     """Startet eine neue Portal-Auto-Fill-Sitzung für `application_id`.
 
-    Lehnt einen zweiten gleichzeitigen Start für dieselbe `application_id`
-    mit `SessionAlreadyActiveError` ab. Der eigentliche Browser-Start
-    (`session.launch()`) UND `run_fn` laufen komplett im neuen Hintergrund-
-    Thread - dieser Aufruf blockiert nur so lange, bis der Start-Versuch
-    (Erfolg ODER Fehler) feststeht, und kehrt danach sofort zurück, OHNE auf
-    `run_fn` (das ggf. stundenlang auf eine Nutzeraktion wartet) zu warten.
-    Schlägt der Browser-Start fehl, propagiert die Exception hier - synchron
-    und klar catchbar - statt den Aufrufer im Unklaren zu lassen.
+    Lehnt einen zweiten gleichzeitigen Start PROZESSWEIT ab (KTD10) - nicht
+    nur für dieselbe `application_id`: KTD8s fester Chromium-Remote-
+    Debugging-Port kann von zwei gleichzeitigen Browser-Starts nicht beide
+    gebunden werden. Der Fehler ist derselbe `SessionAlreadyActiveError`
+    (409) wie zuvor, trägt aber die `application_id` der TATSÄCHLICH schon
+    aktiven Sitzung (nicht der neu angeforderten), damit die Meldung
+    korrekt bleibt. Der eigentliche Browser-Start (`session.launch()`) UND
+    `run_fn` laufen komplett im neuen Hintergrund-Thread - dieser Aufruf
+    blockiert nur so lange, bis der Start-Versuch (Erfolg ODER Fehler)
+    feststeht, und kehrt danach sofort zurück, OHNE auf `run_fn` (das ggf.
+    stundenlang auf eine Nutzeraktion wartet) zu warten. Schlägt der
+    Browser-Start fehl, propagiert die Exception hier - synchron und klar
+    catchbar - statt den Aufrufer im Unklaren zu lassen.
     """
     with _active_sessions_lock:
-        if application_id in _active_sessions:
-            raise SessionAlreadyActiveError(application_id)
+        if _active_sessions:
+            raise SessionAlreadyActiveError(next(iter(_active_sessions)))
         session = PortalFillSession(
             application_id, application_form_url, pause_timeout_seconds=pause_timeout_seconds
         )

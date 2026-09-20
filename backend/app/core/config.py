@@ -157,6 +157,13 @@ class Settings(BaseSettings):
     # `start_session()`s `launch_done.wait()` (KTD7) - begrenzt einen
     # hängenden Browser-Start.
     BROWSER_LAUNCH_TIMEOUT_MS: int = 30_000
+    # R3/KTD3/KTD8: Chromium wird mit `--remote-debugging-port` gestartet,
+    # damit sich der Nutzer bei einer Captcha-Pause von der eigenen Maschine
+    # aus live (z. B. über `chrome://inspect`) verbinden kann - dieselbe
+    # Verbindung, die im Docker-Setup NUR über `127.0.0.1:<Port>:<Port>`
+    # (nicht den ungebundenen Compose-Kurzsyntax-Default) an den Host
+    # weitergereicht werden darf (siehe `docker-compose.yml`).
+    PORTAL_FILL_DEBUG_PORT: int = 9222
 
     # --- Generierte/hochgeladene Dateien ---
     # Ablageort der vom Nutzer hochgeladenen Lebenslauf-Anhang-Datei (siehe

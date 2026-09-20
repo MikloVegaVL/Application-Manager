@@ -76,6 +76,13 @@ services:
       - ./backend/generated:/app/generated
     ports:
       - "8000:8000"
+      # Chromium-Remote-Debugging (R3/KTD3/KTD8, für eine Captcha-Pause) - NUR
+      # auf 127.0.0.1 gemappt, nicht auf allen Host-Interfaces: die
+      # ungebundene Kurzsyntax ("9222:9222") würde den Port auf 0.0.0.0
+      # veröffentlichen und damit jedem im selben Netzwerk volle,
+      # unauthentifizierte Kontrolle über den Automations-Browser geben,
+      # statt nur "der eigenen Maschine" wie in R3 vorausgesetzt.
+      - "127.0.0.1:9222:9222"
     restart: unless-stopped
 
   # --- Angular-Frontend (Nginx) ----------------------------------------------

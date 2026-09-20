@@ -81,13 +81,15 @@ def _clear_registry():
     session_module._active_sessions.clear()
 
 
-def _create_application(db_session_local, *, automation_state: str | None = None) -> int:
+def _create_application(
+    db_session_local, *, automation_state: str | None = None, source_url: str = "https://example.com/jobs/1"
+) -> int:
     db = db_session_local()
     try:
         job_offer = JobOffer(
             title="Backend Engineer",
             company="Acme GmbH",
-            source_url="https://example.com/jobs/1",
+            source_url=source_url,
             source_platform="personio",
         )
         db.add(job_offer)
@@ -642,7 +644,60 @@ def test_launch_passes_configured_timeout_to_chromium(db_session_local, mocker):
     )
 
     playwright = factory.return_value.__enter__.return_value
-    playwright.chromium.launch.assert_called_once_with(headless=True, timeout=12345)
+    playwright.chromium.launch.assert_called_once_with(
+        headless=True,
+        timeout=12345,
+        args=["--remote-debugging-port=9222", "--remote-debugging-address=0.0.0.0"],
+    )
+
+    session.request_cancel()
+    session.thread.join(timeout=2)
+
+
+def test_launch_passes_configured_debug_port_to_chromium(db_session_local, mocker):
+    """R3/KTD3/KTD8: der Remote-Debugging-Port ist konfigurierbar (`settings.
+    PORTAL_FILL_DEBUG_PORT`), nicht auf den Default 9222 hartkodiert."""
+    application_id = _create_application(db_session_local)
+    factory, browser = _fake_playwright()
+    _patch_sync_playwright(mocker, factory)
+    mocker.patch.object(session_module.settings, "PORTAL_FILL_DEBUG_PORT", 9333)
+
+    session = session_module.start_session(
+        application_id, "https://portal.example/apply", _looping_run_fn(steps=1000, delay=0.005)
+    )
+
+    playwright = factory.return_value.__enter__.return_value
+    _, kwargs = playwright.chromium.launch.call_args
+    assert kwargs["args"] == ["--remote-debugging-port=9333", "--remote-debugging-address=0.0.0.0"]
+
+    session.request_cancel()
+    session.thread.join(timeout=2)
+
+
+# --- KTD10: prozessweiter Concurrent-Run-Guard -------------------------------
+
+
+def test_second_concurrent_start_for_a_different_application_is_also_rejected(db_session_local, mocker):
+    """KTD10: der feste Debug-Port (KTD8) kann nicht von zwei gleichzeitigen
+    Browser-Starts gebunden werden - der Guard blockt deshalb JEDEN zweiten
+    Start, nicht nur denselben `application_id` wie zuvor."""
+    first_application_id = _create_application(db_session_local)
+    second_application_id = _create_application(db_session_local, source_url="https://example.com/jobs/2")
+    factory, browser = _fake_playwright()
+    _patch_sync_playwright(mocker, factory)
+
+    started = threading.Event()
+    session = session_module.start_session(
+        first_application_id, "https://portal.example/apply", _looping_run_fn(started=started)
+    )
+    started.wait(timeout=2)
+
+    with pytest.raises(session_module.SessionAlreadyActiveError) as exc_info:
+        session_module.start_session(
+            second_application_id, "https://portal.example/apply", _looping_run_fn()
+        )
+    # Die Meldung benennt die TATSÄCHLICH aktive Sitzung, nicht die neu angeforderte.
+    assert exc_info.value.application_id == first_application_id
 
     session.request_cancel()
     session.thread.join(timeout=2)
