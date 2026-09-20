@@ -27,3 +27,9 @@ A saved job offer is considered applied: saving creates a draft application imme
 
 ### Action needed
 The paused state of a portal auto-fill run, raised on an Application when the agent hits a captcha, a form field it can't map with confidence, or the mandatory pre-submit confirmation. Distinct from any `ApplicationStatus` value; cleared only when the user resumes the run from the app.
+
+### Run outcome
+The single explicit state a portal auto-fill run ends in — submitted, needs-you, or blocked-with-a-reason — produced through one shared contract every portal agent uses, rather than per-agent ad-hoc status values. A run always ends in exactly one run outcome.
+
+### Auto-submit policy
+The rule deciding whether a run may submit without human confirmation. When it does not permit submission, the run pauses as Action needed; the user can require confirmation for every submit, which preserves the unconditional pre-submit pause.
