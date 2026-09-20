@@ -33,3 +33,9 @@ export interface ApplicationSendPayload {
   subject?: string;
   message?: string;
 }
+
+/** Entspricht `PortalFillStatusResponse` (`GET .../portal-fill/status`). */
+export interface PortalFillStatus {
+  automation_state: 'running' | 'paused' | 'submitted' | 'failed' | null;
+  action_needed_reason: string | null;
+}

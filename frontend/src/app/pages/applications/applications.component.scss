@@ -175,6 +175,74 @@
     margin-top: auto;
   }
 
+  &__portal-fill {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  &__portal-fill-trigger {
+    display: flex;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  &__portal-fill-url {
+    flex: 1 1 220px;
+  }
+
+  &__portal-fill-running,
+  &__portal-fill-submitted,
+  &__portal-fill-banner,
+  &__portal-fill-failed {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.875rem;
+
+    mat-icon {
+      flex-shrink: 0;
+      width: 18px;
+      height: 18px;
+      font-size: 18px;
+    }
+
+    span {
+      flex: 1;
+    }
+  }
+
+  &__portal-fill-running,
+  &__portal-fill-submitted {
+    color: var(--app-muted-text);
+    border: 1px solid var(--app-border, rgba(0, 0, 0, 0.12));
+  }
+
+  &__portal-fill-submitted mat-icon {
+    color: var(--app-success);
+  }
+
+  &__portal-fill-banner {
+    color: var(--app-on-warn, inherit);
+    border: 1px solid var(--app-warn, #ed6c02);
+    background-color: color-mix(in srgb, var(--app-warn, #ed6c02) 12%, transparent);
+  }
+
+  &__portal-fill-banner-actions {
+    display: flex;
+    gap: 4px;
+  }
+
+  &__portal-fill-failed {
+    color: var(--app-error);
+    border: 1px solid var(--app-error);
+    background-color: color-mix(in srgb, var(--app-error) 12%, transparent);
+  }
+
   mat-card-content {
     flex: 1;
   }
