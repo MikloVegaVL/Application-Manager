@@ -23,14 +23,21 @@ Testszenarien es verlangen (Fixtures aus ein paar Textfeldern, einem
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+from app.models.application import Application
+from app.models.job_offer import JobOffer
+from app.models.master_profile import MasterProfile
+from app.models.portal_submission import PortalSubmission
 from app.models.profile_attachment import ProfileAttachment
 from app.services.portal_agents import base as base_module
 from app.services.portal_agents import session as session_module
+from app.services.portal_agents.answering import answer_freetext_question
 from app.services.portal_agents.session import PortalFillSession
 
 # Personios Formular-Embed generisch über ein Domain-Fragment im `src`
@@ -58,6 +65,35 @@ CAPTCHA_SELECTORS: tuple[str, ...] = (
     "#challenge-stage",
     'input[name="cf-turnstile-response"]',
 )
+
+# Best-effort Name-Muster für den eigentlichen Submit-Button (R11) - deckt
+# gängige englische/deutsche Beschriftungen ab. Muss für v1 nicht perfekt
+# sein (siehe Auftrag): findet Playwright keinen passenden Button, wirft
+# `get_by_role(...).click()` selbst einen `TimeoutError`, der den Lauf über
+# den generischen `unhandled_error`-Pfad in `session.py` sauber beendet.
+SUBMIT_BUTTON_NAME_PATTERN = re.compile(r"submit|senden|absenden|bewerben", re.IGNORECASE)
+
+# JS-Heuristik zur Label-Auflösung einer Freitext-`<textarea>` (R7): erst
+# `aria-label`, dann ein assoziiertes `<label for=...>`, dann das nächste
+# umschließende `<label>` (Wrapping-Muster `<label>Text<textarea/></label>`).
+# Muss nicht perfekt sein - eine fehlende Auflösung fällt in
+# `_resolve_textarea_label()` unten auf `placeholder`/`name`/einen
+# generischen Platzhalter zurück statt zu scheitern.
+_TEXTAREA_LABEL_JS = """
+(el) => {
+  const ariaLabel = el.getAttribute('aria-label');
+  if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim();
+  if (el.id) {
+    const label = el.ownerDocument.querySelector(`label[for="${el.id}"]`);
+    if (label && label.textContent && label.textContent.trim()) return label.textContent.trim();
+  }
+  const closestLabel = el.closest('label');
+  if (closestLabel && closestLabel.textContent && closestLabel.textContent.trim()) {
+    return closestLabel.textContent.trim();
+  }
+  return null;
+}
+"""
 
 
 class IframeNotFoundError(session_module._StopRun):
@@ -136,17 +172,11 @@ def _fill_field(frame, field: PersonioField) -> base_module.FieldFillResult:
     raise ValueError(f"Unbekannte PersonioField.kind: {field.kind!r}")
 
 
-def run(
-    session: PortalFillSession,
-    fields: list[PersonioField],
-    *,
-    iframe_wait_timeout_ms: float | None = DEFAULT_IFRAME_WAIT_TIMEOUT_MS,
-) -> None:
-    """Der eigentliche Personio-Lauf (R3/R4/R10/R12). Navigiert zur
-    Formular-URL, lokalisiert das Personio-iframe, prüft/pausiert bei
-    Captchas und füllt `fields` der Reihe nach - jedes nicht gemappte Feld
-    (R12) pausiert statt still übersprungen zu werden. `check_cancel()` läuft
-    vor jedem Feld als Abbruch-Checkpoint (R9-Analogon aus U2)."""
+def _locate_frame(session: PortalFillSession, iframe_wait_timeout_ms: float | None):
+    """Navigiert zur Formular-URL und lokalisiert das Personio-iframe (R4).
+    Ausgelagert aus `run()`, damit U4s eigene Tests (Feld-Ausfüllen,
+    iframe-Erkennung) diesen Schritt unabhängig von der später (U6)
+    angehängten Freitext-/Pre-Submit-/Submit-Pipeline aufrufen können."""
     session.page.goto(session.application_form_url)
 
     frame = session.page.frame_locator(PERSONIO_IFRAME_SELECTOR)
@@ -158,15 +188,146 @@ def run(
         session._set_state("failed", "iframe_not_found")
         session_module._unregister(session.application_id)
         raise IframeNotFoundError() from exc
+    return frame
 
+
+def _fill_known_fields(session: PortalFillSession, frame, fields: list[PersonioField]) -> None:
+    """Füllt die bekannten `fields` der Reihe nach (R3/R12) - jedes nicht
+    gemappte Feld pausiert statt still übersprungen zu werden. `check_cancel()`
+    läuft vor jedem Feld als Abbruch-Checkpoint (R9-Analogon aus U2)."""
     _pause_if_captcha_present(session, frame)
-
     for field in fields:
         session.check_cancel()
         _pause_if_captcha_present(session, frame)
         result = _fill_field(frame, field)
         if not result.matched:
             session.pause("low_confidence_field")
+
+
+def _resolve_textarea_label(textarea_locator) -> str:
+    """Bestes verfügbares Label für eine Freitext-`<textarea>` (R7) - siehe
+    `_TEXTAREA_LABEL_JS`. Fällt auf `placeholder`/`name`/einen generischen
+    Platzhalter zurück, wenn keine Label-Assoziation gefunden wird (muss laut
+    Auftrag nicht perfekt sein)."""
+    js_label = textarea_locator.evaluate(_TEXTAREA_LABEL_JS)
+    if js_label:
+        return js_label
+    placeholder = textarea_locator.get_attribute("placeholder")
+    if placeholder:
+        return placeholder
+    name = textarea_locator.get_attribute("name")
+    if name:
+        return name
+    return "Freitextfrage"
+
+
+def _load_answering_context(
+    application_id: int,
+) -> tuple[MasterProfile | None, JobOffer | None, str | None]:
+    """Lädt Profil/Stellenangebot/bereits generiertes Anschreiben frisch über
+    eine KURZLEBIGE `SessionLocal()`-Session (nicht über eine bereits offene
+    Session hinweg gehalten) - vermeidet, eine DB-Session über einen ggf.
+    stundenlangen `session.pause()`-Wait offen zu halten (Ressourcen-Leck-
+    Risiko). `MasterProfile` wird wie im Rest der App per `.first()` als das
+    eine Profil dieser Single-User-Anwendung geladen (siehe `send_application`)."""
+    db = session_module.SessionLocal()
+    try:
+        application = db.get(Application, application_id)
+        job_offer = db.get(JobOffer, application.job_offer_id) if application is not None else None
+        profile = db.query(MasterProfile).first()
+        cover_letter_text = application.cover_letter_text if application is not None else None
+        return profile, job_offer, cover_letter_text
+    finally:
+        db.close()
+
+
+def _fill_freetext_questions(session: PortalFillSession, frame) -> None:
+    """Entdeckt Freitext-Fragen (R7): jede `<textarea>` im Personio-iframe,
+    die noch KEINEN Wert trägt (nicht bereits durch ein bekanntes Feld
+    gefüllt), gilt als offene Frage. Scheitert `answer_freetext_question()`
+    (LLM-Fehler), wird NUR dieses Feld als UNMAPPED behandelt (R12: Pause statt
+    den ganzen Lauf als `unhandled_error` abzubrechen)."""
+    profile, job_offer, cover_letter_text = _load_answering_context(session.application_id)
+    for textarea in frame.locator("textarea").all():
+        session.check_cancel()
+        _pause_if_captcha_present(session, frame)
+        if (textarea.input_value() or "").strip():
+            continue  # bereits durch ein bekanntes Feld gefüllt
+        question = _resolve_textarea_label(textarea)
+        try:
+            answer = answer_freetext_question(
+                question=question,
+                profile=profile,
+                job_offer=job_offer,
+                cover_letter_text=cover_letter_text,
+            )
+        except Exception:  # noqa: BLE001 - LLM-Fehler betrifft nur DIESES Feld (R12)
+            session.pause("low_confidence_field")
+            continue
+        textarea.fill(answer)
+
+
+def _click_submit_button(frame) -> None:
+    """Klickt den Submit-Button (R11) - best-effort Name-Heuristik, siehe
+    `SUBMIT_BUTTON_NAME_PATTERN`. Findet Playwright keinen Treffer, wirft
+    `get_by_role(...).click()` selbst (`TimeoutError`), was den Lauf über den
+    generischen `unhandled_error`-Pfad in `session.py` sauber beendet."""
+    frame.get_by_role("button", name=SUBMIT_BUTTON_NAME_PATTERN).first.click()
+
+
+def _record_submission(session: PortalFillSession) -> None:
+    """Protokolliert einen erfolgreichen Submit (R11/R13, U1): erzeugt EINEN
+    `PortalSubmission`-Datensatz (Snapshot aus dem `JobOffer`) UND setzt
+    `Application.automation_state="submitted"` in einem Commit - mirrort
+    `send_application`s Erfolgs-Only-Logging-Muster. Nutzt eine frische,
+    KURZLEBIGE `SessionLocal()`-Session statt eine über den vorherigen
+    `pre_submit_confirmation`-Pause-Wait offen gehaltene."""
+    db = session_module.SessionLocal()
+    try:
+        application = db.get(Application, session.application_id)
+        job_offer = (
+            db.get(JobOffer, application.job_offer_id) if application is not None else None
+        )
+        db.add(
+            PortalSubmission(
+                application_id=session.application_id,
+                portal_url=session.application_form_url,
+                platform="personio",
+                company=job_offer.company if job_offer is not None else None,
+                job_title=job_offer.title if job_offer is not None else None,
+                submitted_at=datetime.now(timezone.utc),
+            )
+        )
+        if application is not None:
+            application.automation_state = "submitted"
+            application.action_needed_reason = None
+        db.commit()
+    finally:
+        db.close()
+
+
+def run(
+    session: PortalFillSession,
+    fields: list[PersonioField],
+    *,
+    iframe_wait_timeout_ms: float | None = DEFAULT_IFRAME_WAIT_TIMEOUT_MS,
+) -> None:
+    """Der eigentliche Personio-Lauf (R3/R4/R7/R10/R11/R12). Navigiert zur
+    Formular-URL, lokalisiert das Personio-iframe, prüft/pausiert bei
+    Captchas, füllt die bekannten `fields` UND entdeckte Freitext-Fragen,
+    pausiert IMMER vor dem Submit (`pre_submit_confirmation`, R11 - nicht
+    konditional) und klickt nach dem Resume den Submit-Button, bevor der
+    Submit protokolliert wird (`PortalSubmission` + `automation_state=
+    "submitted"`)."""
+    frame = _locate_frame(session, iframe_wait_timeout_ms)
+    _fill_known_fields(session, frame, fields)
+    _fill_freetext_questions(session, frame)
+
+    session.pause("pre_submit_confirmation")
+
+    _click_submit_button(frame)
+    _record_submission(session)
+    session.close()
 
 
 def build_personio_run_fn(

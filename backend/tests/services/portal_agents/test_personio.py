@@ -29,6 +29,7 @@ import time
 import urllib.parse
 
 import pytest
+from playwright.sync_api import sync_playwright
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
@@ -36,6 +37,7 @@ from app import models  # noqa: F401 - registriert alle Modelle in Base.metadata
 from app.db.database import Base
 from app.models.application import Application
 from app.models.job_offer import JobOffer
+from app.models.portal_submission import PortalSubmission
 from app.models.profile_attachment import ProfileAttachment
 from app.services.portal_agents import base as base_module
 from app.services.portal_agents import personio as personio_module
@@ -107,6 +109,18 @@ def _read_application(db_session_local, application_id: int) -> Application:
         db.close()
 
 
+def _read_portal_submission(db_session_local, application_id: int) -> PortalSubmission | None:
+    db = db_session_local()
+    try:
+        return (
+            db.query(PortalSubmission)
+            .filter(PortalSubmission.application_id == application_id)
+            .first()
+        )
+    finally:
+        db.close()
+
+
 def _wait_for_state(db_session_local, application_id: int, state: str, timeout: float = 5.0) -> Application:
     deadline = time.monotonic() + timeout
     application = _read_application(db_session_local, application_id)
@@ -162,24 +176,28 @@ def cv_file(tmp_path):
 
 
 def _capturing_run_fn(fields, results: dict, *, iframe_wait_timeout_ms: float | None = 3000):
-    """Baut ein `run_fn`, das NACH `personio_module.run()` die resultierenden
-    Feldwerte in `results` ablegt - WICHTIG: das Auslesen von `session.page`
-    muss im selben (besitzenden) Thread passieren, der `launch()` aufgerufen
-    hat (R9-Invariante aus `session.py`s Moduldoc - ein Playwright-Sync-
-    Aufruf von einem anderen OS-Thread aus wirft `greenlet.error`). `results`
-    selbst ist ein reines Dict, das der Testthread nach `thread.join()`
-    gefahrlos lesen kann."""
+    """Baut ein `run_fn`, das NUR den iframe-Lokalisierungs-/Feld-Ausfüll-Teil
+    der Pipeline aufruft (`_locate_frame` + `_fill_known_fields`, NICHT das
+    volle `run()` mit Freitext-Entdeckung/Pre-Submit-Pause/Submit, siehe U6) -
+    diese Tests decken ausschließlich U4s Zuständigkeit ab (iframe-Erkennung,
+    Feld-Mapping), nicht den später (U6) angehängten Submit-Schritt.
+
+    WICHTIG: das Auslesen von `session.page` muss im selben (besitzenden)
+    Thread passieren, der `launch()` aufgerufen hat (R9-Invariante aus
+    `session.py`s Moduldoc - ein Playwright-Sync-Aufruf von einem anderen
+    OS-Thread aus wirft `greenlet.error`). `results` selbst ist ein reines
+    Dict, das der Testthread nach `thread.join()` gefahrlos lesen kann."""
 
     def _run(session: session_module.PortalFillSession) -> None:
-        personio_module.run(session, fields, iframe_wait_timeout_ms=iframe_wait_timeout_ms)
-        frame = session.page.frame_locator(personio_module.PERSONIO_IFRAME_SELECTOR)
+        frame = personio_module._locate_frame(session, iframe_wait_timeout_ms)
+        personio_module._fill_known_fields(session, frame, fields)
         results["full_name"] = frame.get_by_label("Full Name").input_value()
         results["email"] = frame.get_by_label("Email").input_value()
         results["country"] = frame.get_by_label("Country").input_value()
         results["resume"] = frame.get_by_label("Resume").input_value()
-        # Ein regulärer Lauf-Abschluss schließt den Browser sonst nicht
-        # selbst (das obliegt späteren Units) - hier im Test noch im
-        # besitzenden Thread aufräumen, um keinen Chromium-Prozess zu leaken.
+        # Diese Tests decken nur den Ausfüll-Teil ab (kein Submit, siehe
+        # Docstring oben) - hier im Test noch im besitzenden Thread
+        # aufräumen, um keinen Chromium-Prozess zu leaken.
         session.close()
 
     return _run
@@ -371,3 +389,109 @@ def test_captcha_present_checks_both_main_and_iframe_content():
         assert personio_module.captcha_present(page, frame) is True
 
         browser.close()
+
+
+# --- Freitext-Entdeckung (R7) + Pre-Submit-Pause/Submit (R11, U6) ----------
+#
+# Diese Tests rufen `_fill_freetext_questions()`/die volle `run()`-Pipeline
+# direkt bzw. über `start_session()` auf - kein Bezug mehr zu U4s eigener
+# `_capturing_run_fn`-Helper-Funktion (die deckt nur den Ausfüll-Teil ab,
+# siehe deren Docstring oben).
+
+
+@pytest.fixture(scope="module")
+def browser():
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        yield browser
+        browser.close()
+
+
+@pytest.fixture
+def page(browser):
+    page = browser.new_page()
+    yield page
+    page.close()
+
+
+def test_fill_freetext_questions_answers_unfilled_textarea_and_fills_it(
+    db_session_local, page, mocker
+):
+    """R7: eine `<textarea>` ohne bekanntes Feld wird über
+    `answer_freetext_question()` beantwortet und die Antwort landet im Feld -
+    läuft direkt (kein Session-Hintergrund-Thread nötig), weil
+    `_fill_freetext_questions()` selbst keine Playwright-Thread-Affinität
+    voraussetzt, solange sie im selben Thread wie `page` aufgerufen wird."""
+    application_id = _create_application(db_session_local)
+    page.set_content(
+        '<label>Full Name<input type="text" name="full_name" value="Max Mustermann" /></label>'
+        '<label>Extra Frage<textarea></textarea></label>'
+    )
+    mock_answer = mocker.patch.object(
+        personio_module, "answer_freetext_question", return_value="Meine kurze Antwort."
+    )
+
+    class _FakeSession:
+        """Minimaler Stand-in für `PortalFillSession`: `_fill_freetext_questions()`
+        braucht nur `.application_id`, `.page` (für den Captcha-Check) und
+        `.check_cancel()` - kein echter Browser-Sitzungs-Lebenszyklus nötig,
+        weil dieser Test direkt (kein Session-Hintergrund-Thread) läuft."""
+
+        def __init__(self, application_id: int, page) -> None:
+            self.application_id = application_id
+            self.page = page
+
+        def check_cancel(self) -> None:
+            pass
+
+    fake_session = _FakeSession(application_id, page)
+
+    personio_module._fill_freetext_questions(fake_session, page)
+
+    mock_answer.assert_called_once()
+    assert mock_answer.call_args.kwargs["question"] == "Extra Frage"
+    assert page.get_by_label("Extra Frage").input_value() == "Meine kurze Antwort."
+    # Das bereits gefüllte Textfeld wurde von der Freitext-Entdeckung nicht
+    # angerührt (es ist keine `<textarea>`, aber sicherheitshalber geprüft).
+    assert page.get_by_label("Full Name").input_value() == "Max Mustermann"
+
+
+FORM_FIELDS_WITH_SUBMIT_HTML = FORM_FIELDS_HTML + '<button type="submit">Submit Application</button>'
+
+
+def test_mandatory_pre_submit_pause_fires_before_any_submit_click(db_session_local, cv_file):
+    """R11: NACH allen Feldern (bekannt + Freitext) pausiert der Lauf IMMER
+    mit `pre_submit_confirmation`, bevor der Submit-Button geklickt wird -
+    kein Setting überspringt das. Der Beweis liegt in der Reihenfolge der
+    beobachteten Zustände: `paused`/`pre_submit_confirmation` MUSS beobachtet
+    werden, BEVOR `automation_state` auf `submitted` wechselt (das passiert
+    erst nach `resume()`, siehe `_record_submission()`/`run()`)."""
+    application_id = _create_application(db_session_local)
+    page_html = _iframe_page("https://acme.jobs.personio.de/job/1", FORM_FIELDS_WITH_SUBMIT_HTML)
+    fields = _standard_fields(cv_file)
+    run_fn = personio_module.build_personio_run_fn(fields, iframe_wait_timeout_ms=3000)
+
+    session = session_module.start_session(
+        application_id, _data_url(page_html), run_fn, headed=False
+    )
+
+    application = _wait_for_state(db_session_local, application_id, "paused")
+    assert application.automation_state == "paused"
+    assert application.action_needed_reason == "pre_submit_confirmation"
+    # Kein Submit ist bereits passiert - sonst stünde hier schon "submitted".
+
+    session.resume()
+    session.thread.join(timeout=10)
+
+    assert not session.thread.is_alive()
+    application = _read_application(db_session_local, application_id)
+    assert application.automation_state == "submitted"
+    assert application.action_needed_reason is None
+
+    submission = _read_portal_submission(db_session_local, application_id)
+    assert submission is not None
+    assert submission.portal_url == _data_url(page_html)
+    assert submission.platform == "personio"
+    assert submission.company == "Acme GmbH"
+    assert submission.job_title == "Backend Engineer"
+    assert application_id not in session_module._active_sessions

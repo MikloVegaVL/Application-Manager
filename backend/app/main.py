@@ -10,6 +10,7 @@ from app.api.applications import router as applications_router
 from app.api.cv_builder import router as cv_builder_router
 from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
+from app.api.portal_fill import router as portal_fill_router
 from app.api.profile import router as profile_router
 from app.api.sent_emails import router as sent_emails_router
 from app.core.config import settings
@@ -63,6 +64,7 @@ app.include_router(profile_router, prefix=settings.API_V1_PREFIX)
 app.include_router(applications_router, prefix=settings.API_V1_PREFIX)
 app.include_router(cv_builder_router, prefix=settings.API_V1_PREFIX)
 app.include_router(sent_emails_router, prefix=settings.API_V1_PREFIX)
+app.include_router(portal_fill_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/", tags=["Root"])
