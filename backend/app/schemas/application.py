@@ -17,6 +17,7 @@ __all__ = [
     "ApplicationRead",
     "ApplicationGenerateRequest",
     "ApplicationSendRequest",
+    "ApplicationSubmissionSummary",
 ]
 
 
@@ -44,6 +45,18 @@ class ApplicationUpdate(BaseModel):
     sent_at: datetime | None = None
 
 
+class ApplicationSubmissionSummary(BaseModel):
+    """Kompaktes "applied"-Indiz für die Bewerbungsübersicht (U4/KTD3),
+    abgeleitet aus der jüngsten `PortalSubmission`-Zeile der Bewerbung -
+    damit die Oberfläche das Indiz ohne zweiten Request rendern kann."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    platform: str | None = None
+    portal_url: str
+    submitted_at: datetime
+
+
 class ApplicationRead(ApplicationBase):
     """Antwortmodell inkl. serverseitig verwalteter Felder.
 
@@ -59,6 +72,8 @@ class ApplicationRead(ApplicationBase):
     sent_to_email: str | None = None
     created_at: datetime
     job_offer: JobOfferRead
+    # `null`, solange kein Portal-Fill erfolgreich gemeldet wurde (R11).
+    submission: ApplicationSubmissionSummary | None = None
 
 
 class ApplicationGenerateRequest(BaseModel):

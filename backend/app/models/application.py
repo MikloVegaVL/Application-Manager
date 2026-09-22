@@ -10,6 +10,7 @@ from app.db.database import Base
 
 if TYPE_CHECKING:
     from app.models.job_offer import JobOffer
+    from app.models.portal_submission import PortalSubmission
 
 
 class ApplicationStatus(str, enum.Enum):
@@ -55,6 +56,18 @@ class Application(Base):
     )
 
     job_offer: Mapped["JobOffer"] = relationship(back_populates="applications")
+
+    # Jüngster Portal-Submit dieser Bewerbung (R11/KTD3). `viewonly` +
+    # `uselist=False` + `order_by` liefert genau die neueste Zeile (SQLAlchemy
+    # ergänzt ein LIMIT 1), damit `ApplicationRead` das "applied"-Indiz ohne
+    # zweiten Request rendern kann. Kein `back_populates`: die Rückrichtung
+    # bleibt die `viewonly`-Relation auf `PortalSubmission.application`.
+    submission: Mapped["PortalSubmission | None"] = relationship(
+        "PortalSubmission",
+        viewonly=True,
+        uselist=False,
+        order_by="desc(PortalSubmission.submitted_at)",
+    )
 
     def __repr__(self) -> str:  # pragma: no cover - Debug-Hilfe
         return f"<Application id={self.id} job_offer_id={self.job_offer_id} status={self.status}>"
