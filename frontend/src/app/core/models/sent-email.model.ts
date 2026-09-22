@@ -26,5 +26,5 @@ export interface SentEmailFilterParams {
   sender_email?: string | null;
   date_from?: string | null;
   date_to?: string | null;
-  outcome?: string | null;
+  outcome?: SentEmail['outcome'] | null;
 }

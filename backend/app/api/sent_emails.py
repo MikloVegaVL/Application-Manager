@@ -8,7 +8,7 @@ import io
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Query, Session, joinedload
+from sqlalchemy.orm import Query, Session, contains_eager, joinedload
 
 from app.db.database import get_db
 from app.models.application import Application, ApplicationStatus
@@ -60,17 +60,23 @@ def _base_query(db: Session, filters: SentEmailFilter) -> Query:
 
 
 def _query_entries_for_list(db: Session, filters: SentEmailFilter) -> list[SentEmail]:
-    # `joinedload`: `SentEmailRead.job_offer_id`/`ad_url` lesen `entry.
-    # application.job_offer_id`/`.job_offer.source_url` (siehe die gleich-
-    # namigen `SentEmail`-Properties) - ohne Eager-Load würde das pro Zeile
-    # eigene Nachlade-Queries auslösen (N+1). Nur hier nötig: die PDF-Exports
-    # (`_query_entries_for_export`) lesen beides nie, der Join würde dort nur
-    # unnötig mitlaufen.
-    return (
-        _base_query(db, filters)
-        .options(joinedload(SentEmail.application).joinedload(Application.job_offer))
-        .all()
-    )
+    # `SentEmailRead.job_offer_id`/`ad_url`/`outcome` lesen `entry.application`
+    # (siehe die gleichnamigen `SentEmail`-Properties) - ohne Eager-Load würde
+    # das pro Zeile eigene Nachlade-Queries auslösen (N+1). Nur hier nötig: die
+    # PDF-Exports (`_query_entries_for_export`) lesen das nie, der Join würde
+    # dort nur unnötig mitlaufen.
+    #
+    # `contains_eager` statt `joinedload` wenn `filters.outcome` gesetzt ist:
+    # `_apply_filters` hat dann bereits einen `outerjoin(Application, ...)`
+    # für den WHERE-Filter hinzugefügt (KTD3) - `contains_eager` liest die
+    # Application-Spalten aus genau diesem bestehenden Join statt einen
+    # zweiten, redundanten JOIN auf dieselbe Tabelle zu erzeugen.
+    query = _base_query(db, filters)
+    if filters.outcome:
+        query = query.options(contains_eager(SentEmail.application).joinedload(Application.job_offer))
+    else:
+        query = query.options(joinedload(SentEmail.application).joinedload(Application.job_offer))
+    return query.all()
 
 
 def _query_entries_for_export(db: Session, filters: SentEmailFilter) -> list[SentEmail]:

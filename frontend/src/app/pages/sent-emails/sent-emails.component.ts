@@ -90,7 +90,7 @@ export class SentEmailsComponent implements OnInit {
   protected readonly senderEmailFilter = signal<string | null>(null);
   protected readonly dateFromFilter = signal('');
   protected readonly dateToFilter = signal('');
-  protected readonly outcomeFilter = signal<string | null>(null);
+  protected readonly outcomeFilter = signal<SentEmail['outcome'] | null>(null);
 
   protected readonly exportingCurrent = signal(false);
   protected readonly exportingAll = signal(false);
