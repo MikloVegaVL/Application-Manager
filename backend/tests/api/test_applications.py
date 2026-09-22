@@ -211,6 +211,62 @@ def test_list_applications_orders_most_recently_created_first(client: TestClient
     assert [item["id"] for item in body] == [second_id, first_id]
 
 
+def test_list_applications_eager_loads_submission_without_n_plus_1(
+    client: TestClient, db_session_local
+) -> None:
+    # P2: `ApplicationRead.submission` darf die Bewerbungsliste nicht pro Zeile
+    # nachladen. `joinedload(Application.submission)` erledigt das in EINEM
+    # Statement; ohne Eager-Loading käme hier je Bewerbung ein zusätzliches
+    # SELECT auf `portal_submissions`.
+    session = db_session_local()
+    try:
+        for index in range(3):
+            job_offer = _create_job_offer(
+                session,
+                title=f"Job {index}",
+                company="Acme GmbH",
+                source_url=f"https://example.com/job/eager-{index}",
+            )
+            application = _create_application(session, job_offer_id=job_offer.id)
+            session.add(
+                PortalSubmission(
+                    application_id=application.id,
+                    company="Acme GmbH",
+                    job_title=f"Job {index}",
+                    platform="linkedin",
+                    portal_url=f"https://www.linkedin.com/jobs/view/{index}",
+                    submitted_at=datetime(2026, 9, 22, 10, 0, tzinfo=timezone.utc),
+                )
+            )
+        session.commit()
+        engine = session.get_bind()
+    finally:
+        session.close()
+
+    statements: list[str] = []
+
+    def _record(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _record)
+    try:
+        response = client.get("/api/applications")
+    finally:
+        event.remove(engine, "before_cursor_execute", _record)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 3
+    assert all(item["submission"] is not None for item in body)
+
+    submission_selects = [
+        statement
+        for statement in statements
+        if "portal_submissions" in statement.lower() and statement.lstrip().lower().startswith("select")
+    ]
+    assert len(submission_selects) <= 1
+
+
 def test_delete_application_removes_it(client: TestClient, db_session_local) -> None:
     session = db_session_local()
     try:

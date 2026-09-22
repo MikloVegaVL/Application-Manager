@@ -273,14 +273,28 @@ export class ApplicationsComponent implements OnInit {
       return;
     }
 
+    // P2 (Popup-Blocker): `window.open` im asynchronen Subscribe-Callback ist
+    // kein User-Gesture mehr und wird geblockt. Deshalb synchron im Klick
+    // einen leeren Tab öffnen und dessen Location erst bei Erfolg auf die
+    // Job-URL setzen; bei einem Fehler den Tab wieder schließen.
+    const pendingTab = window.open('', '_blank');
+    if (pendingTab) {
+      pendingTab.opener = null;
+    }
+
     this.fillRequestingId.set(application.id);
     this.applicationService.requestFill(application.id).subscribe({
       next: ({ job_url }) => {
         this.fillRequestingId.set(null);
-        window.open(job_url, '_blank', 'noopener,noreferrer');
+        if (pendingTab) {
+          pendingTab.location.href = job_url;
+        } else {
+          window.open(job_url, '_blank', 'noopener,noreferrer');
+        }
       },
       error: (error: HttpErrorResponse) => {
         this.fillRequestingId.set(null);
+        pendingTab?.close();
         const message =
           (error.error?.detail as string | undefined) ?? 'The application could not be started.';
         this.snackBar.open(message, 'OK', { duration: 4000 });

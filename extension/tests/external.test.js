@@ -86,71 +86,6 @@ describe("adapters/external.js", () => {
     expect(flag.reason).toBe(FLAG_REASON.UNMAPPED);
   });
 
-  it("requests the destination origin and follows the external apply link", async () => {
-    const doc = parseHtml('<main><a href="https://jobs.example.com/apply/42">Apply for this job</a></main>');
-    const requestOrigin = vi.fn(async () => ({ registered: true }));
-    const navigate = vi.fn();
-
-    const result = await runExternalAdapter({
-      root: doc,
-      url: "https://www.linkedin.com/jobs/view/1",
-      probeLink: async () => true,
-      requestOrigin,
-      navigate,
-    });
-
-    expect(result.status).toBe("following_link");
-    expect(requestOrigin).toHaveBeenCalledWith("https://jobs.example.com");
-    expect(navigate).toHaveBeenCalledWith("https://jobs.example.com/apply/42");
-  });
-
-  it("AE6: a dead external link fills nothing and records nothing", async () => {
-    const doc = parseHtml('<main><a href="https://jobs.example.com/apply/dead">Apply for this job</a></main>');
-    const requestOrigin = vi.fn(async () => ({ registered: true }));
-    const navigate = vi.fn();
-
-    const result = await runExternalAdapter({
-      root: doc,
-      url: "https://www.linkedin.com/jobs/view/1",
-      probeLink: async () => false,
-      requestOrigin,
-      navigate,
-    });
-
-    expect(result.status).toBe("no_apply_path");
-    expect(result.reason).toBe("dead_link");
-    expect(requestOrigin).not.toHaveBeenCalled();
-    expect(navigate).not.toHaveBeenCalled();
-  });
-
-  it("AE6: with no external link it reports why and records nothing", async () => {
-    const doc = parseHtml("<main><h1>Job</h1></main>");
-    const result = await runExternalAdapter({
-      root: doc,
-      url: "https://www.linkedin.com/jobs/view/1",
-      requestOrigin: vi.fn(),
-      navigate: vi.fn(),
-    });
-
-    expect(result.status).toBe("no_apply_path");
-    expect(result.reason).toBe("no_external_link");
-  });
-
-  it("stops when the destination origin permission is denied", async () => {
-    const doc = parseHtml('<main><a href="https://jobs.example.com/apply/42">Apply for this job</a></main>');
-    const navigate = vi.fn();
-    const result = await runExternalAdapter({
-      root: doc,
-      url: "https://www.linkedin.com/jobs/view/1",
-      requestOrigin: async () => ({ registered: false, error: "permission_denied" }),
-      navigate,
-    });
-
-    expect(result.status).toBe("no_apply_path");
-    expect(result.reason).toBe("permission_denied");
-    expect(navigate).not.toHaveBeenCalled();
-  });
-
   it("detects completion per KTD4 when the submit sits on a later URL", () => {
     const doc = parseHtml("<div><h2>Thank you for applying!</h2></div>");
     const detection = detectExternalCompletion({
@@ -161,6 +96,19 @@ describe("adapters/external.js", () => {
     });
     expect(detection.status).toBe("complete");
     expect(detection.confident).toBe(true);
+  });
+
+  it("KTD4: a URL change plus a vanished submit is NOT confident without confirmation text", () => {
+    // Bloßes Verlassen der Seite darf nicht als Bewerbung gelten (P1/R11).
+    const doc = parseHtml("<main><h1>Some other page</h1></main>");
+    const detection = detectExternalCompletion({
+      previousUrl: "https://jobs.example.com/apply/42",
+      url: "https://jobs.example.com/other",
+      root: doc,
+      submitWasPresent: true,
+    });
+    expect(detection.status).toBe("complete");
+    expect(detection.confident).toBe(false);
   });
 
   it("surfaces an app failure at submit and does not fabricate a record", async () => {

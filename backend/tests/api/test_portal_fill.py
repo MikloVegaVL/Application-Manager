@@ -144,6 +144,39 @@ def test_context_without_matching_request_returns_404(client, db_session_local):
     assert "detail" in response.json()
 
 
+def test_context_validation_error_does_not_consume_the_request(client, db_session_local):
+    # P3: ein Validierungsfehler (hier: kein Profil) darf den einmaligen
+    # Request nicht verbrauchen - sonst müsste der Nutzer den Fill neu starten,
+    # nur um denselben Fehler erneut zu sehen.
+    application_id = _seed(db_session_local)
+    _create_fill_request(client, application_id)
+
+    db = db_session_local()
+    try:
+        db.query(MasterProfile).delete()
+        db.commit()
+    finally:
+        db.close()
+
+    first = client.get(
+        "/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER
+    )
+    assert first.status_code == 422
+
+    db = db_session_local()
+    try:
+        db.add(MasterProfile(full_name="Max Mustermann", email="max@example.com", phone="+49 30 1234"))
+        db.commit()
+    finally:
+        db.close()
+
+    # Derselbe Request ist noch offen und liefert jetzt das Paket.
+    second = client.get(
+        "/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER
+    )
+    assert second.status_code == 200
+
+
 def test_fill_request_unknown_application_returns_404(client, db_session_local):
     response = client.post("/api/applications/999999/fill-request", json={})
 
@@ -272,6 +305,8 @@ def test_submission_writes_row_and_exposes_summary(client, db_session_local):
 
 def test_duplicate_report_id_returns_existing_row(client, db_session_local):
     application_id = _seed(db_session_local)
+    _create_fill_request(client, application_id)
+    client.get("/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER)
     job_offer_id = _job_offer_id(db_session_local, application_id)
     payload = {"report_id": "report-dup", "job_offer_id": job_offer_id, "portal_url": LINKEDIN_JOB_URL}
 
@@ -286,6 +321,8 @@ def test_duplicate_report_id_returns_existing_row(client, db_session_local):
 
 def test_submission_after_application_deleted_is_accepted(client, db_session_local):
     application_id = _seed(db_session_local)
+    _create_fill_request(client, application_id)
+    client.get("/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER)
     job_offer_id = _job_offer_id(db_session_local, application_id)
 
     db = db_session_local()
@@ -310,6 +347,8 @@ def test_submission_after_application_deleted_is_accepted(client, db_session_loc
 
 def test_submission_rejects_a_mismatched_linkedin_url(client, db_session_local):
     application_id = _seed(db_session_local)
+    _create_fill_request(client, application_id)
+    client.get("/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER)
     job_offer_id = _job_offer_id(db_session_local, application_id)
 
     response = client.post(
@@ -323,6 +362,45 @@ def test_submission_rejects_a_mismatched_linkedin_url(client, db_session_local):
     )
 
     assert response.status_code == 422
+
+
+def test_submission_requires_a_consumed_fill_request(client, db_session_local):
+    # P3: ohne vorausgegangenen, konsumierten Fill-Request wird kein Report
+    # akzeptiert.
+    application_id = _seed(db_session_local)
+    job_offer_id = _job_offer_id(db_session_local, application_id)
+
+    response = client.post(
+        "/api/portal-fill/submission",
+        json={"report_id": "report-no-request", "job_offer_id": job_offer_id, "portal_url": LINKEDIN_JOB_URL},
+        headers=SECRET_HEADER,
+    )
+
+    assert response.status_code == 422
+    assert _count_submissions(db_session_local) == 0
+
+
+def test_submission_accepts_an_external_portal_url_for_the_consumed_request(client, db_session_local):
+    # R4-Fallback: die gemeldete URL ist die externe Arbeitgeber-Seite und
+    # normalisiert zu None; sie wird akzeptiert, weil ein konsumierter Request
+    # existiert.
+    application_id = _seed(db_session_local)
+    _create_fill_request(client, application_id)
+    client.get("/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER)
+    job_offer_id = _job_offer_id(db_session_local, application_id)
+
+    response = client.post(
+        "/api/portal-fill/submission",
+        json={
+            "report_id": "report-external",
+            "job_offer_id": job_offer_id,
+            "portal_url": "https://jobs.example.com/apply/42",
+        },
+        headers=SECRET_HEADER,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["portal_url"] == "https://jobs.example.com/apply/42"
 
 
 # --- Security boundary -----------------------------------------------------

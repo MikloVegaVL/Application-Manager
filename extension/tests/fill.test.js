@@ -121,6 +121,52 @@ describe("fill.js", () => {
     expect(document.getElementById("work").value).toBe("");
   });
 
+  it("R7: answers an uncovered freetext field through the injected LLM call", async () => {
+    setup(`
+      <label for="why">Why do you want to work here?</label>
+      <input id="why" type="text" />
+    `);
+    const answerQuestion = vi.fn(async () => ({
+      answer: "Because your mission matches my experience.",
+      insufficient_information: false,
+    }));
+
+    const { results, flags } = await fillFields(document, [], { answerQuestion });
+
+    expect(document.getElementById("why").value).toBe(
+      "Because your mission matches my experience."
+    );
+    expect(answerQuestion).toHaveBeenCalledWith("Why do you want to work here?");
+    expect(results.some((entry) => entry.llm === true)).toBe(true);
+    expect(flags).toHaveLength(0);
+  });
+
+  it("R7: flags the field when the LLM call fails instead of leaving it silently empty", async () => {
+    setup('<label for="why">Why us?</label><input id="why" type="text" />');
+    const answerQuestion = vi.fn(async () => {
+      throw new Error("llm_unavailable");
+    });
+
+    const { flags } = await fillFields(document, [], { answerQuestion });
+
+    expect(flags[0].reason).toBe(FLAG_REASON.LLM_UNAVAILABLE);
+    expect(document.getElementById("why").value).toBe("");
+  });
+
+  it("R7: never asks the LLM about an uncovered identity/eligibility field", async () => {
+    setup(`
+      <label for="permit">Do you have a work permit for Germany?</label>
+      <input id="permit" type="text" />
+    `);
+    const answerQuestion = vi.fn();
+
+    const { flags } = await fillFields(document, [], { answerQuestion });
+
+    expect(answerQuestion).not.toHaveBeenCalled();
+    expect(flags[0].reason).toBe(FLAG_REASON.IDENTITY);
+    expect(document.getElementById("permit").value).toBe("");
+  });
+
   it("flags a field with no confident match", async () => {
     setup('<input id="email" name="email" />');
     const { flags } = await fillFields(document, [

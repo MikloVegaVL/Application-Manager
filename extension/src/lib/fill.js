@@ -4,7 +4,8 @@
 // (KTD6). Never sets consent controls; never writes LLM answers into consent
 // or identity fields (KTD5).
 
-import { findField, normalizeText } from "./detect.js";
+import { accessibleLabel, findField, listControls, normalizeText } from "./detect.js";
+import { isVisible } from "./controls.js";
 import {
   FLAG_REASON,
   isConsentControl,
@@ -13,6 +14,11 @@ import {
 } from "./flags.js";
 
 const DEFAULT_MATCH_THRESHOLD = 80;
+
+// Text-artige Eingaben, die eine LLM-Freitext-/Screening-Antwort erhalten
+// dürfen (R7). Alles andere (email/tel/file/password/... ) bleibt unberührt.
+const ANSWERABLE_INPUT_TYPES = new Set(["", "text", "search"]);
+const MAX_LLM_ANSWERS_PER_PAGE = 5;
 
 function nativeSetter(el, prop) {
   let proto = Object.getPrototypeOf(el);
@@ -198,6 +204,88 @@ export async function loadDocumentFile(document, fetchDocument) {
   return buildFile(bytes, document.filename, type);
 }
 
+// --- LLM answering for unanswered freetext / screening fields (R7) --------
+
+function isAnswerCandidate(el) {
+  const tag = el.tagName.toLowerCase();
+  if (tag === "textarea") return true;
+  if (tag !== "input") return false;
+  const type = (el.getAttribute("type") || "text").toLowerCase();
+  return ANSWERABLE_INPUT_TYPES.has(type);
+}
+
+// Detects text/screening fields the profile mappings did not cover, asks the
+// worker (via the injected `answerQuestion`) for an LLM answer grounded in the
+// profile/job/cover letter, fills it, and flags the field when the call fails
+// (R7/KTD7). Never writes an LLM answer into a consent or identity field
+// (KTD5).
+export async function fillUnansweredFields(
+  root,
+  { covered = new Set(), answerQuestion, maxFields = MAX_LLM_ANSWERS_PER_PAGE } = {}
+) {
+  const results = [];
+  const flags = [];
+  if (typeof answerQuestion !== "function") return { results, flags };
+
+  let answered = 0;
+  for (const el of listControls(root)) {
+    if (answered >= maxFields) break;
+    if (covered.has(el) || !isVisible(el)) continue;
+
+    const isSelect = el.tagName.toLowerCase() === "select";
+    if (!isSelect && !isAnswerCandidate(el)) continue;
+    if (isSelect) {
+      if (el.value && el.value !== "") continue;
+    } else if (String(el.value || "").trim() !== "") {
+      continue;
+    }
+
+    const label = (
+      accessibleLabel(el) ||
+      el.getAttribute("placeholder") ||
+      el.getAttribute("name") ||
+      ""
+    ).trim();
+    if (!label) continue;
+
+    const consent = isConsentControl(el);
+    const identity = isIdentityControl(el);
+    if (consent || identity) {
+      flags.push(makeFlag({ label, reason: consent ? FLAG_REASON.CONSENT : FLAG_REASON.IDENTITY }));
+      continue;
+    }
+
+    let response;
+    try {
+      response = await answerQuestion(label);
+    } catch {
+      flags.push(makeFlag({ label, reason: FLAG_REASON.LLM_UNAVAILABLE }));
+      continue;
+    }
+
+    const answer = response && typeof response === "object" ? response.answer : response;
+    if (!answer || (response && response.insufficient_information)) {
+      flags.push(makeFlag({ label, reason: FLAG_REASON.LLM_UNAVAILABLE }));
+      continue;
+    }
+
+    if (isSelect) {
+      const outcome = fillSelect(el, answer);
+      if (!outcome.matched) flags.push(makeFlag({ label, reason: FLAG_REASON.NO_MATCHING_OPTION }));
+      else {
+        results.push({ matched: true, label, value: outcome.value, llm: true });
+        answered += 1;
+      }
+    } else {
+      const outcome = fillTextField(el, answer);
+      results.push({ matched: true, label, value: outcome.value, llm: true });
+      answered += 1;
+    }
+  }
+
+  return { results, flags };
+}
+
 // --- Orchestrator ----------------------------------------------------------
 
 // Fills a list of mappings against a root, returning the filled results plus
@@ -206,6 +294,7 @@ export async function loadDocumentFile(document, fetchDocument) {
 export async function fillFields(root, mappings = [], options = {}) {
   const results = [];
   const flags = [];
+  const covered = new Set();
 
   const flag = (label, reason) => {
     flags.push(makeFlag({ label, reason }));
@@ -223,6 +312,7 @@ export async function fillFields(root, mappings = [], options = {}) {
     }
 
     const el = found.element;
+    covered.add(el);
     if (mapping.consent || isConsentControl(el)) {
       flag(label, FLAG_REASON.CONSENT);
       continue;
@@ -255,6 +345,17 @@ export async function fillFields(root, mappings = [], options = {}) {
     } catch {
       flag(label, FLAG_REASON.UPLOAD_FAILED);
     }
+  }
+
+  // R7: verbleibende, vom Profil nicht beantwortete Freitext-/Screening-
+  // Felder über den LLM-Endpunkt beantworten (nur wenn injiziert).
+  if (typeof options.answerQuestion === "function") {
+    const llm = await fillUnansweredFields(root, {
+      covered,
+      answerQuestion: options.answerQuestion,
+    });
+    results.push(...llm.results);
+    flags.push(...llm.flags);
   }
 
   return { results, flags };

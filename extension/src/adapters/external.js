@@ -9,15 +9,13 @@ import { FLAG_REASON, makeFlag } from "../lib/flags.js";
 import {
   detectInterstitial,
   findAdvanceControl,
-  findExternalApplyLink,
   findSubmitControl,
   hasConfirmationText,
-  isLinkedInUrl,
   isVisible,
 } from "../lib/controls.js";
 import { detectCompletion, finalizeSubmission, newReportId } from "../lib/submission.js";
 
-export { detectCompletion, finalizeSubmission, newReportId, findExternalApplyLink, isLinkedInUrl };
+export { detectCompletion, finalizeSubmission, newReportId };
 
 export const finalizeExternalSubmission = finalizeSubmission;
 
@@ -36,45 +34,6 @@ export function findVisibleFormStep(root = document) {
   return pages.find(isVisible) || form;
 }
 
-// On the LinkedIn page: resolve the employer link, request the destination
-// origin (worker registers the content script), then hand off navigation.
-export async function followExternalLink({
-  root = document,
-  requestOrigin = null,
-  probeLink = null,
-  navigate = null,
-} = {}) {
-  const href = findExternalApplyLink(root);
-  if (!href) return { status: "no_apply_path", reason: "no_external_link" };
-
-  if (typeof probeLink === "function") {
-    let alive = false;
-    try {
-      alive = Boolean(await probeLink(href));
-    } catch {
-      alive = false;
-    }
-    if (!alive) return { status: "no_apply_path", reason: "dead_link", href };
-  }
-
-  let origin;
-  try {
-    origin = new URL(href).origin;
-  } catch {
-    return { status: "no_apply_path", reason: "invalid_link", href };
-  }
-
-  if (typeof requestOrigin === "function") {
-    const routing = await requestOrigin(origin);
-    if (routing && routing.registered === false) {
-      return { status: "no_apply_path", reason: routing.error || "permission_denied", href };
-    }
-  }
-
-  if (typeof navigate === "function") navigate(href);
-  return { status: "following_link", href, origin };
-}
-
 // Fills the form page by page; flags mappings that match no control anywhere in
 // the form (R10) and stops at the submit control on whatever page it appears.
 export async function driveExternalForm({
@@ -82,6 +41,7 @@ export async function driveExternalForm({
   url = "",
   mappings = [],
   fetchDocument = null,
+  answerQuestion = null,
   fill = defaultFillFields,
   wait = defaultWait,
   maxPages = 10,
@@ -103,7 +63,7 @@ export async function driveExternalForm({
   for (let page = 0; page < maxPages; page += 1) {
     const stepRoot = findVisibleFormStep(root);
     const relevant = mappings.filter((mapping) => findField(stepRoot, mapping.descriptor || {}));
-    const filled = await fill(stepRoot, relevant, { fetchDocument });
+    const filled = await fill(stepRoot, relevant, { fetchDocument, answerQuestion });
     results.push(...filled.results);
     flags.push(...filled.flags);
 
@@ -127,11 +87,11 @@ export async function driveExternalForm({
   return { status: "page_limit", flags, results, url };
 }
 
+// The worker's ROUTE_EXTERNAL path (U8 step 1) handles the LinkedIn-to-employer
+// navigation and origin registration, so this adapter only ever runs on the
+// employer form itself. The former `followExternalLink` LinkedIn branch was
+// unreachable and duplicated that path, so it was removed.
 export async function runExternalAdapter(options = {}) {
-  const { root = document, url = typeof location !== "undefined" ? location.href : "" } = options;
-  if (isLinkedInUrl(url)) {
-    return followExternalLink(options);
-  }
   return driveExternalForm(options);
 }
 
@@ -139,7 +99,7 @@ export function detectExternalCompletion({
   previousUrl = "",
   url = "",
   root = document,
-  submitWasPresent = true,
+  submitWasPresent = false,
 } = {}) {
   const submitGone = Boolean(submitWasPresent) && !findSubmitControl(root);
   const urlChanged = Boolean(url) && url !== previousUrl;

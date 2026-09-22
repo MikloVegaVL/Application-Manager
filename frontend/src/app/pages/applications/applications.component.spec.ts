@@ -551,12 +551,20 @@ describe('ApplicationsComponent', () => {
       expect(isCompactCardMenuItemDisabled(item!)).toBe(false);
     });
 
-    it('Covers R1: clicking the trigger posts a fill request and opens the returned job URL in a new tab', async () => {
+    it('Covers R1/P2: opens a blank tab synchronously and points it at the job URL on success', async () => {
       flushList([linkedInApplication]);
-      const openSpy = spyOn(window, 'open');
+      const pendingTab = {
+        location: { href: '' },
+        close: jasmine.createSpy('close'),
+        opener: null,
+      } as unknown as Window;
+      const openSpy = spyOn(window, 'open').and.returnValue(pendingTab);
 
       await toggleCardMenu(fixture);
       menuItemByText('Apply via LinkedIn')!.click();
+
+      // Der Tab wird synchron im Klick geöffnet, nicht erst im HTTP-Callback.
+      expect(openSpy).toHaveBeenCalledWith('', '_blank');
 
       const req = httpMock.expectOne(
         (request) => request.url === fillRequestUrl && request.method === 'POST',
@@ -565,11 +573,7 @@ describe('ApplicationsComponent', () => {
       req.flush({ job_url: 'https://www.linkedin.com/jobs/view/123' });
       fixture.detectChanges();
 
-      expect(openSpy).toHaveBeenCalledWith(
-        'https://www.linkedin.com/jobs/view/123',
-        '_blank',
-        'noopener,noreferrer',
-      );
+      expect(pendingTab.location.href).toBe('https://www.linkedin.com/jobs/view/123');
       expect(component['fillRequestingId']()).toBeNull();
     });
 
@@ -589,11 +593,16 @@ describe('ApplicationsComponent', () => {
       expect(menuItemByText('Apply via LinkedIn')).toBeUndefined();
     });
 
-    it('Covers U4: a failed fill request shows an error notice and re-enables the trigger', async () => {
+    it('Covers U4/P2: a failed fill request closes the blank tab and re-enables the trigger', async () => {
       flushList([linkedInApplication]);
       const snackBar = TestBed.inject(MatSnackBar);
       const snackSpy = spyOn(snackBar, 'open');
-      const openSpy = spyOn(window, 'open');
+      const pendingTab = {
+        location: { href: '' },
+        close: jasmine.createSpy('close'),
+        opener: null,
+      } as unknown as Window;
+      const openSpy = spyOn(window, 'open').and.returnValue(pendingTab);
 
       await toggleCardMenu(fixture);
       menuItemByText('Apply via LinkedIn')!.click();
@@ -606,7 +615,9 @@ describe('ApplicationsComponent', () => {
       fixture.detectChanges();
 
       expect(snackSpy).toHaveBeenCalled();
-      expect(openSpy).not.toHaveBeenCalled();
+      expect(openSpy).toHaveBeenCalledWith('', '_blank');
+      expect(pendingTab.close).toHaveBeenCalled();
+      expect(pendingTab.location.href).toBe('');
       expect(component['fillRequestingId']()).toBeNull();
 
       await toggleCardMenu(fixture);

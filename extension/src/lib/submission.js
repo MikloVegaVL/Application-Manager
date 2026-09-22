@@ -10,8 +10,12 @@ export function newReportId() {
   return `report-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-// positives >= 2 -> confident; exactly 1 -> complete but uncertain (ask);
-// none -> pending. Never silent on uncertainty (KTD4).
+// KTD4: nur der Bestätigungs-TEXT darf einen Submit bestätigen. `urlChanged`
+// + `submitGone` allein beschreibt jede Navigation (z. B. bloßes Verlassen
+// der Seite) und würde sonst eine Nicht-Bewerbung verbuchen. Fehlt der
+// Bestätigungstext, bleibt das Ergebnis `confident:false`; `finalizeSubmission`
+// fragt dann den Nutzer (explizite Bestätigung). Kein stilles Melden bei
+// Unsicherheit.
 export function detectCompletion({ urlChanged = false, confirmationText = false, submitGone = false } = {}) {
   const signals = {
     urlChanged: Boolean(urlChanged),
@@ -19,9 +23,11 @@ export function detectCompletion({ urlChanged = false, confirmationText = false,
     submitGone: Boolean(submitGone),
   };
   const positives = Object.values(signals).filter(Boolean).length;
-  if (positives >= 2) return { status: "complete", confident: true, signals };
-  if (positives === 1) return { status: "complete", confident: false, signals };
-  return { status: "pending", confident: false, signals };
+  if (positives === 0) return { status: "pending", confident: false, signals };
+  if (signals.confirmationText && positives >= 2) {
+    return { status: "complete", confident: true, signals };
+  }
+  return { status: "complete", confident: false, signals };
 }
 
 // Reports only on confident detection or explicit user confirmation, and only

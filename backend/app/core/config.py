@@ -6,9 +6,45 @@ Instanz zur Verfügung, die im gesamten Backend importiert werden kann.
 """
 import secrets
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Ablageort des persistenten Portal-Fill-Secrets. `generated/` ist bereits als
+# Docker-Volume gebunden (siehe `docker-compose.yml`) und gitignored, damit das
+# Secret Neustarts übersteht und vom Nutzer aus der Datei gelesen werden kann
+# (KTD13).
+PORTAL_FILL_SECRET_FILE = Path("generated/portal_fill_secret")
+
+
+def _load_or_create_portal_fill_secret() -> str:
+    """Liest das Portal-Fill-Secret aus `PORTAL_FILL_SECRET_FILE` oder erzeugt
+    es beim ersten Start und persistiert es, damit es über Neustarts stabil
+    bleibt (KTD13).
+
+    Wird nur aufgerufen, wenn `PORTAL_FILL_SECRET` nicht gesetzt ist - ein
+    `.env`-Wert hat weiterhin Vorrang.
+    """
+    try:
+        if PORTAL_FILL_SECRET_FILE.exists():
+            existing = PORTAL_FILL_SECRET_FILE.read_text(encoding="utf-8").strip()
+            if existing:
+                return existing
+    except OSError:
+        # Nicht lesbar - unten wird neu erzeugt.
+        pass
+
+    secret = secrets.token_urlsafe(32)
+    try:
+        PORTAL_FILL_SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PORTAL_FILL_SECRET_FILE.write_text(secret + "\n", encoding="utf-8")
+        PORTAL_FILL_SECRET_FILE.chmod(0o600)
+    except OSError:
+        # Nicht schreibbar (z. B. read-only FS): das Secret gilt trotzdem für
+        # diesen Prozess, ist dann aber nicht über Neustarts stabil.
+        pass
+    return secret
 
 
 class Settings(BaseSettings):
@@ -144,12 +180,14 @@ class Settings(BaseSettings):
     # --- Portal-Fill (Browser-Erweiterung, KTD13) ---
     # Hoch-entropisches Shared Secret, das jede erweiterungsseitige
     # `/portal-fill/*`-Route als Header verlangt (KTD13). Ist es beim Start
-    # nicht gesetzt, wird beim ersten Laden der Settings eines generiert
-    # (`default_factory`) - der Nutzer provisioniert es einmalig in die
-    # Options-Seite der Erweiterung. Für einen über Neustarts stabilen Wert
-    # in `.env` hinterlegen; ein Neustart ohne gesetzten Wert erzeugt ein
-    # neues Secret (die Erweiterung muss dann erneut provisioniert werden).
-    PORTAL_FILL_SECRET: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
+    # nicht gesetzt, liest `_load_or_create_portal_fill_secret` es aus
+    # `PORTAL_FILL_SECRET_FILE` oder erzeugt es beim ersten Start und
+    # persistiert es - dadurch bleibt es über Neustarts stabil und muss nur
+    # EINMAL in die Options-Seite der Erweiterung kopiert werden. Der Wert
+    # steht auf dem Host in `backend/generated/portal_fill_secret` (bzw. im
+    # Container unter `/app/generated/portal_fill_secret`). Ein
+    # `PORTAL_FILL_SECRET`-Wert in `.env` hat weiterhin Vorrang.
+    PORTAL_FILL_SECRET: str = Field(default_factory=_load_or_create_portal_fill_secret)
 
     # --- Generierte/hochgeladene Dateien ---
     # Ablageort der vom Nutzer hochgeladenen Lebenslauf-Anhang-Datei (siehe

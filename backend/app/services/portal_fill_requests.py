@@ -131,9 +131,14 @@ def create_or_get(
         return request
 
 
-def consume_by_url(url: str | None) -> FillRequest | None:
-    """Konsumiert den ersten offenen Request, dessen normalisierte URL zu
-    `url` passt - oder `None`, wenn nichts (mehr) passt (R14/AE3)."""
+def find_open_by_url(url: str | None) -> FillRequest | None:
+    """Nicht-konsumierende Suche nach dem offenen Request, dessen normalisierte
+    URL zu `url` passt - oder `None`, wenn nichts (mehr) passt (R14/AE3).
+
+    Grundlage für "validate first, consume only on success": die Fill-API
+    validiert Application/JobOffer/Profil zuerst und konsumiert den Request
+    erst danach, damit ein Validierungsfehler keinen Neustart erzwingt.
+    """
     normalized = normalize_linkedin_job_url(url)
     if normalized is None:
         return None
@@ -144,9 +149,44 @@ def consume_by_url(url: str | None) -> FillRequest | None:
         for request in _requests.values():
             if request.consumed or request.normalized_url != normalized:
                 continue
-            request.consumed = True
             return request
     return None
+
+
+def find_consumed_by_url(url: str | None) -> FillRequest | None:
+    """Nicht-konsumierende Suche nach dem bereits konsumierten Request zu
+    `url` - die Submission-Validierung vergleicht die gemeldete `portal_url`
+    gegen dessen normalisierte URL statt gegen `JobOffer.source_url`."""
+    normalized = normalize_linkedin_job_url(url)
+    if normalized is None:
+        return None
+
+    now = datetime.now(timezone.utc)
+    with _requests_lock:
+        _purge_expired_locked(now)
+        for request in _requests.values():
+            if request.consumed and request.normalized_url == normalized:
+                return request
+    return None
+
+
+def consume(request: FillRequest | None) -> bool:
+    """Markiert einen zuvor gefundenen Request als konsumiert (idempotent)."""
+    if request is None:
+        return False
+    with _requests_lock:
+        request.consumed = True
+    return True
+
+
+def consume_by_url(url: str | None) -> FillRequest | None:
+    """Konsumiert den ersten offenen Request, dessen normalisierte URL zu
+    `url` passt - oder `None`, wenn nichts (mehr) passt (R14/AE3)."""
+    request = find_open_by_url(url)
+    if request is None:
+        return None
+    consume(request)
+    return request
 
 
 def clear() -> None:

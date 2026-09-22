@@ -59,7 +59,9 @@ def list_applications(db: Session = Depends(get_db)) -> list[Application]:
     # sonst nicht stabil sortiert.
     return (
         db.query(Application)
-        .options(joinedload(Application.job_offer))
+        # `submission` mit-eager-laden (KTD3/U4): `ApplicationRead.submission`
+        # würde sonst pro Zeile einen eigenen Query auslösen (N+1).
+        .options(joinedload(Application.job_offer), joinedload(Application.submission))
         .order_by(Application.created_at.desc(), Application.id.desc())
         .all()
     )

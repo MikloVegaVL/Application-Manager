@@ -123,10 +123,15 @@ def get_portal_fill_context(
     request: Request,
     db: Session = Depends(get_db),
 ) -> PortalFillContext:
-    """Konsumiert den zur aktuellen Seiten-URL passenden Fill-Request und
-    liefert das Fill-Paket (KTD2). 404, wenn nichts (mehr) passt - z. B. auf
-    einer Seite, für die kein Fill gestartet wurde (R14/AE3)."""
-    fill_request = portal_fill_requests.consume_by_url(url)
+    """Validiert Application/JobOffer/Profil, KONSUMIERT erst danach den zur
+    aktuellen Seiten-URL passenden Fill-Request und liefert das Fill-Paket
+    (KTD2). 404, wenn nichts (mehr) passt - z. B. auf einer Seite, für die kein
+    Fill gestartet wurde (R14/AE3)."""
+    # Validate first, consume only on success (P3): ein Validierungsfehler
+    # darf den einmaligen Request nicht verbrauchen, sonst müsste der Nutzer
+    # den Fill in der App neu starten, nur um denselben Fehler erneut zu
+    # sehen.
+    fill_request = portal_fill_requests.find_open_by_url(url)
     if fill_request is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -150,6 +155,8 @@ def get_portal_fill_context(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
         )
+
+    portal_fill_requests.consume(fill_request)
 
     return PortalFillContext(
         application_id=application.id,
@@ -363,7 +370,19 @@ def record_portal_submission(
             detail="Stellenangebot wurde nicht gefunden.",
         )
 
-    _validate_submitted_url(payload.portal_url, job_offer)
+    # Die gemeldete `portal_url` wird gegen die normalisierte URL des
+    # TATSÄCHLICH konsumierten Fill-Requests validiert, nicht gegen
+    # `JobOffer.source_url` (P3) - und es muss überhaupt ein konsumierter
+    # Request existieren, damit ein Report nicht ohne vorausgegangenen Fill
+    # akzeptiert wird.
+    fill_request = portal_fill_requests.find_consumed_by_url(job_offer.source_url)
+    if fill_request is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Kein konsumierter Fill-Request gefunden. Bitte den Fill erneut in der App starten.",
+        )
+
+    _validate_submitted_url(payload.portal_url, fill_request)
 
     application = (
         db.query(Application).filter(Application.job_offer_id == job_offer.id).first()
@@ -399,19 +418,18 @@ def record_portal_submission(
     return submission
 
 
-def _validate_submitted_url(portal_url: str, job_offer: JobOffer) -> None:
+def _validate_submitted_url(portal_url: str, fill_request: portal_fill_requests.FillRequest) -> None:
     """Vergleicht die gemeldete `portal_url` mit der normalisierten URL des
-    (ggf. bereits konsumierten) Fill-Requests statt sie ungeprüft zu
-    übernehmen (KTD3).
+    konsumierten Fill-Requests statt mit `JobOffer.source_url` (KTD3, P3).
 
     Eine LinkedIn-Job-URL muss exakt zum Request passen; eine externe
     Arbeitgeber-URL (R4-Fallback) normalisiert zu `None` und wird akzeptiert,
-    da der Server sie nicht kennt. Die normalisierte `JobOffer.source_url`
-    dient als Erwartungswert."""
-    expected_url = portal_fill_requests.normalize_linkedin_job_url(job_offer.source_url)
+    da der Server sie nicht kennt. Der Aufrufer stellt sicher, dass überhaupt
+    ein konsumierter Request existiert."""
+    expected_url = fill_request.normalized_url
 
     reported_url = portal_fill_requests.normalize_linkedin_job_url(portal_url)
-    if reported_url is not None and expected_url is not None and reported_url != expected_url:
+    if reported_url is not None and reported_url != expected_url:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Die gemeldete portal_url passt nicht zum Fill-Request.",

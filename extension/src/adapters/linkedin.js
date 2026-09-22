@@ -134,6 +134,7 @@ export async function runEasyApply({
   mappings = [],
   packet = null,
   fetchDocument = null,
+  answerQuestion = null,
   fill = defaultFillFields,
   wait = defaultWait,
   maxSteps = 12,
@@ -156,7 +157,10 @@ export async function runEasyApply({
   while (step < maxSteps) {
     const stepRoot = findEasyApplyStep(modal) || modal;
 
-    const filled = await fill(stepRoot, presentMappings(stepRoot, fieldMappings), { fetchDocument });
+    const filled = await fill(stepRoot, presentMappings(stepRoot, fieldMappings), {
+      fetchDocument,
+      answerQuestion,
+    });
     results.push(...filled.results);
     flags.push(...filled.flags);
 
@@ -195,7 +199,7 @@ export function detectLinkedInCompletion({
   previousUrl = "",
   url = "",
   root = document,
-  submitWasPresent = true,
+  submitWasPresent = false,
 } = {}) {
   const submitGone = Boolean(submitWasPresent) && !findSubmitControl(root);
   const urlChanged = Boolean(url) && url !== previousUrl && !/\/jobs\/view\//.test(url);

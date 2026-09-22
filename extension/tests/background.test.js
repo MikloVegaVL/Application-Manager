@@ -64,7 +64,10 @@ beforeAll(async () => {
 beforeEach(async () => {
   Object.keys(chromeMock.local).forEach((key) => delete chromeMock.local[key]);
   Object.keys(chromeMock.session).forEach((key) => delete chromeMock.session[key]);
-  await chromeMock.api.storage.local.set({ [background.SECRET_STORAGE_KEY]: "s3cret" });
+  await chromeMock.api.storage.local.set({
+    [background.SECRET_STORAGE_KEY]: "s3cret",
+    [background.TOS_STORAGE_KEY]: true,
+  });
 });
 
 afterEach(() => {
@@ -145,6 +148,42 @@ describe("background.js", () => {
 
     expect(result.error).toBe("no_secret");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("KTD9: refuses to fill until the LinkedIn acknowledgement is stored", async () => {
+    delete chromeMock.local[background.TOS_STORAGE_KEY];
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await background.handleMessage(
+      { type: background.MESSAGE.PAGE_READY, url: "https://www.linkedin.com/jobs/view/1", tabId: 4 },
+      {}
+    );
+
+    expect(result.packet).toBeNull();
+    expect(result.error).toBe("tos_not_acknowledged");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("R7: returns the answer and insufficiency flag from the app", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ answer: "Weil ich Sie kenne.", insufficient_information: false })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await background.handleMessage(
+      {
+        type: background.MESSAGE.REQUEST_ANSWER,
+        applicationId: 7,
+        question: "Warum möchten Sie bei uns arbeiten?",
+      },
+      {}
+    );
+
+    expect(result.answer).toBe("Weil ich Sie kenne.");
+    expect(result.insufficient_information).toBe(false);
+    const [calledUrl] = fetchMock.mock.calls[0];
+    expect(calledUrl).toContain("/portal-fill/answer");
   });
 
   it("registers the content script for exactly the granted employer origin", async () => {

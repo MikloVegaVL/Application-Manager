@@ -13,6 +13,7 @@ import {
 
 export const SECRET_STORAGE_KEY = "portalFillSecret";
 export const BASE_URL_STORAGE_KEY = "apiBaseUrl";
+export const TOS_STORAGE_KEY = "linkedinTosAcknowledged";
 export const PACKET_CACHE_PREFIX = "fillPacket:";
 export const EMPLOYER_SCRIPT_ID = "am-employer-form";
 
@@ -26,10 +27,15 @@ export const MESSAGE = {
 };
 
 export async function getConfig() {
-  const stored = await chrome.storage.local.get([SECRET_STORAGE_KEY, BASE_URL_STORAGE_KEY]);
+  const stored = await chrome.storage.local.get([
+    SECRET_STORAGE_KEY,
+    BASE_URL_STORAGE_KEY,
+    TOS_STORAGE_KEY,
+  ]);
   return {
     secret: stored[SECRET_STORAGE_KEY] || "",
     baseUrl: stored[BASE_URL_STORAGE_KEY] || DEFAULT_API_BASE_URL,
+    tosAcknowledged: stored[TOS_STORAGE_KEY] === true,
   };
 }
 
@@ -55,10 +61,13 @@ export async function clearCachedPacket(tabId) {
 // A 404 means no fill was started for this page, so the content script fills
 // nothing (R14/AE3).
 export async function handlePageReady({ tabId, url }) {
+  // KTD9: erst nach der einmaligen LinkedIn-ToS-Acknowledgement füllen.
+  const { secret, baseUrl, tosAcknowledged } = await getConfig();
+  if (!tosAcknowledged) return { packet: null, error: "tos_not_acknowledged" };
+
   const cached = await readCachedPacket(tabId);
   if (cached) return { packet: cached, cached: true };
 
-  const { secret, baseUrl } = await getConfig();
   if (!secret) return { packet: null, error: "no_secret" };
 
   let packet;
@@ -77,11 +86,12 @@ export async function handlePageReady({ tabId, url }) {
 // from the fill's user gesture, then register the content script for it only.
 export async function registerEmployerContentScript(origin) {
   const pattern = `${origin.replace(/\/+$/, "")}/*`;
-  const hasPermission = await chrome.permissions.contains({ origins: [pattern] });
-  if (!hasPermission) {
-    const granted = await chrome.permissions.request({ origins: [pattern] });
-    if (!granted) return { registered: false, error: "permission_denied" };
-  }
+  // P1: `permissions.request` muss im User-Gesture-Stack laufen, daher als
+  // ERSTES await - ein vorgeschaltetes `permissions.contains` würde den
+  // Gesture verlieren. Ein bereits gewährter Origin löst ohne Prompt `true`
+  // auf, der `contains`-Vorcheck ist also nicht nötig.
+  const granted = await chrome.permissions.request({ origins: [pattern] });
+  if (!granted) return { registered: false, error: "permission_denied" };
   try {
     await chrome.scripting.unregisterContentScripts({ ids: [EMPLOYER_SCRIPT_ID] });
   } catch {
@@ -119,7 +129,11 @@ export async function handleMessage(message, sender) {
       const { secret, baseUrl } = await getConfig();
       if (!secret) return { error: "no_secret" };
       try {
-        return { answer: await requestAnswer(baseUrl, secret, message.applicationId, message.question) };
+        const result = await requestAnswer(baseUrl, secret, message.applicationId, message.question);
+        return {
+          answer: result && result.answer,
+          insufficient_information: Boolean(result && result.insufficient_information),
+        };
       } catch (error) {
         return { error: "llm_unavailable", detail: String(error && error.message) };
       }
