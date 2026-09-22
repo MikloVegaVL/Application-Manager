@@ -160,4 +160,43 @@ describe("background.js", () => {
       expect.objectContaining({ matches: ["https://jobs.example.com/*"], js: ["content.js"] }),
     ]);
   });
+
+  it("routes to the external adapter by registering the link's origin", async () => {
+    const result = await background.handleMessage(
+      { type: background.MESSAGE.ROUTE_EXTERNAL, url: "https://jobs.example.com/apply/42" },
+      {}
+    );
+    expect(result.routed).toBe(true);
+    expect(chromeMock.api.permissions.request).toHaveBeenCalledWith({
+      origins: ["https://jobs.example.com/*"],
+    });
+  });
+
+  it("reports no apply path when the LinkedIn adapter sends no external link", async () => {
+    const result = await background.handleMessage(
+      { type: background.MESSAGE.ROUTE_EXTERNAL, url: null },
+      {}
+    );
+    expect(result.routed).toBe(false);
+    expect(result.error).toBe("no_apply_path");
+  });
+
+  it("serves the cached packet after a cross-origin navigation instead of re-requesting", async () => {
+    const packet = { application_id: 7 };
+    const fetchMock = vi.fn(async () => jsonResponse(packet));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await background.handleMessage(
+      { type: background.MESSAGE.PAGE_READY, url: "https://www.linkedin.com/jobs/view/123", tabId: 21 },
+      {}
+    );
+    const afterNavigation = await background.handleMessage(
+      { type: background.MESSAGE.PAGE_READY, url: "https://jobs.example.com/apply/42", tabId: 21 },
+      {}
+    );
+
+    expect(afterNavigation.cached).toBe(true);
+    expect(afterNavigation.packet).toEqual(packet);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

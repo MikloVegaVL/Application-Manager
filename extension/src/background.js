@@ -22,6 +22,7 @@ export const MESSAGE = {
   REPORT_SUBMISSION: "REPORT_SUBMISSION",
   FETCH_DOCUMENT: "FETCH_DOCUMENT",
   REGISTER_ORIGIN: "REGISTER_ORIGIN",
+  ROUTE_EXTERNAL: "ROUTE_EXTERNAL",
 };
 
 export async function getConfig() {
@@ -92,6 +93,23 @@ export async function registerEmployerContentScript(origin) {
   return { registered: true, pattern };
 }
 
+// Adapter dispatcher (U8 step 1): the LinkedIn adapter reports no Easy Apply
+// and the external link, so the worker grants that origin and registers the
+// content script there. With no link there is no apply path, so the user is
+// told and nothing is recorded (AE6).
+export async function routeToExternal({ url }) {
+  if (!url) return { routed: false, error: "no_apply_path" };
+  let origin;
+  try {
+    origin = new URL(url).origin;
+  } catch {
+    return { routed: false, error: "invalid_link" };
+  }
+  const registration = await registerEmployerContentScript(origin);
+  if (!registration.registered) return { routed: false, error: registration.error };
+  return { routed: true, origin, ...registration };
+}
+
 export async function handleMessage(message, sender) {
   const tabId = message.tabId != null ? message.tabId : sender && sender.tab && sender.tab.id;
   switch (message.type) {
@@ -133,6 +151,8 @@ export async function handleMessage(message, sender) {
     }
     case MESSAGE.REGISTER_ORIGIN:
       return registerEmployerContentScript(message.origin);
+    case MESSAGE.ROUTE_EXTERNAL:
+      return routeToExternal({ url: message.url });
     default:
       return { error: "unknown_message" };
   }
