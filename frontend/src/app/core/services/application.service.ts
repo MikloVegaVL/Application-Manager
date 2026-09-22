@@ -7,7 +7,7 @@ import {
   Application,
   ApplicationSendPayload,
   ApplicationUpdatePayload,
-  PortalFillStatus,
+  FillRequestResponse,
 } from '../models/application.model';
 
 /**
@@ -54,34 +54,10 @@ export class ApplicationService {
     return this.http.delete<void>(`${this.baseUrl}/${applicationId}`);
   }
 
-  /** Startet einen Personio-Portal-Auto-Fill-Lauf für eine bestehende Bewerbung (siehe `app.api.portal_fill`).
-   * `dryRun` (KTD4/R11) füllt das Formular, pausiert aber vor dem Submit. */
-  start(applicationId: number, applicationFormUrl: string, dryRun = false): Observable<Application> {
-    return this.http.post<Application>(`${this.baseUrl}/${applicationId}/portal-fill/start`, {
-      application_form_url: applicationFormUrl,
-      dry_run: dryRun,
-    });
-  }
-
-  /** Fragt den aktuellen Automations-Status eines Portal-Auto-Fill-Laufs ab (Polling-Ziel der Übersichtsseite). */
-  getPortalFillStatus(applicationId: number): Observable<PortalFillStatus> {
-    return this.http.get<PortalFillStatus>(`${this.baseUrl}/${applicationId}/portal-fill/status`);
-  }
-
-  /** URL des Pause-Screenshots (R2/U2) - bewusst NUR die URL, kein `Observable<Blob>`: die Vorlage bindet
-   * sie direkt an `<img [src]>`, genau wie andere binäre Inhalte in dieser Codebasis (siehe `download_photo`-
-   * Analogie im Backend). */
-  portalFillScreenshotUrl(applicationId: number): string {
-    return `${this.baseUrl}/${applicationId}/portal-fill/screenshot`;
-  }
-
-  /** Setzt einen pausierten Portal-Auto-Fill-Lauf fort (R10/R11). */
-  continuePortalFill(applicationId: number): Observable<Application> {
-    return this.http.post<Application>(`${this.baseUrl}/${applicationId}/portal-fill/continue`, {});
-  }
-
-  /** Bricht einen aktiven/pausierten Portal-Auto-Fill-Lauf ab. */
-  cancelPortalFill(applicationId: number): Observable<Application> {
-    return this.http.post<Application>(`${this.baseUrl}/${applicationId}/portal-fill/cancel`, {});
+  /** Legt einen kurzlebigen Fill-Request für eine LinkedIn-Bewerbung an und liefert die Job-URL, die in
+   * einem neuen Tab geöffnet wird (R1/R2, siehe `app.api.portal_fill`). Der leere JSON-Body hält den
+   * Request bewusst aus der CORS-Simple-Request-Klasse (KTD13). */
+  requestFill(applicationId: number): Observable<FillRequestResponse> {
+    return this.http.post<FillRequestResponse>(`${this.baseUrl}/${applicationId}/fill-request`, {});
   }
 }

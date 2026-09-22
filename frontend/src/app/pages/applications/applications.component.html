@@ -78,6 +78,24 @@
     </p>
   }
 
+  @if (showInstallHint()) {
+    <div class="applications__install-hint">
+      <mat-icon>extension</mat-icon>
+      <span>
+        To fill applications in your own browser, load the application-manager browser extension
+        (<code>extension/dist</code>) unpacked, then use <strong>Apply via LinkedIn</strong>.
+      </span>
+      <button
+        mat-icon-button
+        type="button"
+        aria-label="Dismiss install hint"
+        (click)="onDismissInstallHint()"
+      >
+        <mat-icon>close</mat-icon>
+      </button>
+    </div>
+  }
+
   @if (!loading() && filteredApplications().length > 0) {
     <div class="applications__results">
       @for (application of filteredApplications(); track application.id) {
@@ -85,85 +103,7 @@
           [viewModel]="cardViewModel(application)"
           [busy]="isCardBusy(application)"
           (menuItemClick)="onMenuAction(application, $event)"
-        >
-          @if (automationState(application) === 'running') {
-            <div inlineAttention class="application-card__portal-fill-running">
-              <mat-progress-spinner mode="indeterminate" diameter="16" />
-              <span>Auto-fill is running ...</span>
-              <button mat-button color="warn" type="button" (click)="onCancelPortalFill(application)">
-                Cancel
-              </button>
-            </div>
-          }
-
-          @if (showActionNeededBanner(application)) {
-            <div inlineAttention class="application-card__portal-fill-banner">
-              <mat-icon>front_hand</mat-icon>
-              <span>
-                {{ actionNeededCopy(application) }}
-                @if (actionNeededDetail(application); as detail) {
-                  <span class="application-card__portal-fill-detail">{{ detail }}</span>
-                }
-                @if (isCaptchaPause(application)) {
-                  <span class="application-card__portal-fill-captcha-instructions">
-                    {{ captchaConnectionInstructions }}
-                  </span>
-                }
-              </span>
-              @if (screenshotAvailable(application)) {
-                <div class="application-card__portal-fill-screenshot-wrap">
-                  <img
-                    class="application-card__portal-fill-screenshot"
-                    [src]="screenshotUrl(application)"
-                    (error)="onScreenshotLoadError(application)"
-                    alt="Current state of the paused form"
-                  />
-                  <button
-                    mat-button
-                    type="button"
-                    class="application-card__portal-fill-screenshot-refresh"
-                    (click)="onRefreshScreenshot(application)"
-                  >
-                    Refresh
-                  </button>
-                </div>
-              }
-              <div class="application-card__portal-fill-banner-actions">
-                <button
-                  mat-stroked-button
-                  color="primary"
-                  type="button"
-                  (click)="onContinuePortalFill(application)"
-                >
-                  {{ continueActionLabel(application) }}
-                </button>
-                <button mat-button color="warn" type="button" (click)="onCancelPortalFill(application)">
-                  Cancel
-                </button>
-              </div>
-            </div>
-          }
-
-          @if (showFailureNotice(application)) {
-            <div inlineAttention class="application-card__portal-fill-failed">
-              <mat-icon>error_outline</mat-icon>
-              <span>
-                {{ failureCopy(application) }}
-                <span class="application-card__portal-fill-retryability">
-                  {{ failureRetryabilityCopy(application) }}
-                </span>
-              </span>
-              <button
-                mat-icon-button
-                type="button"
-                aria-label="Dismiss"
-                (click)="onDismissFailure(application)"
-              >
-                <mat-icon>close</mat-icon>
-              </button>
-            </div>
-          }
-        </app-compact-card>
+        ></app-compact-card>
       }
     </div>
   }

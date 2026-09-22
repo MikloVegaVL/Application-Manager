@@ -3,6 +3,17 @@ import { JobOfferRead } from './job-offer.model';
 /** Spiegelt `backend/app/models/application.py::ApplicationStatus` wider. */
 export type ApplicationStatus = 'draft' | 'sent' | 'rejected' | 'accepted' | 'interview';
 
+/**
+ * Kompaktes "applied"-Indiz aus der jüngsten `PortalSubmission`-Zeile der
+ * Bewerbung (`ApplicationRead.submission`, siehe U4/KTD3) - `null`, solange
+ * kein Portal-Fill erfolgreich gemeldet wurde.
+ */
+export interface ApplicationSubmissionSummary {
+  platform: string | null;
+  portal_url: string;
+  submitted_at: string;
+}
+
 /** Entspricht `ApplicationRead`. */
 export interface Application {
   id: number;
@@ -12,10 +23,8 @@ export interface Application {
   sent_at: string | null;
   /** Empfängeradresse des Mailversands - erst nach dem Versand gesetzt. */
   sent_to_email: string | null;
-  /** Portal-Auto-Fill-Status - `null`, solange kein Auto-Fill-Lauf gestartet wurde. */
-  automation_state?: PortalFillStatus['automation_state'];
-  action_needed_reason?: string | null;
-  automation_started_at?: string | null;
+  /** "Applied"-Indiz aus der Portal-Submission - `null`, solange nichts gemeldet wurde. */
+  submission: ApplicationSubmissionSummary | null;
   created_at: string;
   /** Stellenangebot, zu dem die Bewerbung gehört - für die Übersichtsliste. */
   job_offer: JobOfferRead;
@@ -34,12 +43,7 @@ export interface ApplicationSendPayload {
   message?: string;
 }
 
-/** Entspricht `PortalFillStatusResponse` (`GET .../portal-fill/status`). */
-export interface PortalFillStatus {
-  automation_state: 'running' | 'paused' | 'submitted' | 'failed' | null;
-  action_needed_reason: string | null;
-  /** Konkretes Feld/Frage-Label der Pause (R9) - das "wo" neben dem Grund. */
-  action_needed_detail: string | null;
-  /** Nur gesetzt, wenn `automation_state === 'failed'` (KTD1/KTD5) - `null` bei Pausen. */
-  failure_class: 'retryable' | 'terminal' | null;
+/** Antwort von `POST /api/applications/{id}/fill-request` - die Job-URL, die in einem neuen Tab geöffnet wird (R1). */
+export interface FillRequestResponse {
+  job_url: string;
 }
