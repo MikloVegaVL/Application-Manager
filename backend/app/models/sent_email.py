@@ -18,6 +18,7 @@ from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
+from app.models.application import ApplicationStatus
 
 if TYPE_CHECKING:
     from app.models.application import Application
@@ -84,6 +85,24 @@ class SentEmail(Base):
         - wie `job_offer_id` kein Snapshot, wird `None` sobald die Application
         gelöscht ist."""
         return self.application.job_offer.source_url if self.application is not None else None
+
+    @property
+    def outcome(self) -> str:
+        """Live-Entscheidungsstatus der verknüpften Application ("offer" /
+        "rejection" / "pending") - kein Snapshot vom Versandzeitpunkt (R3):
+        ein erneuter Versand zeigt auf jeder Log-Zeile den aktuellen Ausgang,
+        und der Ausgang kann sich nach dem Versand noch ändern. "pending" bei
+        fehlender Entscheidung (draft/sent/interview) oder wenn die
+        Application seither gelöscht wurde (R4). Bewusst ein einfacher str
+        statt eines geteilten Enums (KTD1) - keine Kopplung an den
+        unabhängigen "Run outcome"-Begriff aus dem Portal-Auto-Fill."""
+        if self.application is None:
+            return "pending"
+        if self.application.status == ApplicationStatus.ACCEPTED:
+            return "offer"
+        if self.application.status == ApplicationStatus.REJECTED:
+            return "rejection"
+        return "pending"
 
     def __repr__(self) -> str:  # pragma: no cover - Debug-Hilfe
         return (

@@ -68,8 +68,17 @@ export class SentEmailsComponent implements OnInit {
     'sender_email',
     'subject',
     'attachment_filenames',
+    'outcome',
     'actions',
   ];
+
+  /** Anzeigetext je `outcome` (KTD1) - "Offer"/"Rejection" spiegeln die Wortwahl aus
+   * `ApplicationsComponent.STATUS_LABELS` für denselben Zusage/Absage-Zustand. */
+  private static readonly OUTCOME_LABELS: Record<SentEmail['outcome'], string> = {
+    offer: 'Offer',
+    rejection: 'Rejection',
+    pending: 'Pending',
+  };
 
   protected readonly entries = signal<SentEmail[]>([]);
   protected readonly loading = signal(true);
@@ -81,6 +90,7 @@ export class SentEmailsComponent implements OnInit {
   protected readonly senderEmailFilter = signal<string | null>(null);
   protected readonly dateFromFilter = signal('');
   protected readonly dateToFilter = signal('');
+  protected readonly outcomeFilter = signal<SentEmail['outcome'] | null>(null);
 
   protected readonly exportingCurrent = signal(false);
   protected readonly exportingAll = signal(false);
@@ -96,7 +106,13 @@ export class SentEmailsComponent implements OnInit {
 
   protected hasActiveFilter(): boolean {
     const filter = this.currentFilter();
-    return Boolean(filter.company || filter.sender_email || filter.date_from || filter.date_to);
+    return Boolean(
+      filter.company || filter.sender_email || filter.date_from || filter.date_to || filter.outcome,
+    );
+  }
+
+  protected outcomeLabel(outcome: SentEmail['outcome']): string {
+    return SentEmailsComponent.OUTCOME_LABELS[outcome];
   }
 
   protected exportCurrent(): void {
@@ -176,6 +192,7 @@ export class SentEmailsComponent implements OnInit {
       sender_email: this.senderEmailFilter(),
       date_from: this.dateFromFilter() || null,
       date_to: this.dateToFilter() || null,
+      outcome: this.outcomeFilter(),
     };
   }
 

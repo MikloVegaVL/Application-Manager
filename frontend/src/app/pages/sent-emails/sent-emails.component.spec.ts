@@ -20,6 +20,7 @@ describe('SentEmailsComponent', () => {
     application_id: 1,
     job_offer_id: 42,
     ad_url: 'https://example.com/job/42',
+    outcome: 'rejection',
     company: 'Acme GmbH',
     job_title: 'Backend Engineer',
     source_platform: 'linkedin',
@@ -35,6 +36,7 @@ describe('SentEmailsComponent', () => {
     application_id: null,
     job_offer_id: null,
     ad_url: null,
+    outcome: 'pending',
     company: 'Globex',
     job_title: 'QA Engineer',
     source_platform: null,
@@ -215,6 +217,33 @@ describe('SentEmailsComponent', () => {
 
     expect(component['exportError']()).not.toBeNull();
     expect(component['exportingCurrent']()).toBeFalse();
+  });
+
+  it('renders the Offer/Rejection/Pending label for each row from entry.outcome', () => {
+    flushList([sampleEntry, backfilledEntry]);
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Rejection');
+    expect(text).toContain('Pending');
+  });
+
+  it('Covers AE5: selecting an Outcome filter re-requests the list with that outcome param', () => {
+    flushList([sampleEntry]);
+
+    component['outcomeFilter'].set('rejection');
+    component['onFilterChange']();
+
+    const req = httpMock.expectOne((request) => request.url === baseUrl && request.method === 'GET');
+    expect(req.request.params.get('outcome')).toBe('rejection');
+    req.flush([sampleEntry]);
+  });
+
+  it('treats an active Outcome filter as an active filter for hasActiveFilter()', () => {
+    flushList([sampleEntry]);
+
+    expect(component['hasActiveFilter']()).toBeFalse();
+    component['outcomeFilter'].set('pending');
+    expect(component['hasActiveFilter']()).toBeTrue();
   });
 
   it('shows an error message when the list request fails', () => {
