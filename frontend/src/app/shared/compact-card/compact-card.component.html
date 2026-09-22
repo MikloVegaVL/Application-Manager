@@ -95,7 +95,7 @@
           @if (item.link.routerLink) {
             <a mat-menu-item [routerLink]="item.link.routerLink">
               @if (item.icon) {
-                <mat-icon>{{ item.icon }}</mat-icon>
+                <mat-icon [color]="menuItemIconColor(item)">{{ item.icon }}</mat-icon>
               }
               <span>{{ item.label }}</span>
             </a>
@@ -107,7 +107,7 @@
               [rel]="item.link.rel ?? null"
             >
               @if (item.icon) {
-                <mat-icon>{{ item.icon }}</mat-icon>
+                <mat-icon [color]="menuItemIconColor(item)">{{ item.icon }}</mat-icon>
               }
               <span>{{ item.label }}</span>
             </a>
@@ -126,7 +126,7 @@
               (click)="onMenuItemClick(item)"
             >
               @if (item.icon) {
-                <mat-icon>{{ item.icon }}</mat-icon>
+                <mat-icon [color]="menuItemIconColor(item)">{{ item.icon }}</mat-icon>
               }
               <span>{{ item.label }}</span>
             </button>

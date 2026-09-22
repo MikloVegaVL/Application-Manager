@@ -142,4 +142,9 @@ export class CompactCardComponent implements AfterContentChecked {
     }
     this.menuItemClick.emit(item.id);
   }
+
+  /** Menu icons default to accent; the delete action is always warn (red). */
+  protected menuItemIconColor(item: CompactCardMenuItem): 'accent' | 'warn' {
+    return item.id === 'delete' ? 'warn' : 'accent';
+  }
 }
