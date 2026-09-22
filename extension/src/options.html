@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Application Manager Autofill - Settings</title>
+    <style>
+      body {
+        font: 14px system-ui, sans-serif;
+        margin: 24px;
+        max-width: 520px;
+      }
+      label {
+        display: block;
+        margin-top: 16px;
+        font-weight: 600;
+      }
+      input {
+        width: 100%;
+        padding: 6px;
+        margin-top: 4px;
+        box-sizing: border-box;
+      }
+      button {
+        margin-top: 16px;
+        padding: 8px 14px;
+      }
+      #status {
+        margin-left: 12px;
+      }
+      .hint {
+        color: #555;
+        margin-top: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Application Manager Autofill</h1>
+    <p class="hint">
+      Paste the fill secret from the app's settings once. It is stored only in
+      this browser profile and never synced.
+    </p>
+    <form id="options-form">
+      <label for="api-base-url">App API base URL</label>
+      <input id="api-base-url" type="url" placeholder="http://localhost:8000/api" />
+      <label for="secret">Fill secret</label>
+      <input id="secret" type="password" autocomplete="off" spellcheck="false" />
+      <div>
+        <button type="submit">Save</button>
+        <span id="status" role="status"></span>
+      </div>
+    </form>
+    <script src="options.js"></script>
+  </body>
+</html>
