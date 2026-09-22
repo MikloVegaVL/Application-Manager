@@ -7,6 +7,7 @@ Nutzt eine eigene In-Memory-SQLite-Engine, gleiches Muster wie
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -323,9 +324,12 @@ def test_entry_with_deleted_application_returns_null_ad_url(client, db_session_l
 
 
 def _insert_sent_email_for_application_status(session, status: ApplicationStatus) -> None:
+    # `source_url` is unique on `job_offers` - `uuid4` keeps this callable
+    # safely more than once per test (e.g. one REJECTED + one ACCEPTED entry
+    # in the same outcome-filter test).
     job_offer = JobOffer(
         title="Backend Engineer", company="Acme GmbH",
-        source_url="https://example.com/job/x", source_platform="test",
+        source_url=f"https://example.com/job/{uuid4()}", source_platform="test",
     )
     session.add(job_offer)
     session.commit()
@@ -398,6 +402,122 @@ def test_entry_with_deleted_application_has_outcome_pending(client, db_session_l
 
     assert response.status_code == 200
     assert response.json()[0]["outcome"] == "pending"
+
+
+# --- outcome filter (U3, R5) --------------------------------------------
+
+
+def test_filter_by_outcome_rejection_returns_only_rejected_entries(client, db_session_local) -> None:
+    """Covers AE5."""
+    session = db_session_local()
+    try:
+        _insert_sent_email_for_application_status(session, ApplicationStatus.REJECTED)
+        _insert_sent_email_for_application_status(session, ApplicationStatus.ACCEPTED)
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails", params={"outcome": "rejection"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["outcome"] == "rejection"
+
+
+def test_filter_by_outcome_offer_returns_only_accepted_entries(client, db_session_local) -> None:
+    session = db_session_local()
+    try:
+        _insert_sent_email_for_application_status(session, ApplicationStatus.REJECTED)
+        _insert_sent_email_for_application_status(session, ApplicationStatus.ACCEPTED)
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails", params={"outcome": "offer"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["outcome"] == "offer"
+
+
+def test_filter_by_outcome_pending_returns_undecided_and_deleted_application_entries(
+    client, db_session_local
+) -> None:
+    session = db_session_local()
+    try:
+        _insert_sent_email_for_application_status(session, ApplicationStatus.SENT)
+        _insert_sent_email(session, application_id=None)
+        _insert_sent_email_for_application_status(session, ApplicationStatus.REJECTED)
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails", params={"outcome": "pending"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 2
+    assert all(entry["outcome"] == "pending" for entry in body)
+
+
+def test_outcome_filter_combines_with_company_filter(client, db_session_local) -> None:
+    session = db_session_local()
+    try:
+        _insert_sent_email(
+            session, application_id=None, company="Acme GmbH", recipient_email="a@example.com"
+        )
+        job_offer = JobOffer(
+            title="Backend Engineer", company="Globex",
+            source_url="https://example.com/job/z", source_platform="test",
+        )
+        session.add(job_offer)
+        session.commit()
+        session.refresh(job_offer)
+        application = Application(job_offer_id=job_offer.id, status=ApplicationStatus.REJECTED)
+        session.add(application)
+        session.commit()
+        session.refresh(application)
+        _insert_sent_email(
+            session, application_id=application.id, company="Globex", recipient_email="b@example.com"
+        )
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails", params={"outcome": "pending", "company": "Globex"})
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_export_with_outcome_filter_returns_the_same_row_set_as_the_list(
+    client, db_session_local
+) -> None:
+    """Covers KTD2: filter parity extends to `outcome`, even though the PDF
+    itself never renders an Outcome column (R6)."""
+    from io import BytesIO
+
+    from pypdf import PdfReader
+
+    session = db_session_local()
+    try:
+        _insert_sent_email_for_application_status(session, ApplicationStatus.REJECTED)
+    finally:
+        session.close()
+    session2 = db_session_local()
+    try:
+        _insert_sent_email(session2, application_id=None, recipient_email="unfiltered@example.com")
+    finally:
+        session2.close()
+
+    list_response = client.get("/api/sent-emails", params={"outcome": "rejection"})
+    assert [entry["recipient_email"] for entry in list_response.json()] == ["recruiter@example.com"]
+
+    export_response = client.get("/api/sent-emails/export", params={"outcome": "rejection"})
+
+    assert export_response.status_code == 200
+    reader = PdfReader(BytesIO(export_response.content))
+    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    assert "recruiter@example.com" in text
+    assert "unfiltered@example.com" not in text
 
 
 # --- DELETE /sent-emails/{id} ------------------------------------------

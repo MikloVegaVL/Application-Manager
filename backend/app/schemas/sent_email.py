@@ -45,3 +45,4 @@ class SentEmailFilter(BaseModel):
     sender_email: str | None = None
     date_from: date | None = None
     date_to: date | None = None
+    outcome: str | None = None

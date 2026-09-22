@@ -7,11 +7,11 @@ import io
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Query, Session, joinedload
 
 from app.db.database import get_db
-from app.models.application import Application
+from app.models.application import Application, ApplicationStatus
 from app.models.sent_email import SentEmail
 from app.schemas.sent_email import SentEmailFilter, SentEmailRead
 from app.services.pdf_service import PdfRenderError, render_sent_emails_pdf
@@ -34,6 +34,23 @@ def _apply_filters(query: Query, filters: SentEmailFilter) -> Query:
         query = query.filter(func.date(SentEmail.sent_at) >= filters.date_from)
     if filters.date_to:
         query = query.filter(func.date(SentEmail.sent_at) <= filters.date_to)
+    if filters.outcome:
+        # Outer join (KTD3): an inner join would silently drop "pending because
+        # the application was deleted" rows (`application_id IS NULL`) from the
+        # Pending filter option. Applies to both list and export queries (KTD2)
+        # via this shared function - only the rendered PDF column stays out (R6).
+        query = query.outerjoin(Application, SentEmail.application_id == Application.id)
+        if filters.outcome == "offer":
+            query = query.filter(Application.status == ApplicationStatus.ACCEPTED)
+        elif filters.outcome == "rejection":
+            query = query.filter(Application.status == ApplicationStatus.REJECTED)
+        else:
+            query = query.filter(
+                or_(
+                    Application.status.is_(None),
+                    Application.status.notin_([ApplicationStatus.ACCEPTED, ApplicationStatus.REJECTED]),
+                )
+            )
     return query
 
 
@@ -65,7 +82,9 @@ def list_sent_emails(
     filters: SentEmailFilter = Depends(), db: Session = Depends(get_db)
 ) -> list[SentEmail]:
     """Listet alle protokollierten Bewerbungsmail-Versände, neueste zuerst,
-    optional gefiltert nach Firma, Absender-Account und Zeitraum (R4/R7)."""
+    optional gefiltert nach Firma, Absender-Account, Zeitraum (R4/R7) und
+    Outcome (R5) - Outcome wird live über die verknüpfte Application ermittelt,
+    nicht aus einer Spalte auf `SentEmail`."""
     return _query_entries_for_list(db, filters)
 
 
