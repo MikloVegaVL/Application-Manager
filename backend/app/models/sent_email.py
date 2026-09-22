@@ -94,8 +94,8 @@ class SentEmail(Base):
         und der Ausgang kann sich nach dem Versand noch ändern. "pending" bei
         fehlender Entscheidung (draft/sent/interview) oder wenn die
         Application seither gelöscht wurde (R4). Bewusst ein einfacher str
-        statt eines geteilten Enums (KTD1) - keine Kopplung an den
-        unabhängigen "Run outcome"-Begriff aus dem Portal-Auto-Fill."""
+        statt eines geteilten Enums (KTD1) - keine Kopplung an einen
+        geteilten Status-Typ."""
         if self.application is None:
             return "pending"
         if self.application.status == ApplicationStatus.ACCEPTED:

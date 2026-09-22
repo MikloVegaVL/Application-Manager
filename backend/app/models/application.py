@@ -50,28 +50,6 @@ class Application(Base):
     # angezeigt, damit nachvollziehbar ist, wohin die Bewerbung ging.
     sent_to_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
 
-    # Portal-Auto-Fill-Status (Playwright-gestützter Agent, siehe
-    # docs/plans/2026-09-19-002-feat-portal-application-auto-fill-agent-plan.md).
-    # Bewusst kein `ApplicationStatus`-Wert (KTD3): `status` bildet das
-    # finale, nutzersichtbare Ergebnis ab, dieser Automations-Zwischenstatus
-    # ist unabhängig davon. Ein einfacher `String` statt `Enum(...,
-    # native_enum=False)` wie bei `status` genügt hier, da die Werte
-    # ausschließlich vom Python-Code der späteren Units (nicht von der DB)
-    # geschrieben/geprüft werden.
-    automation_state: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    # Doppelfunktion je nach `automation_state` (KTD3): bei "paused" der
-    # Pausengrund (captcha/low_confidence_field/pre_submit_confirmation), bei
-    # "failed" der Fehlgrund (timeout/iframe_not_found/unhandled_error/
-    # cancelled_by_user). Wird von U1 selbst nicht beschrieben.
-    action_needed_reason: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    # Konkretes Feld/Frage-Label zur Pause (R9/KTD1) - ergänzt
-    # `action_needed_reason` um das "wo". Wird bei jedem Zustandsübergang ohne
-    # Detail auf `None` zurückgesetzt.
-    action_needed_detail: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    automation_started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

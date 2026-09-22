@@ -5,17 +5,16 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.applications import router as applications_router
 from app.api.cv_builder import router as cv_builder_router
 from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
-from app.api.portal_fill import router as portal_fill_router
 from app.api.profile import router as profile_router
 from app.api.sent_emails import router as sent_emails_router
 from app.core.config import settings
 from app.db.init_db import init_db
-from app.services.portal_agents.session import reset_stale_automation_state, shutdown_all_sessions
 
 # `urllib3`/`requests` loggen vollständige Request-URLs auf DEBUG-Ebene, was
 # credential-tragende URLs künftiger Job-Quellen preisgeben könnte -
@@ -27,15 +26,9 @@ logging.getLogger("requests").setLevel(logging.WARNING)
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Legt beim App-Start alle Datenbank-Tabellen an (sofern nicht
-    bereits vorhanden), setzt verwaisten Portal-Auto-Fill-Automationsstatus
-    zurück (U2: die In-Memory-Session-Registry überlebt einen Neustart nie)
-    und übergibt anschließend an die laufende App. Beim Shutdown werden
-    noch laufende Portal-Auto-Fill-Sitzungen signalisiert herunterzufahren
-    (R9/R10 - siehe `shutdown_all_sessions()`-Doku zur Thread-Affinität)."""
+    bereits vorhanden) und übergibt anschließend an die laufende App."""
     init_db()
-    reset_stale_automation_state()
     yield
-    shutdown_all_sessions()
 
 
 app = FastAPI(
@@ -47,6 +40,13 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# --- Trusted-Host: nur lokale Hostnamen (KTD13) ---
+# Die API ist ein lokales Einzelnutzer-Werkzeug ohne Authentifizierung. Ohne
+# diese Middleware würde ein DNS-Rebinding-Angriff (eine besuchte Seite, die
+# auf `localhost` auflöst) die API direkt ansprechen können; erlaubt sind
+# daher ausschließlich `localhost` und `127.0.0.1`.
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
 
 # --- CORS-Konfiguration: erlaubt Zugriffe vom Angular-Dev-Server ---
 app.add_middleware(
@@ -64,7 +64,6 @@ app.include_router(profile_router, prefix=settings.API_V1_PREFIX)
 app.include_router(applications_router, prefix=settings.API_V1_PREFIX)
 app.include_router(cv_builder_router, prefix=settings.API_V1_PREFIX)
 app.include_router(sent_emails_router, prefix=settings.API_V1_PREFIX)
-app.include_router(portal_fill_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/", tags=["Root"])

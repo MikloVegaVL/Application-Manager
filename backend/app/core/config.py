@@ -4,8 +4,10 @@ Liest Umgebungsvariablen (aus `.env` oder der Prozessumgebung) via
 pydantic-settings ein. Damit steht eine typsichere, zentrale `settings`-
 Instanz zur Verfügung, die im gesamten Backend importiert werden kann.
 """
+import secrets
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -139,31 +141,15 @@ class Settings(BaseSettings):
     APPLICATION_EMAIL_LOOKUP_MAX_PAGE_TEXT_CHARS: int = 6_000
     APPLICATION_EMAIL_LOOKUP_DEADLINE_SECONDS: float = 45.0
 
-    # --- Portal-Auto-Fill (KTD2/KTD3/KTD7) ---
-    # Anbieter für das Lösen von Captchas. Default "none" => kein Solver
-    # konfiguriert; ein erkanntes Captcha eskaliert dann als needs-you
-    # (bisheriges Verhalten). Es liefert bewusst noch KEINEN konkreten
-    # Solver mit - die Seam existiert, damit ein späterer Anbieter ohne
-    # Vertragsumbau ergänzt werden kann.
-    CAPTCHA_SOLVER_PROVIDER: str = "none"
-    # Obergrenze für einen einzelnen Löseversuch (R6) - danach eskaliert der
-    # Lauf, statt zu blockieren.
-    CAPTCHA_SOLVE_TIMEOUT_SECONDS: float = 60.0
-    # Ohne diese Freigabe pausiert der Lauf IMMER vor dem Submit
-    # (pre_submit_confirmation) - Default aus, um Vertrauen/Zustimmung zu
-    # wahren (KTD3).
-    AUTO_SUBMIT_ENABLED: bool = False
-    # An `chromium.launch(timeout=...)` durchgereicht und als Backstop für
-    # `start_session()`s `launch_done.wait()` (KTD7) - begrenzt einen
-    # hängenden Browser-Start.
-    BROWSER_LAUNCH_TIMEOUT_MS: int = 30_000
-    # R3/KTD3/KTD8: Chromium wird mit `--remote-debugging-port` gestartet,
-    # damit sich der Nutzer bei einer Captcha-Pause von der eigenen Maschine
-    # aus live (z. B. über `chrome://inspect`) verbinden kann - dieselbe
-    # Verbindung, die im Docker-Setup NUR über `127.0.0.1:<Port>:<Port>`
-    # (nicht den ungebundenen Compose-Kurzsyntax-Default) an den Host
-    # weitergereicht werden darf (siehe `docker-compose.yml`).
-    PORTAL_FILL_DEBUG_PORT: int = 9222
+    # --- Portal-Fill (Browser-Erweiterung, KTD13) ---
+    # Hoch-entropisches Shared Secret, das jede erweiterungsseitige
+    # `/portal-fill/*`-Route als Header verlangt (KTD13). Ist es beim Start
+    # nicht gesetzt, wird beim ersten Laden der Settings eines generiert
+    # (`default_factory`) - der Nutzer provisioniert es einmalig in die
+    # Options-Seite der Erweiterung. Für einen über Neustarts stabilen Wert
+    # in `.env` hinterlegen; ein Neustart ohne gesetzten Wert erzeugt ein
+    # neues Secret (die Erweiterung muss dann erneut provisioniert werden).
+    PORTAL_FILL_SECRET: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
 
     # --- Generierte/hochgeladene Dateien ---
     # Ablageort der vom Nutzer hochgeladenen Lebenslauf-Anhang-Datei (siehe

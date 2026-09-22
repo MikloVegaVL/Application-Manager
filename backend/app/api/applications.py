@@ -192,30 +192,10 @@ def delete_application(application_id: int, db: Session = Depends(get_db)) -> No
     während die Bewerbung selbst nirgends mehr auffindbar wäre. Das Löschen
     des `JobOffer` nimmt die zugehörige `Application` per ORM-Cascade
     (siehe `JobOffer.applications`) automatisch mit.
-
-    P0-Fix (adversarial-reviewer): eine `Application` mit aktivem Portal-
-    Auto-Fill-Lauf (`automation_state` "running"/"paused") darf NICHT
-    gelöscht werden. Andernfalls könnte z. B. während der pausierten
-    `pre_submit_confirmation` die Bewerbung hier gelöscht, danach per
-    `continue` trotzdem der echte Submit auf dem externen Portal ausgelöst
-    werden - `_record_submission()` fände die (bereits gelöschte)
-    `Application`-Zeile dann nicht mehr, und auch `_set_state("failed", ...)`
-    liefe ins Leere (No-Op bei fehlender Zeile): eine reale Bewerbung ohne
-    jede lokale Spur, ohne Möglichkeit, sie nachträglich als fehlgeschlagen
-    zu markieren.
     """
     application = db.get(Application, application_id)
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung wurde nicht gefunden.")
-
-    if application.automation_state in ("running", "paused"):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Diese Bewerbung kann nicht gelöscht werden, während ein Portal-Auto-Fill-Lauf "
-                "aktiv ist. Bitte zuerst über den Auto-Fill-Abbruch beenden."
-            ),
-        )
 
     job_offer = db.get(JobOffer, application.job_offer_id)
     db.delete(job_offer if job_offer is not None else application)
