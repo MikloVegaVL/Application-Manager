@@ -223,6 +223,45 @@ describe('ApplicationsComponent', () => {
     expect(component['filteredApplications']().length).toBe(2);
   });
 
+  it('Covers AE6: narrows by company or job title, case-insensitive, combined (AND) with the status filter', () => {
+    const otherApplication: Application = {
+      ...sampleApplication,
+      id: 2,
+      status: 'rejected',
+      job_offer: { ...sampleApplication.job_offer, title: 'Frontend Engineer', company: 'Globex Inc' },
+    };
+    flushList([sampleApplication, otherApplication]);
+
+    // Matches company, case-insensitive.
+    component['searchTerm'].set('acme');
+    expect(component['filteredApplications']().length).toBe(1);
+    expect(component['filteredApplications']()[0].id).toBe(1);
+
+    // Matches job title, case-insensitive.
+    component['searchTerm'].set('FRONTEND');
+    expect(component['filteredApplications']().length).toBe(1);
+    expect(component['filteredApplications']()[0].id).toBe(2);
+
+    // Combines with the active status filter (AND) rather than replacing it.
+    component['searchTerm'].set('');
+    component.onFilterChange('rejected');
+    expect(component['filteredApplications']().length).toBe(1);
+    component['searchTerm'].set('acme');
+    expect(component['filteredApplications']().length).toBe(0);
+
+    // Empty search shows every application within the active status filter (no behavior change from today).
+    component.onFilterChange('all');
+    component['searchTerm'].set('');
+    expect(component['filteredApplications']().length).toBe(2);
+
+    // No match returns an empty list, with search-specific empty-state copy.
+    component['searchTerm'].set('nonexistent');
+    fixture.detectChanges();
+    expect(component['filteredApplications']().length).toBe(0);
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('No applications match your search.');
+  });
+
   it('shows the recipient email on the card once the application was sent', () => {
     const sentApplication: Application = {
       ...sampleApplication,

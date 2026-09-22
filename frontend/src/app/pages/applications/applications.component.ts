@@ -139,6 +139,8 @@ export class ApplicationsComponent implements OnInit {
   protected readonly savingNewJobOffer = signal(false);
   /** Aktiver Status-Filter; `all` zeigt jede Bewerbung. */
   protected readonly filter = signal<ApplicationFilter>('all');
+  /** Freitextsuche über Jobtitel/Firma (rein clientseitig, kombiniert per AND mit `filter`). */
+  protected readonly searchTerm = signal('');
 
   /** ID der Bewerbung, für die gerade `POST .../portal-fill/start` läuft. */
   protected readonly portalFillStartingId = signal<number | null>(null);
@@ -156,14 +158,26 @@ export class ApplicationsComponent implements OnInit {
    * Bild aus statt ein kaputtes Icon zu zeigen. */
   protected readonly screenshotLoadFailedIds = signal<ReadonlySet<number>>(new Set());
 
-  /** Nach dem gewählten Filter reduzierte Liste (rein clientseitig, `applications` bleibt vollständig). */
+  /** Nach Status und Suchbegriff reduzierte Liste (rein clientseitig, `applications` bleibt vollständig). */
   protected readonly filteredApplications = computed(() => {
     const filter = this.filter();
-    if (filter === 'all') {
-      return this.applications();
-    }
-    return this.applications().filter((application) => application.status === filter);
+    const term = this.searchTerm();
+    const byStatus =
+      filter === 'all' ? this.applications() : this.applications().filter((application) => application.status === filter);
+    return byStatus.filter((application) => this.matchesSearch(application, term));
   });
+
+  /** Case-insensitive Teilstring-Treffer auf Jobtitel oder Firma (R1); ein leerer Suchbegriff trifft immer. */
+  private matchesSearch(application: Application, term: string): boolean {
+    const needle = term.trim().toLowerCase();
+    if (!needle) {
+      return true;
+    }
+    return (
+      application.job_offer.title.toLowerCase().includes(needle) ||
+      application.job_offer.company.toLowerCase().includes(needle)
+    );
+  }
 
   private static readonly STATUS_LABELS: Record<ApplicationStatus, string> = {
     draft: 'Draft',

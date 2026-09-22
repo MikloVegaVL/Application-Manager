@@ -32,6 +32,16 @@
   }
 
   @if (!loading() && !errorMessage() && applications().length > 0) {
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="applications__search">
+      <mat-label>Search by company or title</mat-label>
+      <input
+        matInput
+        type="text"
+        [value]="searchTerm()"
+        (input)="searchTerm.set($any($event.target).value)"
+      />
+    </mat-form-field>
+
     <mat-radio-group
       class="applications__filter"
       [value]="filter()"
@@ -59,7 +69,13 @@
   }
 
   @if (!loading() && !errorMessage() && applications().length > 0 && filteredApplications().length === 0) {
-    <p class="applications__empty">No applications with this status.</p>
+    <p class="applications__empty">
+      @if (searchTerm()) {
+        No applications match your search.
+      } @else {
+        No applications with this status.
+      }
+    </p>
   }
 
   @if (!loading() && filteredApplications().length > 0) {
