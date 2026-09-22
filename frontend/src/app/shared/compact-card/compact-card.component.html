@@ -3,7 +3,9 @@
     <div class="compact-card__heading">
       <h3 class="compact-card__title">{{ viewModel.title }}</h3>
       <p class="compact-card__company">{{ viewModel.company }}</p>
-      <p class="compact-card__location">{{ viewModel.location }}</p>
+      @if (viewModel.location) {
+        <p class="compact-card__location">{{ viewModel.location }}</p>
+      }
     </div>
 
     @if (busy) {
