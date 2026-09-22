@@ -16,6 +16,7 @@ import { JobSearchStateService } from '../../core/services/job-search-state.serv
 import {
   cleanupCompactCardOverlays,
   findCompactCardMenuItem,
+  isCompactCardMenuItemDisabled,
   openCompactCardMenu,
 } from '../../shared/compact-card/compact-card-test-helpers';
 import { environment } from '../../../environments/environment';
@@ -887,7 +888,7 @@ describe('JobSearchComponent', () => {
       expect(trigger.disabled).toBeFalse();
 
       await openCardMenu();
-      expect((cardMenuItemByText('Find email') as HTMLButtonElement).disabled).toBeFalse();
+      expect(isCompactCardMenuItemDisabled(cardMenuItemByText('Find email')!)).toBe(false);
     });
 
     it('Covers R11: a re-run can be triggered after an address is already displayed, even though the item stays (existing gating preserved)', async () => {

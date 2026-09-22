@@ -28,6 +28,7 @@ import {
 import {
   cleanupCompactCardOverlays,
   findCompactCardMenuItem,
+  isCompactCardMenuItemDisabled,
   openCompactCardMenu,
 } from '../../shared/compact-card/compact-card-test-helpers';
 import { environment } from '../../../environments/environment';
@@ -723,7 +724,7 @@ describe('ApplicationsComponent', () => {
       expect(attention.textContent).toContain("Couldn't find the application form on that page.");
 
       toggleCardMenuInFakeAsync(fixture);
-      expect(menuItemByText('Start auto-fill')!.disabled).toBe(false);
+      expect(isCompactCardMenuItemDisabled(menuItemByText('Start auto-fill')!)).toBe(false);
       toggleCardMenuInFakeAsync(fixture); // close, so it doesn't interfere with the dismiss below
 
       const dismissButton = attention.querySelector('button[aria-label="Dismiss"]') as HTMLButtonElement;
@@ -744,7 +745,7 @@ describe('ApplicationsComponent', () => {
 
       toggleCardMenuInFakeAsync(fixture); // open
       for (const label of ['Mark accepted', 'Mark rejected', 'Delete', 'Start auto-fill']) {
-        expect(menuItemByText(label)!.disabled).toBe(true);
+        expect(isCompactCardMenuItemDisabled(menuItemByText(label)!)).toBe(true);
       }
       toggleCardMenuInFakeAsync(fixture); // close, so the next open below starts from a known state
 
@@ -758,7 +759,7 @@ describe('ApplicationsComponent', () => {
 
       toggleCardMenuInFakeAsync(fixture); // open
       for (const label of ['Mark accepted', 'Mark rejected', 'Delete', 'Start auto-fill']) {
-        expect(menuItemByText(label)!.disabled).toBe(true);
+        expect(isCompactCardMenuItemDisabled(menuItemByText(label)!)).toBe(true);
       }
       toggleCardMenuInFakeAsync(fixture); // close
 
@@ -768,9 +769,9 @@ describe('ApplicationsComponent', () => {
 
       expect(fixture.nativeElement.querySelector('.compact-card__inline-attention')).toBeNull();
       toggleCardMenuInFakeAsync(fixture); // open
-      expect(menuItemByText('Delete')!.disabled).toBe(false);
-      expect(menuItemByText('Mark accepted')!.disabled).toBe(false);
-      expect(menuItemByText('Mark rejected')!.disabled).toBe(false);
+      expect(isCompactCardMenuItemDisabled(menuItemByText('Delete')!)).toBe(false);
+      expect(isCompactCardMenuItemDisabled(menuItemByText('Mark accepted')!)).toBe(false);
+      expect(isCompactCardMenuItemDisabled(menuItemByText('Mark rejected')!)).toBe(false);
     }));
 
     it('signals TabTitleService when a poll observes a transition to paused while backgrounded', fakeAsync(() => {

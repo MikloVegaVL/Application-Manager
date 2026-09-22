@@ -23,6 +23,14 @@ export function findCompactCardMenuItem(text: string): HTMLElement | null {
   return items.find((item) => item.textContent?.includes(text)) ?? null;
 }
 
+/** Whether a menu item found via `findCompactCardMenuItem` is disabled. Disabled
+ * items aren't natively `disabled` (that would suppress their `matTooltip`), so
+ * this reads `aria-disabled` off the wrapping `.compact-card__menu-item-wrap`
+ * span instead of the item element itself. */
+export function isCompactCardMenuItemDisabled(item: HTMLElement): boolean {
+  return item.closest('.compact-card__menu-item-wrap')?.getAttribute('aria-disabled') === 'true';
+}
+
 /** Removes any CDK overlay containers left in `document.body` - call from `afterEach`
  * so a leftover open menu from one test can't be picked up by the next one. */
 export function cleanupCompactCardOverlays(): void {

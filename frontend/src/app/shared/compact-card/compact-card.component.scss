@@ -95,6 +95,15 @@
     color: var(--app-muted-text, rgba(0, 0, 0, 0.5));
     font-size: 0.85rem;
   }
+
+  &__menu-item-wrap {
+    display: block;
+  }
+
+  &__menu-item--disabled {
+    pointer-events: none;
+    color: var(--app-muted-text, rgba(0, 0, 0, 0.5));
+  }
 }
 
 @media (prefers-color-scheme: dark) {

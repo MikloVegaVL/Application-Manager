@@ -149,7 +149,15 @@ describe('CompactCardComponent', () => {
 
     const menuItem = document.querySelector('.mat-mdc-menu-item') as HTMLButtonElement;
     expect(menuItem).toBeTruthy();
-    expect(menuItem.disabled).toBe(true);
+    // Not natively `disabled` - a disabled native button never fires the
+    // hover/focus events matTooltip needs to show. The wrapping span (which
+    // carries matTooltip and aria-disabled) plus a CSS class on the button
+    // communicate the state instead; onMenuItemClick still guards the click
+    // (asserted below).
+    expect(menuItem.disabled).toBe(false);
+    const wrap = menuItem.closest('.compact-card__menu-item-wrap') as HTMLElement;
+    expect(wrap).toBeTruthy();
+    expect(wrap.getAttribute('aria-disabled')).toBe('true');
 
     const emitted: string[] = [];
     component.menuItemClick.subscribe((id) => emitted.push(id));
@@ -158,9 +166,11 @@ describe('CompactCardComponent', () => {
 
     // The menu panel is portaled to document.body via the CDK overlay, so
     // it's not reachable through fixture.debugElement - resolve its
-    // DebugElement via Angular's node registry instead.
-    const menuItemDebugEl = getDebugNode(menuItem) as DebugElement;
-    const tooltip = menuItemDebugEl.injector.get(MatTooltip);
+    // DebugElement via Angular's node registry instead. matTooltip lives on
+    // the wrapping span, not the button, so its tooltip fires on hover even
+    // though the button itself is never natively disabled.
+    const wrapDebugEl = getDebugNode(wrap) as DebugElement;
+    const tooltip = wrapDebugEl.injector.get(MatTooltip);
     expect(tooltip.disabled).toBe(false);
     expect(tooltip.message).toBe('Cannot delete a sent application');
   });

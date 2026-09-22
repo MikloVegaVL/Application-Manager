@@ -113,19 +113,24 @@
             </a>
           }
         } @else {
-          <button
-            mat-menu-item
-            type="button"
-            [disabled]="item.disabled ?? false"
+          <span
+            class="compact-card__menu-item-wrap"
+            [attr.aria-disabled]="item.disabled ? 'true' : null"
             [matTooltip]="item.disabledReason ?? ''"
             [matTooltipDisabled]="!item.disabled || !item.disabledReason"
-            (click)="onMenuItemClick(item)"
           >
-            @if (item.icon) {
-              <mat-icon>{{ item.icon }}</mat-icon>
-            }
-            <span>{{ item.label }}</span>
-          </button>
+            <button
+              mat-menu-item
+              type="button"
+              [class.compact-card__menu-item--disabled]="item.disabled"
+              (click)="onMenuItemClick(item)"
+            >
+              @if (item.icon) {
+                <mat-icon>{{ item.icon }}</mat-icon>
+              }
+              <span>{{ item.label }}</span>
+            </button>
+          </span>
         }
       }
     </mat-menu>
