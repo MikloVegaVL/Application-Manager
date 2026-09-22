@@ -319,6 +319,87 @@ def test_entry_with_deleted_application_returns_null_ad_url(client, db_session_l
     assert response.json()[0]["ad_url"] is None
 
 
+# --- outcome (U2, R3/R4) ------------------------------------------------
+
+
+def _insert_sent_email_for_application_status(session, status: ApplicationStatus) -> None:
+    job_offer = JobOffer(
+        title="Backend Engineer", company="Acme GmbH",
+        source_url="https://example.com/job/x", source_platform="test",
+    )
+    session.add(job_offer)
+    session.commit()
+    session.refresh(job_offer)
+
+    application = Application(job_offer_id=job_offer.id, status=status)
+    session.add(application)
+    session.commit()
+    session.refresh(application)
+
+    _insert_sent_email(session, application_id=application.id)
+
+
+def test_entry_with_rejected_application_has_outcome_rejection(client, db_session_local) -> None:
+    """Covers AE1."""
+    session = db_session_local()
+    try:
+        _insert_sent_email_for_application_status(session, ApplicationStatus.REJECTED)
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails")
+
+    assert response.status_code == 200
+    assert response.json()[0]["outcome"] == "rejection"
+
+
+def test_entry_with_accepted_application_has_outcome_offer(client, db_session_local) -> None:
+    """Covers AE2."""
+    session = db_session_local()
+    try:
+        _insert_sent_email_for_application_status(session, ApplicationStatus.ACCEPTED)
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails")
+
+    assert response.status_code == 200
+    assert response.json()[0]["outcome"] == "offer"
+
+
+@pytest.mark.parametrize(
+    "status", [ApplicationStatus.DRAFT, ApplicationStatus.SENT, ApplicationStatus.INTERVIEW]
+)
+def test_entry_with_undecided_application_has_outcome_pending(
+    client, db_session_local, status
+) -> None:
+    """Covers AE3."""
+    session = db_session_local()
+    try:
+        _insert_sent_email_for_application_status(session, status)
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails")
+
+    assert response.status_code == 200
+    assert response.json()[0]["outcome"] == "pending"
+
+
+def test_entry_with_deleted_application_has_outcome_pending(client, db_session_local) -> None:
+    """Covers AE4."""
+    session = db_session_local()
+    try:
+        _insert_sent_email(session, application_id=None)
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails")
+
+    assert response.status_code == 200
+    assert response.json()[0]["outcome"] == "pending"
+
+
 # --- DELETE /sent-emails/{id} ------------------------------------------
 
 
