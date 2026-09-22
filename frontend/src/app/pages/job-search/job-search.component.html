@@ -120,116 +120,12 @@
   @if (!loading() && filteredResults().length > 0) {
     <div class="job-search__results">
       @for (job of filteredResults(); track job.source_url) {
-        <mat-card class="job-card" appearance="outlined">
-          <mat-card-header>
-            <mat-card-title>{{ job.title }}</mat-card-title>
-            <mat-card-subtitle>
-              {{ job.company }}
-              @if (job.location) {
-                · {{ job.location }}
-              }
-            </mat-card-subtitle>
-          </mat-card-header>
-
-          <mat-card-content>
-            <p class="job-card__description">
-              {{ job.description_text || 'No description available.' }}
-            </p>
-            <mat-chip-set>
-              <mat-chip>{{ job.source_platform }}</mat-chip>
-            </mat-chip-set>
-            <div class="job-card__recipient">
-              <mat-icon>mail_outline</mat-icon>
-              <span>
-                <span class="job-card__recipient-label"> Recipient: </span>
-                {{ displayedRecipient(job) || '—' }}
-              </span>
-              @if (applicationEmailSourceUrl(job); as sourceUrl) {
-                <a
-                  class="job-card__recipient-source"
-                  [href]="sourceUrl"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <mat-icon>open_in_new</mat-icon>
-                  Source of this address
-                </a>
-              }
-            </div>
-
-            @if (lookupResult(job); as result) {
-              <p class="job-card__lookup-status" aria-live="polite">
-                @switch (result.status) {
-                  @case ('found') {
-                    Application email found
-                  }
-                  @case ('not-found') {
-                    No application email found
-                  }
-                  @case ('failed') {
-                    <span class="job-card__lookup-status--failed">
-                      Couldn't reach the employer's site — try again
-                    </span>
-                  }
-                }
-              </p>
-            }
-          </mat-card-content>
-
-          <mat-card-actions align="end">
-            <a mat-button [href]="job.source_url" target="_blank" rel="noopener noreferrer">
-              <mat-icon>open_in_new</mat-icon>
-              Open ad
-            </a>
-
-            <button
-              mat-stroked-button
-              type="button"
-              [disabled]="isSaved(job) || isSaving(job)"
-              (click)="onSaveJob(job)"
-            >
-              @if (isSaving(job)) {
-                <mat-progress-spinner mode="indeterminate" diameter="18" />
-              } @else {
-                <mat-icon>{{ isSaved(job) ? 'bookmark_added' : 'bookmark_add' }}</mat-icon>
-              }
-              {{ isSaved(job) ? 'Saved' : 'Save job' }}
-            </button>
-
-            <button
-              mat-raised-button
-              color="accent"
-              type="button"
-              class="job-card__generate-btn"
-              [disabled]="isGenerating(job)"
-              (click)="onGenerateApplication(job)"
-            >
-              @if (isGenerating(job)) {
-                <mat-progress-spinner mode="indeterminate" diameter="18" />
-              } @else {
-                <span aria-hidden="true">⚡</span>
-              }
-              Generate application
-            </button>
-
-            @if (!recipientEmail(job)) {
-              <button
-                mat-button
-                type="button"
-                class="job-card__find-email-btn"
-                [disabled]="isLookingUp(job)"
-                (click)="onFindApplicationEmail(job)"
-              >
-                @if (isLookingUp(job)) {
-                  <mat-progress-spinner mode="indeterminate" diameter="18" />
-                } @else {
-                  <mat-icon>travel_explore</mat-icon>
-                }
-                {{ lookupResult(job) ? 'Find email again' : 'Find email' }}
-              </button>
-            }
-          </mat-card-actions>
-        </mat-card>
+        <app-compact-card
+          [viewModel]="cardViewModel(job)"
+          [busy]="isCardBusy(job)"
+          (primaryActionClick)="onGenerateApplication(job)"
+          (menuItemClick)="onMenuAction(job, $event)"
+        ></app-compact-card>
       }
     </div>
   }

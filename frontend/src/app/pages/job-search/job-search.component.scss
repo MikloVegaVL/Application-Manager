@@ -87,91 +87,11 @@
   }
 }
 
-.job-card {
-  display: flex;
-  flex-direction: column;
-
-  &__description {
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    min-height: 3.6em;
-    color: var(--app-secondary-text);
-  }
-
-  &__generate-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  &__recipient {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    max-width: 100%;
-    margin-top: 8px;
-    color: var(--app-secondary-text);
-    font-size: 0.8125rem;
-
-    mat-icon {
-      flex-shrink: 0;
-      width: 16px;
-      height: 16px;
-      font-size: 16px;
-      color: var(--app-muted-text);
-    }
-
-    span {
-      overflow-wrap: anywhere;
-    }
-  }
-
-  &__recipient-label {
-    color: var(--app-muted-text);
-  }
-
-  &__recipient-source {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    margin-left: auto;
-    color: var(--app-secondary-text);
-    text-decoration: none;
-    white-space: nowrap;
-
-    &:hover {
-      text-decoration: underline;
-    }
-  }
-
-  &__lookup-status {
-    margin: 8px 0 0;
-    font-size: 0.8125rem;
-    color: var(--app-muted-text);
-
-    &--failed {
-      color: var(--app-error);
-    }
-  }
-
-  mat-card-content {
-    flex: 1;
-  }
-
-  mat-card-actions {
-    margin-top: auto;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  mat-progress-spinner {
-    display: inline-block;
-  }
-
-  button mat-progress-spinner {
-    margin-right: 8px;
-  }
-}
+// U4: no page-level `.job-card` rules needed anymore - `<app-compact-card>`
+// owns its own layout (see compact-card.component.scss), same as the
+// sibling Applications integration (`applications.component.html`/`.scss`,
+// which also passes no extra class to `<app-compact-card>`). The 1-line
+// snippet truncation lives in compact-card.component.scss's
+// `.compact-card__snippet` rule (`-webkit-line-clamp: 1`), reusing the same
+// approach as the 3-line `.job-card__description` clamp this replaced.
 
