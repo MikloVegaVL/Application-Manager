@@ -406,14 +406,9 @@ def _validate_submitted_url(portal_url: str, job_offer: JobOffer) -> None:
 
     Eine LinkedIn-Job-URL muss exakt zum Request passen; eine externe
     Arbeitgeber-URL (R4-Fallback) normalisiert zu `None` und wird akzeptiert,
-    da der Server sie nicht kennt. Ohne bekannten Request (z. B. nach einem
-    Backend-Neustart) dient die normalisierte `JobOffer.source_url` als
-    Erwartungswert."""
+    da der Server sie nicht kennt. Die normalisierte `JobOffer.source_url`
+    dient als Erwartungswert."""
     expected_url = portal_fill_requests.normalize_linkedin_job_url(job_offer.source_url)
-    if expected_url is not None:
-        consumed = portal_fill_requests.find_by_normalized_url(expected_url)
-        if consumed is not None:
-            expected_url = consumed.normalized_url
 
     reported_url = portal_fill_requests.normalize_linkedin_job_url(portal_url)
     if reported_url is not None and expected_url is not None and reported_url != expected_url:

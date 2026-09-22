@@ -14,6 +14,7 @@ import {
   hasConfirmationText,
   isLinkedInUrl,
   isVisible,
+  labelOf,
 } from "../lib/controls.js";
 import { detectCompletion, finalizeSubmission, newReportId } from "../lib/submission.js";
 
@@ -25,13 +26,6 @@ const EASY_APPLY_PATTERN = /easy apply|einfach bewerben/i;
 
 async function defaultWait() {
   await Promise.resolve();
-}
-
-function labelOf(el) {
-  return [el.getAttribute && el.getAttribute("aria-label"), el.textContent]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
 }
 
 export function findEasyApplyButton(root = document) {

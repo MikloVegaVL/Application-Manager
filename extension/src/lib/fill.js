@@ -136,8 +136,6 @@ export function fillCheckbox(el, checked) {
   return { matched: true, value: Boolean(checked) };
 }
 
-export const fillRadio = fillCheckbox;
-
 // --- File upload (R8) ------------------------------------------------------
 
 export function guessMimeType(filename = "") {
@@ -162,8 +160,7 @@ export function guessMimeType(filename = "") {
 }
 
 export function buildFile(bytes, filename, type) {
-  const parts = bytes instanceof Blob ? [bytes] : [bytes];
-  return new File(parts, filename, { type: type || guessMimeType(filename) });
+  return new File([bytes], filename, { type: type || guessMimeType(filename) });
 }
 
 function createFileList(el, files) {

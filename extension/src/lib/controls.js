@@ -38,7 +38,7 @@ export function isVisible(el) {
   return Boolean(el);
 }
 
-function labelOf(el) {
+export function labelOf(el) {
   return [el.getAttribute && el.getAttribute("aria-label"), el.textContent]
     .filter(Boolean)
     .join(" ")

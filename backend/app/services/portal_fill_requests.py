@@ -149,19 +149,6 @@ def consume_by_url(url: str | None) -> FillRequest | None:
     return None
 
 
-def find_by_normalized_url(normalized_url: str) -> FillRequest | None:
-    """Liefert einen (auch bereits konsumierten) unexpired Request anhand
-    seiner normalisierten URL - für die serverseitige Validierung des
-    gemeldeten `portal_url` beim Submission-Report."""
-    now = datetime.now(timezone.utc)
-    with _requests_lock:
-        _purge_expired_locked(now)
-        for request in _requests.values():
-            if request.normalized_url == normalized_url:
-                return request
-    return None
-
-
 def clear() -> None:
     """Leert die Registry - ausschließlich für Tests."""
     with _requests_lock:
