@@ -1,0 +1,122 @@
+:host {
+  display: block;
+}
+
+.compact-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  &__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  &__heading {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  &__title,
+  &__company,
+  &__location {
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__title {
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  &__company {
+    color: var(--app-secondary-text, rgba(0, 0, 0, 0.7));
+  }
+
+  &__location {
+    color: var(--app-muted-text, rgba(0, 0, 0, 0.5));
+    font-size: 0.85rem;
+  }
+
+  &__busy {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+  }
+
+  &__chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  &__chip {
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: var(--app-chip-background, rgba(0, 0, 0, 0.06));
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
+  &__snippet {
+    margin: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    color: var(--app-secondary-text, rgba(0, 0, 0, 0.7));
+    font-size: 0.85rem;
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  &__primary-action {
+    flex: 1 1 auto;
+
+    &--disabled {
+      pointer-events: none;
+    }
+  }
+
+  &__menu-trigger {
+    flex: 0 0 auto;
+  }
+
+  &__menu-detail-row {
+    padding: 8px 16px;
+    color: var(--app-muted-text, rgba(0, 0, 0, 0.5));
+    font-size: 0.85rem;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .compact-card {
+    &__company {
+      color: var(--app-secondary-text, rgba(255, 255, 255, 0.7));
+    }
+
+    &__location {
+      color: var(--app-muted-text, rgba(255, 255, 255, 0.5));
+    }
+
+    &__chip {
+      background: var(--app-chip-background, rgba(255, 255, 255, 0.1));
+    }
+
+    &__snippet {
+      color: var(--app-secondary-text, rgba(255, 255, 255, 0.7));
+    }
+
+    &__menu-detail-row {
+      color: var(--app-muted-text, rgba(255, 255, 255, 0.5));
+    }
+  }
+}
