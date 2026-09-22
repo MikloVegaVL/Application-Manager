@@ -4,9 +4,47 @@ Liest Umgebungsvariablen (aus `.env` oder der Prozessumgebung) via
 pydantic-settings ein. Damit steht eine typsichere, zentrale `settings`-
 Instanz zur Verfügung, die im gesamten Backend importiert werden kann.
 """
+import secrets
 from functools import lru_cache
+from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Ablageort des persistenten Portal-Fill-Secrets. `generated/` ist bereits als
+# Docker-Volume gebunden (siehe `docker-compose.yml`) und gitignored, damit das
+# Secret Neustarts übersteht und vom Nutzer aus der Datei gelesen werden kann
+# (KTD13).
+PORTAL_FILL_SECRET_FILE = Path("generated/portal_fill_secret")
+
+
+def _load_or_create_portal_fill_secret() -> str:
+    """Liest das Portal-Fill-Secret aus `PORTAL_FILL_SECRET_FILE` oder erzeugt
+    es beim ersten Start und persistiert es, damit es über Neustarts stabil
+    bleibt (KTD13).
+
+    Wird nur aufgerufen, wenn `PORTAL_FILL_SECRET` nicht gesetzt ist - ein
+    `.env`-Wert hat weiterhin Vorrang.
+    """
+    try:
+        if PORTAL_FILL_SECRET_FILE.exists():
+            existing = PORTAL_FILL_SECRET_FILE.read_text(encoding="utf-8").strip()
+            if existing:
+                return existing
+    except OSError:
+        # Nicht lesbar - unten wird neu erzeugt.
+        pass
+
+    secret = secrets.token_urlsafe(32)
+    try:
+        PORTAL_FILL_SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PORTAL_FILL_SECRET_FILE.write_text(secret + "\n", encoding="utf-8")
+        PORTAL_FILL_SECRET_FILE.chmod(0o600)
+    except OSError:
+        # Nicht schreibbar (z. B. read-only FS): das Secret gilt trotzdem für
+        # diesen Prozess, ist dann aber nicht über Neustarts stabil.
+        pass
+    return secret
 
 
 class Settings(BaseSettings):
@@ -139,31 +177,17 @@ class Settings(BaseSettings):
     APPLICATION_EMAIL_LOOKUP_MAX_PAGE_TEXT_CHARS: int = 6_000
     APPLICATION_EMAIL_LOOKUP_DEADLINE_SECONDS: float = 45.0
 
-    # --- Portal-Auto-Fill (KTD2/KTD3/KTD7) ---
-    # Anbieter für das Lösen von Captchas. Default "none" => kein Solver
-    # konfiguriert; ein erkanntes Captcha eskaliert dann als needs-you
-    # (bisheriges Verhalten). Es liefert bewusst noch KEINEN konkreten
-    # Solver mit - die Seam existiert, damit ein späterer Anbieter ohne
-    # Vertragsumbau ergänzt werden kann.
-    CAPTCHA_SOLVER_PROVIDER: str = "none"
-    # Obergrenze für einen einzelnen Löseversuch (R6) - danach eskaliert der
-    # Lauf, statt zu blockieren.
-    CAPTCHA_SOLVE_TIMEOUT_SECONDS: float = 60.0
-    # Ohne diese Freigabe pausiert der Lauf IMMER vor dem Submit
-    # (pre_submit_confirmation) - Default aus, um Vertrauen/Zustimmung zu
-    # wahren (KTD3).
-    AUTO_SUBMIT_ENABLED: bool = False
-    # An `chromium.launch(timeout=...)` durchgereicht und als Backstop für
-    # `start_session()`s `launch_done.wait()` (KTD7) - begrenzt einen
-    # hängenden Browser-Start.
-    BROWSER_LAUNCH_TIMEOUT_MS: int = 30_000
-    # R3/KTD3/KTD8: Chromium wird mit `--remote-debugging-port` gestartet,
-    # damit sich der Nutzer bei einer Captcha-Pause von der eigenen Maschine
-    # aus live (z. B. über `chrome://inspect`) verbinden kann - dieselbe
-    # Verbindung, die im Docker-Setup NUR über `127.0.0.1:<Port>:<Port>`
-    # (nicht den ungebundenen Compose-Kurzsyntax-Default) an den Host
-    # weitergereicht werden darf (siehe `docker-compose.yml`).
-    PORTAL_FILL_DEBUG_PORT: int = 9222
+    # --- Portal-Fill (Browser-Erweiterung, KTD13) ---
+    # Hoch-entropisches Shared Secret, das jede erweiterungsseitige
+    # `/portal-fill/*`-Route als Header verlangt (KTD13). Ist es beim Start
+    # nicht gesetzt, liest `_load_or_create_portal_fill_secret` es aus
+    # `PORTAL_FILL_SECRET_FILE` oder erzeugt es beim ersten Start und
+    # persistiert es - dadurch bleibt es über Neustarts stabil und muss nur
+    # EINMAL in die Options-Seite der Erweiterung kopiert werden. Der Wert
+    # steht auf dem Host in `backend/generated/portal_fill_secret` (bzw. im
+    # Container unter `/app/generated/portal_fill_secret`). Ein
+    # `PORTAL_FILL_SECRET`-Wert in `.env` hat weiterhin Vorrang.
+    PORTAL_FILL_SECRET: str = Field(default_factory=_load_or_create_portal_fill_secret)
 
     # --- Generierte/hochgeladene Dateien ---
     # Ablageort der vom Nutzer hochgeladenen Lebenslauf-Anhang-Datei (siehe

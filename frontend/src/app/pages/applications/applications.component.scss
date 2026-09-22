@@ -67,29 +67,18 @@
     font-size: 0.875rem;
   }
 
-  &__results {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 16px;
-  }
-}
-
-.application-card {
-  &__portal-fill-running,
-  &__portal-fill-banner,
-  &__portal-fill-failed {
+  &__install-hint {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 8px 12px;
+    border: 1px solid var(--app-border, rgba(0, 0, 0, 0.12));
     border-radius: 8px;
+    color: var(--app-muted-text);
     font-size: 0.875rem;
 
     mat-icon {
       flex-shrink: 0;
-      width: 18px;
-      height: 18px;
-      font-size: 18px;
     }
 
     span {
@@ -97,51 +86,10 @@
     }
   }
 
-  &__portal-fill-running {
-    color: var(--app-muted-text);
-    border: 1px solid var(--app-border, rgba(0, 0, 0, 0.12));
-  }
-
-  &__portal-fill-banner {
-    color: var(--app-on-warn, inherit);
-    border: 1px solid var(--app-warn, #ed6c02);
-    background-color: color-mix(in srgb, var(--app-warn, #ed6c02) 12%, transparent);
-    // R2/U2: der Screenshot-Block erzwingt per `flex-basis: 100%` unten einen Zeilenumbruch,
-    // statt sich neben Icon/Text/Actions in dieselbe Zeile zu quetschen.
-    flex-wrap: wrap;
-  }
-
-  &__portal-fill-banner-actions {
-    display: flex;
-    gap: 4px;
-  }
-
-  &__portal-fill-captcha-instructions {
-    display: block;
-    margin-top: 4px;
-    font-style: italic;
-  }
-
-  &__portal-fill-screenshot-wrap {
-    display: flex;
-    flex: 1 1 100%;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
-    margin: 4px 0;
-  }
-
-  &__portal-fill-screenshot {
-    width: 100%;
-    max-width: 480px;
-    border-radius: 4px;
-    border: 1px solid var(--app-border, rgba(0, 0, 0, 0.12));
-  }
-
-  &__portal-fill-failed {
-    color: var(--app-error);
-    border: 1px solid var(--app-error);
-    background-color: color-mix(in srgb, var(--app-error) 12%, transparent);
+  &__results {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
   }
 }
 

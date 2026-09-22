@@ -1,146 +1,43 @@
-"""Tests für die Portal-Auto-Fill-API (U6):
-docs/plans/2026-09-19-002-feat-portal-application-auto-fill-agent-plan.md
+"""Tests für die Fill-API der Browser-Erweiterung (U3,
+docs/plans/2026-09-22-003-feat-browser-extension-application-autofill-plan.md).
 
 Nutzt die `StaticPool` + Non-Context-Manager-`TestClient`-Fixture aus
-`tests/api/test_jobs.py` (siehe dessen Moduldoc-Hinweis: `TestClient`
-dispatched Requests auf einem Worker-Thread, `SingletonThreadPool` bricht
-dabei; `with TestClient(app):` würde zusätzlich die echte Lifespan/
-`init_db()` gegen die echte App-DB auslösen - beides hier vermieden).
-
-`sync_playwright` wird NICHT durch reine `MagicMock`-Objekte ersetzt (das
-wäre für diese DOM-lastige Pipeline - Label-Matching, `<select>`-Optionen,
-Textarea-Discovery, Submit-Button-Lookup - fragiler als der Nutzen): dieses
-Modul nutzt stattdessen einen dünnen Proxy um das ECHTE `sync_playwright()`
-(dasselbe Muster wie `test_personio.py`/`test_session.py`), der lediglich
-(a) `headless=True` erzwingt (die Produktionsroute `POST .../start` ruft
-`start_session()` ohne `headed=False` auf - ein echtes, sichtbares
-Chromium-Fenster wäre in CI nicht akzeptabel) und (b) die Formular-URL (die
-laut Endpoint-Vertrag `https://` sein MUSS, siehe KTD11) per
-`page.route()` mit einer lokalen Fixture-Seite beantwortet, statt einen
-echten Netzwerk-Request zu senden. `llm_client.generate_structured` wird
-zusätzlich gemockt (siehe `client`-Fixture), obwohl die Happy-Path-Fixture
-keine Freitext-`<textarea>` enthält - reine Absicherung gegen einen
-versehentlichen echten LLM-Aufruf.
+`tests/api/test_jobs.py` (kein Lifespan/`init_db()` gegen die echte App-DB).
+`llm_client.generate_structured` wird gemockt - kein echter Ollama-Aufruf.
 """
 from __future__ import annotations
 
-import html as html_module
-import os
-import tempfile
-import threading
-import time
-from types import SimpleNamespace
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from app import models  # noqa: F401 - registriert alle Modelle in Base.metadata
+from app import models  # noqa: F401 - registriert Modelle in Base.metadata
+from app.core.config import settings
 from app.db.database import Base, get_db
 from app.main import app
 from app.models.application import Application
 from app.models.job_offer import JobOffer
 from app.models.master_profile import MasterProfile
 from app.models.portal_submission import PortalSubmission
-from app.services.portal_agents import answering as answering_module
-from app.services.portal_agents import session as session_module
+from app.services import llm_client, portal_fill_requests
 
-APPLICATION_FORM_URL = "https://acme.example.com/apply"
-IFRAME_SRC = "https://acme-corp.jobs.personio.de/job/123"
-FORM_HTML = (
-    '<label>Name<input type="text" name="full_name" /></label>'
-    '<label>Email<input type="email" name="email" /></label>'
-    '<button type="submit">Submit Application</button>'
-)
-
-
-def _iframe_page(iframe_src: str, iframe_inner_html: str) -> str:
-    """Identischer srcdoc-Trick wie in `test_personio.py`s Moduldoc: simuliert
-    ein cross-origin Personio-iframe ohne echten HTTP-Server."""
-    escaped_inner = html_module.escape(iframe_inner_html, quote=True)
-    return f'<html><body><iframe src="{iframe_src}" srcdoc="{escaped_inner}"></iframe></body></html>'
-
-
-PAGE_HTML = _iframe_page(IFRAME_SRC, FORM_HTML)
-
-
-def _patch_playwright_with_routed_page(mocker, url: str, html_body: str) -> None:
-    """Patcht `session_module.sync_playwright` auf einen dünnen Proxy um das
-    ECHTE `sync_playwright()` - siehe Moduldoc oben für die Begründung.
-
-    `goto(url)` wird auf `page.set_content(html_body)` umgeleitet, wenn die
-    URL passt (statt sie über `page.route()`/einen echten Netzwerk-Request
-    zu beantworten): ein `page.route()`-Ansatz erwies sich in dieser
-    Sandbox als flaky (Race zwischen Routing-Setup und Chromiums eigenem
-    Versuch, die - real nicht auflösbare - Domain zu kontaktieren, je nach
-    Timing gelegentlich als `unhandled_error` statt eines geroutet
-    beantworteten Requests beobachtet). `set_content()` ist rein lokal (kein
-    Netzwerk, kein Timing-Fenster) und identisch zu `test_base.py`s/
-    `test_personio.py`s eigener Konvention (`data:`-URLs/`set_content()`
-    statt echter Requests)."""
-    from playwright.sync_api import sync_playwright as real_sync_playwright
-
-    class _StubbedGotoPage:
-        def __init__(self, page):
-            self._page = page
-
-        def goto(self, target_url, **kwargs):
-            if target_url == url:
-                return self._page.set_content(html_body)
-            return self._page.goto(target_url, **kwargs)
-
-        def __getattr__(self, name):
-            return getattr(self._page, name)
-
-    class _RoutedBrowser:
-        def __init__(self, browser):
-            self._browser = browser
-
-        def new_page(self):
-            return _StubbedGotoPage(self._browser.new_page())
-
-        def close(self):
-            self._browser.close()
-
-    class _RoutedChromium:
-        def __init__(self, chromium):
-            self._chromium = chromium
-
-        def launch(self, **kwargs):
-            kwargs["headless"] = True  # nie ein sichtbares Fenster in Tests/CI
-            return _RoutedBrowser(self._chromium.launch(**kwargs))
-
-    class _RoutedPlaywright:
-        def __init__(self, playwright):
-            self.chromium = _RoutedChromium(playwright.chromium)
-
-    class _RoutedPlaywrightCM:
-        def __enter__(self):
-            self._cm = real_sync_playwright()
-            return _RoutedPlaywright(self._cm.__enter__())
-
-        def __exit__(self, *exc_info):
-            return self._cm.__exit__(*exc_info)
-
-    mocker.patch.object(session_module, "sync_playwright", lambda: _RoutedPlaywrightCM())
+LINKEDIN_JOB_URL = "https://www.linkedin.com/jobs/view/1234567890"
+LINKEDIN_JOB_URL_TRACKED = LINKEDIN_JOB_URL + "/?trackingId=abc&refId=xyz#frag"
+SECRET = "test-portal-fill-secret"
+SECRET_HEADER = {"X-Portal-Fill-Secret": SECRET}
 
 
 @pytest.fixture
 def db_session_local():
-    # EIGENE dateibasierte SQLite-Engine statt `:memory:` + `StaticPool` (wie
-    # `test_jobs.py`) - mit voller Absicht, siehe `test_session.py`s
-    # Moduldoc: diese Tests schreiben/lesen von ECHT unterschiedlichen
-    # Threads gleichzeitig (Session-Hintergrund-Thread via `_set_state()`/
-    # `_record_submission()` UND der Testthread/Request-Handler-Thread über
-    # `get_db()`). Ein einzelnes, über `StaticPool` geteiltes `:memory:`-
-    # Connection-Objekt ist dabei NICHT threadsicher seriell nutzbar (führte
-    # hier zu einem intermittenten `database is locked`/verlorenen Commits,
-    # sichtbar als flaky 409-/submitted-Assertions) - eine echte Datei gibt
-    # jeder Session ihre eigene Connection, wie gegen eine echte Produktiv-DB.
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    engine = create_engine(f"sqlite:///{path}", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
 
     @event.listens_for(engine, "connect")
     def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
@@ -150,15 +47,11 @@ def db_session_local():
 
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
-    try:
-        yield testing_session_local
-    finally:
-        engine.dispose()
-        os.unlink(path)
+    yield testing_session_local
 
 
 @pytest.fixture
-def client(db_session_local, mocker):
+def client(db_session_local, monkeypatch):
     def _override_get_db():
         db = db_session_local()
         try:
@@ -166,39 +59,32 @@ def client(db_session_local, mocker):
         finally:
             db.close()
 
+    monkeypatch.setattr(settings, "PORTAL_FILL_SECRET", SECRET)
+    portal_fill_requests.clear()
     app.dependency_overrides[get_db] = _override_get_db
-    # `session._set_state()`/personio.pys neue Helfer (`_load_answering_
-    # context`/`_record_submission`) schreiben über `session_module.
-    # SessionLocal()` - dieselbe Test-Engine wie die `get_db`-Overrides oben,
-    # sonst würden Hintergrund-Thread-Schreibvorgänge in einer anderen
-    # (echten App-)DB landen.
-    mocker.patch.object(session_module, "SessionLocal", db_session_local)
-    mocker.patch.object(
-        answering_module.llm_client,
-        "generate_structured",
-        return_value=SimpleNamespace(answer="Mocked LLM answer."),
-    )
-    session_module._active_sessions.clear()
     try:
-        yield TestClient(app)
+        yield TestClient(app, base_url="http://localhost")
     finally:
         app.dependency_overrides.clear()
-        session_module._active_sessions.clear()
+        portal_fill_requests.clear()
 
 
-def _seed_job_offer_and_application(db_session_local) -> int:
+def _seed(db_session_local, *, source_platform: str = "linkedin") -> int:
     db = db_session_local()
     try:
         job_offer = JobOffer(
             title="Backend Engineer",
             company="Acme GmbH",
-            source_url="https://example.com/jobs/1",
-            source_platform="personio",
+            location="Berlin",
+            source_url=LINKEDIN_JOB_URL,
+            description_text="Wir suchen einen Backend Engineer.",
+            source_platform=source_platform,
         )
         db.add(job_offer)
         db.flush()
-        application = Application(job_offer_id=job_offer.id)
+        application = Application(job_offer_id=job_offer.id, cover_letter_text="Sehr geehrte Damen und Herren,")
         db.add(application)
+        db.add(MasterProfile(full_name="Max Mustermann", email="max@example.com", phone="+49 30 1234"))
         db.commit()
         db.refresh(application)
         return application.id
@@ -206,375 +92,385 @@ def _seed_job_offer_and_application(db_session_local) -> int:
         db.close()
 
 
-def _seed_profile(db_session_local, **overrides) -> None:
-    defaults = dict(full_name="Max Mustermann", email="max@example.com")
-    defaults.update(overrides)
+def _create_fill_request(client: TestClient, application_id: int) -> str:
+    response = client.post(f"/api/applications/{application_id}/fill-request", json={})
+    assert response.status_code == 200
+    return response.json()["job_url"]
+
+
+def _count_submissions(db_session_local) -> int:
     db = db_session_local()
     try:
-        db.add(MasterProfile(**defaults))
+        return db.query(PortalSubmission).count()
+    finally:
+        db.close()
+
+
+# --- Happy path + AE3 ------------------------------------------------------
+
+
+def test_fill_request_and_context_return_packet_once(client, db_session_local):
+    application_id = _seed(db_session_local)
+
+    job_url = _create_fill_request(client, application_id)
+    assert job_url == LINKEDIN_JOB_URL
+
+    context = client.get(
+        "/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL_TRACKED}, headers=SECRET_HEADER
+    )
+    assert context.status_code == 200
+    packet = context.json()
+    assert packet["application_id"] == application_id
+    assert packet["job_title"] == "Backend Engineer"
+    assert packet["company"] == "Acme GmbH"
+    assert packet["job_description"] == "Wir suchen einen Backend Engineer."
+    assert packet["cover_letter_text"] == "Sehr geehrte Damen und Herren,"
+    assert packet["profile"]["full_name"] == "Max Mustermann"
+    assert packet["profile"]["email"] == "max@example.com"
+
+    # Single-use: ein zweiter Kontext-Abruf findet nichts mehr (AE3).
+    second = client.get("/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER)
+    assert second.status_code == 404
+
+
+def test_context_without_matching_request_returns_404(client, db_session_local):
+    _seed(db_session_local)
+
+    response = client.get(
+        "/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER
+    )
+
+    assert response.status_code == 404
+    assert "detail" in response.json()
+
+
+def test_context_validation_error_does_not_consume_the_request(client, db_session_local):
+    # P3: ein Validierungsfehler (hier: kein Profil) darf den einmaligen
+    # Request nicht verbrauchen - sonst müsste der Nutzer den Fill neu starten,
+    # nur um denselben Fehler erneut zu sehen.
+    application_id = _seed(db_session_local)
+    _create_fill_request(client, application_id)
+
+    db = db_session_local()
+    try:
+        db.query(MasterProfile).delete()
         db.commit()
     finally:
         db.close()
 
+    first = client.get(
+        "/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER
+    )
+    assert first.status_code == 422
 
-def _read_application(db_session_local, application_id: int) -> Application:
     db = db_session_local()
     try:
-        return db.get(Application, application_id)
+        db.add(MasterProfile(full_name="Max Mustermann", email="max@example.com", phone="+49 30 1234"))
+        db.commit()
     finally:
         db.close()
 
+    # Derselbe Request ist noch offen und liefert jetzt das Paket.
+    second = client.get(
+        "/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER
+    )
+    assert second.status_code == 200
 
-def _read_portal_submission(db_session_local, application_id: int) -> PortalSubmission | None:
-    db = db_session_local()
-    try:
-        return (
-            db.query(PortalSubmission)
-            .filter(PortalSubmission.application_id == application_id)
-            .first()
+
+def test_fill_request_unknown_application_returns_404(client, db_session_local):
+    response = client.post("/api/applications/999999/fill-request", json={})
+
+    assert response.status_code == 404
+
+
+# --- AE7: no duplicate request --------------------------------------------
+
+
+def test_second_fill_request_does_not_create_a_duplicate(client, db_session_local):
+    application_id = _seed(db_session_local)
+
+    first = client.post(f"/api/applications/{application_id}/fill-request", json={})
+    second = client.post(f"/api/applications/{application_id}/fill-request", json={})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["job_url"] == second.json()["job_url"]
+    with portal_fill_requests._requests_lock:
+        assert len(portal_fill_requests._requests) == 1
+
+
+# --- R2: non-LinkedIn rejected --------------------------------------------
+
+
+def test_fill_request_rejects_non_linkedin_application(client, db_session_local):
+    application_id = _seed(db_session_local, source_platform="arbeitsagentur")
+
+    response = client.post(f"/api/applications/{application_id}/fill-request", json={})
+
+    assert response.status_code == 422
+    assert portal_fill_requests.get_active(application_id) is None
+
+
+# --- Expired request -------------------------------------------------------
+
+
+def test_expired_request_returns_404(client, db_session_local):
+    application_id = _seed(db_session_local)
+    _create_fill_request(client, application_id)
+
+    with portal_fill_requests._requests_lock:
+        portal_fill_requests._requests[application_id].expires_at = (
+            datetime.now(timezone.utc) - timedelta(seconds=1)
         )
+
+    response = client.get(
+        "/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER
+    )
+
+    assert response.status_code == 404
+
+
+# --- Answer endpoint -------------------------------------------------------
+
+
+def test_answer_returns_mocked_llm_result(client, db_session_local, monkeypatch):
+    application_id = _seed(db_session_local)
+    monkeypatch.setattr(
+        llm_client,
+        "generate_structured",
+        lambda model_cls, messages, **kwargs: model_cls(answer="Weil ich Sie kenne.", insufficient_information=False),
+    )
+
+    response = client.post(
+        "/api/portal-fill/answer",
+        json={"application_id": application_id, "question": "Warum möchten Sie bei uns arbeiten?"},
+        headers=SECRET_HEADER,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"answer": "Weil ich Sie kenne.", "insufficient_information": False}
+
+
+def test_answer_maps_llm_failure_to_502(client, db_session_local, monkeypatch):
+    application_id = _seed(db_session_local)
+
+    def _raise(*args, **kwargs):
+        raise llm_client.LlmUnavailableError("Ollama ist nicht erreichbar.")
+
+    monkeypatch.setattr(llm_client, "generate_structured", _raise)
+
+    response = client.post(
+        "/api/portal-fill/answer",
+        json={"application_id": application_id, "question": "Warum?"},
+        headers=SECRET_HEADER,
+    )
+
+    assert response.status_code == 502
+    assert "Ollama" in response.json()["detail"]
+
+
+# --- Submission: happy path + summary -------------------------------------
+
+
+def test_submission_writes_row_and_exposes_summary(client, db_session_local):
+    application_id = _seed(db_session_local)
+    _create_fill_request(client, application_id)
+    client.get("/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER)
+
+    response = client.post(
+        "/api/portal-fill/submission",
+        json={
+            "report_id": "report-1",
+            "job_offer_id": _job_offer_id(db_session_local, application_id),
+            "portal_url": LINKEDIN_JOB_URL,
+        },
+        headers=SECRET_HEADER,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["application_id"] == application_id
+    assert body["company"] == "Acme GmbH"
+    assert body["job_title"] == "Backend Engineer"
+    assert body["platform"] == "linkedin"
+    assert body["portal_url"] == LINKEDIN_JOB_URL
+    assert body["submitted_at"] is not None
+
+    application = client.get(f"/api/applications/{application_id}").json()
+    assert application["submission"] is not None
+    assert application["submission"]["platform"] == "linkedin"
+    assert application["submission"]["portal_url"] == LINKEDIN_JOB_URL
+    assert _count_submissions(db_session_local) == 1
+
+
+def test_duplicate_report_id_returns_existing_row(client, db_session_local):
+    application_id = _seed(db_session_local)
+    _create_fill_request(client, application_id)
+    client.get("/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER)
+    job_offer_id = _job_offer_id(db_session_local, application_id)
+    payload = {"report_id": "report-dup", "job_offer_id": job_offer_id, "portal_url": LINKEDIN_JOB_URL}
+
+    first = client.post("/api/portal-fill/submission", json=payload, headers=SECRET_HEADER)
+    second = client.post("/api/portal-fill/submission", json=payload, headers=SECRET_HEADER)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["submitted_at"] == second.json()["submitted_at"]
+    assert _count_submissions(db_session_local) == 1
+
+
+def test_submission_after_application_deleted_is_accepted(client, db_session_local):
+    application_id = _seed(db_session_local)
+    _create_fill_request(client, application_id)
+    client.get("/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER)
+    job_offer_id = _job_offer_id(db_session_local, application_id)
+
+    db = db_session_local()
+    try:
+        db.query(Application).filter(Application.id == application_id).delete()
+        db.commit()
     finally:
         db.close()
 
-
-def _wait_for_state(db_session_local, application_id: int, state: str, timeout: float = 10.0) -> Application:
-    deadline = time.monotonic() + timeout
-    application = _read_application(db_session_local, application_id)
-    while application.automation_state != state and time.monotonic() < deadline:
-        time.sleep(0.02)
-        application = _read_application(db_session_local, application_id)
-    return application
-
-
-# --- Happy path: start -> running -> paused/pre_submit_confirmation -> ------
-# --- continue -> submitted, PortalSubmission-Zeile + Application-Relation --
-
-
-def test_happy_path_start_status_continue_to_submitted(client, db_session_local, mocker):
-    application_id = _seed_job_offer_and_application(db_session_local)
-    _seed_profile(db_session_local)
-    _patch_playwright_with_routed_page(mocker, APPLICATION_FORM_URL, PAGE_HTML)
-
-    start_resp = client.post(
-        f"/api/applications/{application_id}/portal-fill/start",
-        json={"application_form_url": APPLICATION_FORM_URL},
-    )
-    assert start_resp.status_code == 200
-    assert start_resp.json()["automation_state"] == "running"
-
-    application = _wait_for_state(db_session_local, application_id, "paused")
-    assert application.automation_state == "paused"
-    assert application.action_needed_reason == "pre_submit_confirmation"
-
-    status_resp = client.get(f"/api/applications/{application_id}/portal-fill/status")
-    assert status_resp.status_code == 200
-    assert status_resp.json() == {
-        "automation_state": "paused",
-        "action_needed_reason": "pre_submit_confirmation",
-        "action_needed_detail": None,
-        "failure_class": None,
-    }
-
-    continue_resp = client.post(f"/api/applications/{application_id}/portal-fill/continue")
-    assert continue_resp.status_code == 200
-
-    application = _wait_for_state(db_session_local, application_id, "submitted")
-    assert application.automation_state == "submitted"
-    assert application.action_needed_reason is None
-
-    # Integration: das bestehende `GET /applications/{id}` spiegelt den neuen
-    # Status wider, und die `PortalSubmission`-Zeile ist über die Relation
-    # sichtbar (Snapshot-Felder aus dem `JobOffer`).
-    get_resp = client.get(f"/api/applications/{application_id}")
-    assert get_resp.status_code == 200
-    assert get_resp.json()["automation_state"] == "submitted"
-
-    submission = _read_portal_submission(db_session_local, application_id)
-    assert submission is not None
-    assert submission.application_id == application_id
-    assert submission.platform == "personio"
-    assert submission.company == "Acme GmbH"
-    assert submission.job_title == "Backend Engineer"
-    assert submission.portal_url == APPLICATION_FORM_URL
-
-
-# --- Edge case: zweiter Start während eine Sitzung aktiv ist -> 409 --------
-
-
-def test_second_start_while_active_returns_409(client, db_session_local, mocker):
-    """Deckt ausschließlich die 409-Dedup-Logik ab (`_generating_lock`-Muster
-    aus `send_application`), NICHT die volle Fill-Pipeline - der `run_fn` wird
-    hier durch einen simplen, sofort pausierenden Stand-in ersetzt (kein
-    `page.goto`/Feld-Matching o. ä.), damit dieser Test nicht von echtem
-    DOM-/Browser-Timing abhängt (das würde einen zweiten, gleichzeitig
-    laufenden echten Chromium-Prozess nur unnötig fragil machen - die reale
-    Fill-Pipeline deckt bereits `test_happy_path_...` end-to-end ab)."""
-    application_id = _seed_job_offer_and_application(db_session_local)
-    _seed_profile(db_session_local)
-    # Der `goto`-Stub aus `_patch_playwright_with_routed_page` wird vom
-    # Stand-in-`run_fn` unten nie ausgelöst (er fasst `session.page` gar
-    # nicht an) - wiederverwendet wird hier nur dessen `headless=True`-
-    # Erzwingung, statt sie ein zweites Mal zu implementieren.
-    _patch_playwright_with_routed_page(mocker, APPLICATION_FORM_URL, PAGE_HTML)
-    mocker.patch(
-        "app.api.portal_fill.personio_module.build_personio_run_fn",
-        return_value=lambda session: session.pause("captcha"),
+    response = client.post(
+        "/api/portal-fill/submission",
+        json={"report_id": "report-orphan", "job_offer_id": job_offer_id, "portal_url": LINKEDIN_JOB_URL},
+        headers=SECRET_HEADER,
     )
 
-    first_resp = client.post(
-        f"/api/applications/{application_id}/portal-fill/start",
-        json={"application_form_url": APPLICATION_FORM_URL},
-    )
-    assert first_resp.status_code == 200
-
-    # Erst auf den stabilen (weiterhin registrierten) `paused`-Zustand
-    # warten, statt die zweite Anfrage direkt im Anschluss an `first_resp` zu
-    # feuern - macht den Test unabhängig vom exakten Timing zwischen
-    # "running" (Rückgabe von `first_resp`) und dem sofortigen `pause()` des
-    # Stand-in-`run_fn`.
-    application = _wait_for_state(db_session_local, application_id, "paused")
-    assert application.automation_state == "paused"
-
-    second_resp = client.post(
-        f"/api/applications/{application_id}/portal-fill/start",
-        json={"application_form_url": APPLICATION_FORM_URL},
-    )
-    assert second_resp.status_code == 409
-
-    # Aufräumen: die erste Sitzung bis zum Abschluss laufen lassen, damit kein
-    # Chromium-Prozess/Hintergrund-Thread über das Testende hinaus lebt.
-    session = session_module._active_sessions.get(application_id)
-    if session is not None:
-        session.request_cancel()
-        session.resume()
-        session.thread.join(timeout=5)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["application_id"] is None
+    assert body["company"] == "Acme GmbH"
+    assert body["job_title"] == "Backend Engineer"
 
 
-# --- Edge case: http:// (nicht-https) wird VOR jedem Session-Start abgelehnt
+def test_submission_rejects_a_mismatched_linkedin_url(client, db_session_local):
+    application_id = _seed(db_session_local)
+    _create_fill_request(client, application_id)
+    client.get("/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER)
+    job_offer_id = _job_offer_id(db_session_local, application_id)
 
-
-def test_start_with_non_https_url_is_rejected_before_any_session(client, db_session_local):
-    application_id = _seed_job_offer_and_application(db_session_local)
-    _seed_profile(db_session_local)
-
-    resp = client.post(
-        f"/api/applications/{application_id}/portal-fill/start",
-        json={"application_form_url": "http://acme.example.com/apply"},
+    response = client.post(
+        "/api/portal-fill/submission",
+        json={
+            "report_id": "report-mismatch",
+            "job_offer_id": job_offer_id,
+            "portal_url": "https://www.linkedin.com/jobs/view/9999999999",
+        },
+        headers=SECRET_HEADER,
     )
 
-    assert resp.status_code == 422
-    assert application_id not in session_module._active_sessions
-    application = _read_application(db_session_local, application_id)
-    assert application.automation_state is None
+    assert response.status_code == 422
 
 
-# --- Error path: continue/cancel ohne aktive Sitzung -> 404 -----------------
+def test_submission_requires_a_consumed_fill_request(client, db_session_local):
+    # P3: ohne vorausgegangenen, konsumierten Fill-Request wird kein Report
+    # akzeptiert.
+    application_id = _seed(db_session_local)
+    job_offer_id = _job_offer_id(db_session_local, application_id)
 
-
-def test_continue_without_active_session_returns_404(client, db_session_local):
-    application_id = _seed_job_offer_and_application(db_session_local)
-
-    resp = client.post(f"/api/applications/{application_id}/portal-fill/continue")
-
-    assert resp.status_code == 404
-
-
-def test_cancel_via_http_endpoint_unblocks_a_paused_session_and_marks_failed(
-    client, db_session_local, mocker
-):
-    """P1-Regression (correctness-/security-adjacent-/adversarial-reviewer,
-    alle drei unabhängig gefunden): `cancel_portal_fill()` rief bisher nur
-    `request_cancel()` auf - der besitzende Thread bemerkt das aber erst NACH
-    dem Aufwachen aus `pause()`s `wait()`, das ohne `resume()` bis zu
-    `PAUSE_TIMEOUT_SECONDS` (aktuell 1h) blockiert. `shutdown_all_sessions()`
-    paart `request_cancel()` deshalb schon immer mit `resume()` - dieser Test
-    beweist über den ECHTEN HTTP-Endpunkt (nicht durch direkten Aufruf von
-    `session.request_cancel()`/`session.resume()`), dass der Cancel-Handler
-    denselben Effekt hat."""
-    application_id = _seed_job_offer_and_application(db_session_local)
-    _seed_profile(db_session_local)
-    _patch_playwright_with_routed_page(mocker, APPLICATION_FORM_URL, PAGE_HTML)
-    mocker.patch(
-        "app.api.portal_fill.personio_module.build_personio_run_fn",
-        return_value=lambda session: session.pause("captcha"),
+    response = client.post(
+        "/api/portal-fill/submission",
+        json={"report_id": "report-no-request", "job_offer_id": job_offer_id, "portal_url": LINKEDIN_JOB_URL},
+        headers=SECRET_HEADER,
     )
 
-    start_resp = client.post(
-        f"/api/applications/{application_id}/portal-fill/start",
-        json={"application_form_url": APPLICATION_FORM_URL},
-    )
-    assert start_resp.status_code == 200
-
-    application = _wait_for_state(db_session_local, application_id, "paused")
-    assert application.automation_state == "paused"
-
-    cancel_resp = client.post(f"/api/applications/{application_id}/portal-fill/cancel")
-    assert cancel_resp.status_code == 200
-
-    # Ohne den fehlenden `resume()`-Aufruf im Handler würde der Lauf bis
-    # `PAUSE_TIMEOUT_SECONDS` bei "paused" hängen bleiben - hier muss er
-    # innerhalb einer kurzen, begrenzten Wartezeit tatsächlich "failed"
-    # erreichen.
-    application = _wait_for_state(db_session_local, application_id, "failed", timeout=5.0)
-    assert application.automation_state == "failed"
-    assert application.action_needed_reason == "cancelled_by_user"
+    assert response.status_code == 422
+    assert _count_submissions(db_session_local) == 0
 
 
-def test_cancel_without_active_session_returns_404(client, db_session_local):
-    application_id = _seed_job_offer_and_application(db_session_local)
+def test_submission_accepts_an_external_portal_url_for_the_consumed_request(client, db_session_local):
+    # R4-Fallback: die gemeldete URL ist die externe Arbeitgeber-Seite und
+    # normalisiert zu None; sie wird akzeptiert, weil ein konsumierter Request
+    # existiert.
+    application_id = _seed(db_session_local)
+    _create_fill_request(client, application_id)
+    client.get("/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER)
+    job_offer_id = _job_offer_id(db_session_local, application_id)
 
-    resp = client.post(f"/api/applications/{application_id}/portal-fill/cancel")
-
-    assert resp.status_code == 404
-
-
-def test_status_for_missing_application_returns_404(client):
-    resp = client.get("/api/applications/999999/portal-fill/status")
-
-    assert resp.status_code == 404
-
-
-# --- U2/R2: Pause-Screenshot -------------------------------------------------
-
-
-def test_screenshot_available_during_pause_returns_png(client, db_session_local, mocker):
-    application_id = _seed_job_offer_and_application(db_session_local)
-    _seed_profile(db_session_local)
-    _patch_playwright_with_routed_page(mocker, APPLICATION_FORM_URL, PAGE_HTML)
-
-    start_resp = client.post(
-        f"/api/applications/{application_id}/portal-fill/start",
-        json={"application_form_url": APPLICATION_FORM_URL},
-    )
-    assert start_resp.status_code == 200
-    _wait_for_state(db_session_local, application_id, "paused")
-
-    resp = client.get(f"/api/applications/{application_id}/portal-fill/screenshot")
-
-    assert resp.status_code == 200
-    assert resp.headers["content-type"] == "image/png"
-    assert resp.content.startswith(b"\x89PNG")
-
-    # Aufräumen: den Lauf zu Ende bringen, statt einen hängenden Chromium-
-    # Prozess über das Testende hinaus leben zu lassen.
-    continue_resp = client.post(f"/api/applications/{application_id}/portal-fill/continue")
-    assert continue_resp.status_code == 200
-    _wait_for_state(db_session_local, application_id, "submitted")
-
-
-def test_screenshot_without_active_session_returns_404(client, db_session_local):
-    application_id = _seed_job_offer_and_application(db_session_local)
-
-    resp = client.get(f"/api/applications/{application_id}/portal-fill/screenshot")
-
-    assert resp.status_code == 404
-
-
-def test_screenshot_before_any_pause_returns_404(client, db_session_local, mocker):
-    application_id = _seed_job_offer_and_application(db_session_local)
-    _seed_profile(db_session_local)
-    _patch_playwright_with_routed_page(mocker, APPLICATION_FORM_URL, PAGE_HTML)
-    release = threading.Event()
-
-    def _stand_in_run_fn(session) -> None:
-        release.wait(timeout=5)
-        session.pause("captcha")
-
-    mocker.patch(
-        "app.api.portal_fill.personio_module.build_personio_run_fn",
-        return_value=_stand_in_run_fn,
+    response = client.post(
+        "/api/portal-fill/submission",
+        json={
+            "report_id": "report-external",
+            "job_offer_id": job_offer_id,
+            "portal_url": "https://jobs.example.com/apply/42",
+        },
+        headers=SECRET_HEADER,
     )
 
-    start_resp = client.post(
-        f"/api/applications/{application_id}/portal-fill/start",
-        json={"application_form_url": APPLICATION_FORM_URL},
+    assert response.status_code == 200
+    assert response.json()["portal_url"] == "https://jobs.example.com/apply/42"
+
+
+# --- Security boundary -----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "json_body"),
+    [
+        ("get", "/api/portal-fill/context", None),
+        ("post", "/api/portal-fill/answer", {"application_id": 1, "question": "Warum?"}),
+        ("post", "/api/portal-fill/submission", {"report_id": "r", "job_offer_id": 1, "portal_url": LINKEDIN_JOB_URL}),
+    ],
+)
+def test_secret_gated_routes_reject_missing_secret(client, method, path, json_body):
+    if method == "get":
+        response = client.get(path, params={"url": LINKEDIN_JOB_URL})
+    else:
+        response = client.post(path, json=json_body)
+
+    assert response.status_code == 401
+
+
+def test_secret_gated_route_rejects_wrong_secret(client):
+    response = client.get(
+        "/api/portal-fill/context",
+        params={"url": LINKEDIN_JOB_URL},
+        headers={"X-Portal-Fill-Secret": "wrong"},
     )
-    assert start_resp.status_code == 200
 
-    resp = client.get(f"/api/applications/{application_id}/portal-fill/screenshot")
-    assert resp.status_code == 404
-
-    # Aufräumen: den Stand-in-Lauf freigeben und sauber beenden.
-    release.set()
-    session = session_module._active_sessions.get(application_id)
-    if session is not None:
-        session.request_cancel()
-        session.resume()
-        session.thread.join(timeout=5)
+    assert response.status_code == 401
 
 
-# --- U3: failure_class nur für einen echten Fehlerlauf ----------------------
+# --- Multi-worker startup guard -------------------------------------------
 
 
-def _set_automation_state(
-    db_session_local, application_id: int, *, state: str, reason: str | None = None
-) -> None:
+def test_multi_worker_configuration_fails_loudly(monkeypatch):
+    monkeypatch.setenv("WEB_CONCURRENCY", "2")
+
+    with pytest.raises(portal_fill_requests.MultiWorkerConfigurationError):
+        portal_fill_requests.assert_single_worker()
+
+
+def test_single_worker_configuration_is_accepted(monkeypatch):
+    monkeypatch.delenv("WEB_CONCURRENCY", raising=False)
+    monkeypatch.delenv("UVICORN_WORKERS", raising=False)
+    monkeypatch.delenv("GUNICORN_WORKERS", raising=False)
+
+    portal_fill_requests.assert_single_worker()  # darf nicht werfen
+
+
+# --- URL normalization -----------------------------------------------------
+
+
+def test_normalize_linkedin_job_url_strips_tracking_params():
+    assert (
+        portal_fill_requests.normalize_linkedin_job_url(LINKEDIN_JOB_URL_TRACKED)
+        == LINKEDIN_JOB_URL
+    )
+    assert (
+        portal_fill_requests.normalize_linkedin_job_url("https://de.linkedin.com/jobs/view/42")
+        == "https://www.linkedin.com/jobs/view/42"
+    )
+    assert portal_fill_requests.normalize_linkedin_job_url("https://example.com/jobs/view/42") is None
+    assert portal_fill_requests.normalize_linkedin_job_url("https://www.linkedin.com/feed/") is None
+
+
+def _job_offer_id(db_session_local, application_id: int) -> int:
     db = db_session_local()
     try:
         application = db.get(Application, application_id)
-        application.automation_state = state
-        application.action_needed_reason = reason
-        db.commit()
+        return application.job_offer_id
     finally:
         db.close()
-
-
-def test_status_reports_retryable_failure_class_for_failed_run(client, db_session_local):
-    application_id = _seed_job_offer_and_application(db_session_local)
-    _set_automation_state(db_session_local, application_id, state="failed", reason="timeout")
-
-    resp = client.get(f"/api/applications/{application_id}/portal-fill/status")
-
-    assert resp.status_code == 200
-    assert resp.json()["automation_state"] == "failed"
-    assert resp.json()["failure_class"] == "retryable"
-
-
-def test_status_reports_terminal_failure_class_for_untrusted_host(client, db_session_local):
-    application_id = _seed_job_offer_and_application(db_session_local)
-    _set_automation_state(
-        db_session_local, application_id, state="failed", reason="iframe_untrusted_host"
-    )
-
-    resp = client.get(f"/api/applications/{application_id}/portal-fill/status")
-
-    assert resp.json()["failure_class"] == "terminal"
-
-
-@pytest.mark.parametrize("state", ["running", "paused", "submitted"])
-def test_status_has_no_failure_class_for_non_failed_states(client, db_session_local, state):
-    application_id = _seed_job_offer_and_application(db_session_local)
-    _set_automation_state(db_session_local, application_id, state=state, reason="captcha")
-
-    resp = client.get(f"/api/applications/{application_id}/portal-fill/status")
-
-    assert resp.status_code == 200
-    assert resp.json()["failure_class"] is None
-
-
-# --- U4: Dry-Run über die API ----------------------------------------------
-
-
-def test_dry_run_start_pauses_and_resume_submits(client, db_session_local, mocker):
-    """R11/KTD4: `dry_run: true` pausiert vor dem Submit; der Resume sendet
-    wirklich und protokolliert die Submission."""
-    application_id = _seed_job_offer_and_application(db_session_local)
-    _seed_profile(db_session_local)
-    _patch_playwright_with_routed_page(mocker, APPLICATION_FORM_URL, PAGE_HTML)
-
-    start_resp = client.post(
-        f"/api/applications/{application_id}/portal-fill/start",
-        json={"application_form_url": APPLICATION_FORM_URL, "dry_run": True},
-    )
-    assert start_resp.status_code == 200
-
-    application = _wait_for_state(db_session_local, application_id, "paused")
-    assert application.action_needed_reason == "dry_run"
-    assert _read_portal_submission(db_session_local, application_id) is None
-
-    continue_resp = client.post(f"/api/applications/{application_id}/portal-fill/continue")
-    assert continue_resp.status_code == 200
-
-    application = _wait_for_state(db_session_local, application_id, "submitted")
-    assert application.automation_state == "submitted"
-    assert _read_portal_submission(db_session_local, application_id) is not None

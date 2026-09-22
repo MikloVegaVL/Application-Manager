@@ -1,42 +1,122 @@
-"""Pydantic-Schemas für den Portal-Auto-Fill-Agenten (U5: Freitext-Antworten;
-U6: Start/Status-Request-/Response-Schemas für `app.api.portal_fill`).
+"""Pydantic-Schemas für die Fill-API der Browser-Erweiterung (U3,
+docs/plans/2026-09-22-003-feat-browser-extension-application-autofill-plan.md).
 
-Siehe `app.services.portal_agents.answering`.
+Trennt die app-aufgerufene Fill-Request-Route von den secret-gated
+`/portal-fill/*`-Routen der Erweiterung. Das Fill-Paket (`PortalFillContext`)
+enthält ausschließlich, was die Erweiterung zum Ausfüllen braucht (KTD2,
+Annahmen) - keine Zugangsdaten.
 """
-from pydantic import BaseModel
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.master_profile import (
+    EducationEntry,
+    ExperienceEntry,
+    LanguageEntry,
+    ProjectEntry,
+    SkillEntry,
+)
 
 
-class PortalAnswerResult(BaseModel):
-    """Rohes Ergebnis des LLM-Aufrufs für EINE Freitext-Frage eines
-    Portal-Formulars (siehe `_SYSTEM_PROMPT` in `portal_agents/answering.py`).
+class PortalFillProfile(BaseModel):
+    """Die Standard-Profilfelder, die die Erweiterung direkt füllen kann
+    (R6) - inkl. der strukturierten Listen, damit auch Fragen zu Werdegang
+    und Ausbildung lokal beantwortet werden können."""
 
-    `insufficient_information` (KTD6): das LLM setzt es auf `True`, wenn die
-    Frage nicht allein aus dem Profil beantwortet werden kann (z. B. eine
-    übersehene Screening-Frage). Ein solcher Lauf pausiert statt eine
-    erfundene Antwort zu füllen."""
+    full_name: str
+    email: str
+    phone: str | None = None
+    address: str | None = None
+    linkedin: str | None = None
+    website: str | None = None
+    summary: str | None = None
+    berufsbezeichnung: str | None = None
+    experiences: list[ExperienceEntry] = Field(default_factory=list)
+    education: list[EducationEntry] = Field(default_factory=list)
+    skills: list[SkillEntry] = Field(default_factory=list)
+    languages: list[LanguageEntry] = Field(default_factory=list)
+    projects: list[ProjectEntry] = Field(default_factory=list)
+
+
+class PortalFillDocument(BaseModel):
+    """Ein hochladbares Dokument (Lebenslauf oder zusätzlicher Anhang, R8) -
+    die Erweiterung lädt die Bytes über `download_url` vom App-Origin."""
+
+    kind: Literal["cv", "attachment"]
+    id: int | None = None
+    filename: str
+    download_url: str
+
+
+class PortalFillContext(BaseModel):
+    """Das Fill-Paket, das `GET /portal-fill/context` zurückgibt."""
+
+    application_id: int
+    job_offer_id: int
+    job_title: str
+    company: str
+    job_url: str
+    job_description: str | None = None
+    cover_letter_text: str | None = None
+    profile: PortalFillProfile
+    documents: list[PortalFillDocument] = Field(default_factory=list)
+
+
+class PortalFillRequestCreate(BaseModel):
+    """JSON-Body für `POST /applications/{id}/fill-request`.
+
+    Absichtlich leer: der Body existiert nur, damit der Request kein
+    CORS-Simple-Request ist (KTD13) - die App liest alle nötigen Daten aus
+    der Application/dem JobOffer."""
+
+
+class PortalFillRequestResponse(BaseModel):
+    """Antwort von `POST /applications/{id}/fill-request` - die Job-URL, die
+    die App in einem neuen Tab öffnet (R1)."""
+
+    job_url: str
+
+
+class PortalFillAnswerRequest(BaseModel):
+    """Payload für `POST /portal-fill/answer` (R7)."""
+
+    application_id: int
+    question: str = Field(..., min_length=1, max_length=2000)
+
+
+class PortalFillAnswerResponse(BaseModel):
+    """Ergebnis eines LLM-Antwortaufrufs (KTD7). `insufficient_information`
+    signalisiert der Erweiterung, das Feld sichtbar zu markieren (R10),
+    statt eine erfundene Antwort zu füllen."""
 
     answer: str
     insufficient_information: bool = False
 
 
-class PortalFillStartRequest(BaseModel):
-    """Payload für `POST /api/applications/{id}/portal-fill/start`."""
+class PortalFillSubmissionRequest(BaseModel):
+    """Payload für `POST /portal-fill/submission` (R11/KTD3).
 
-    application_form_url: str
-    # KTD4: füllt das Formular, pausiert aber VOR dem Submit - ein
-    # Validierungslauf, der erst nach explizitem Resume wirklich sendet.
-    dry_run: bool = False
+    `company`/`job_title`/`platform`/`submitted_at` werden bewusst NICHT
+    akzeptiert - sie leitet der Server aus dem `JobOffer` ab bzw. stempelt
+    sie selbst. `portal_url` ist die tatsächlich abgesendete Formular-URL
+    (LinkedIn-Job oder externe Arbeitgeber-Seite)."""
+
+    report_id: str = Field(..., min_length=1, max_length=128)
+    job_offer_id: int
+    portal_url: str = Field(..., min_length=1, max_length=2048)
 
 
-class PortalFillStatusResponse(BaseModel):
-    """Antwortmodell für `GET /api/applications/{id}/portal-fill/status` -
-    direkt aus den `Application`-Spalten (siehe `app.models.application`).
+class PortalFillSubmissionResponse(BaseModel):
+    """Die gespeicherte Submission-Zeile (idempotent, KTD3)."""
 
-    `failure_class` ist NUR gesetzt, wenn `automation_state == "failed"`
-    (KTD1/KTD5) - ein Pausen-Grund darf nie als terminaler Fehler gelesen
-    werden."""
+    model_config = ConfigDict(from_attributes=True)
 
-    automation_state: str | None = None
-    action_needed_reason: str | None = None
-    action_needed_detail: str | None = None
-    failure_class: str | None = None
+    report_id: str | None = None
+    application_id: int | None = None
+    company: str | None = None
+    job_title: str | None = None
+    platform: str | None = None
+    portal_url: str
+    submitted_at: datetime

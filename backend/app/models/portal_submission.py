@@ -36,6 +36,17 @@ class PortalSubmission(Base):
         index=True,
     )
 
+    # Vom Client erzeugter Idempotenz-Schlüssel (KTD3): ein wiederholter
+    # Report mit demselben `report_id` liefert die bestehende Zeile zurück,
+    # statt eine zweite anzulegen. Nullable, da ältere Zeilen und nicht über
+    # einen Report entstandene Einträge ihn nicht tragen. `unique=True,
+    # index=True` erzeugt bewusst einen UNIQUE-Index (nicht eine
+    # UNIQUE-Constraint) - der lässt sich in SQLite per `CREATE UNIQUE INDEX`
+    # auf eine bestehende Tabelle legen (siehe Migration `d1a2b3c4e5f6`).
+    report_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, unique=True, index=True
+    )
+
     # Snapshot statt Live-Join - bleibt auch nach Löschung der Application
     # lesbar (siehe Docstring oben).
     company: Mapped[str | None] = mapped_column(String(255), nullable=True)

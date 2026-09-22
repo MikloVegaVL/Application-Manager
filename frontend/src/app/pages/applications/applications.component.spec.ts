@@ -1,30 +1,20 @@
-import { ComponentFixture, TestBed, fakeAsync, flush, tick } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Router, provideRouter } from '@angular/router';
 import { MatDialogRef } from '@angular/material/dialog';
+import { MatSnackBar } from '@angular/material/snack-bar';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { of } from 'rxjs';
 import { vi } from 'vitest';
 
-import {
-  ACTION_NEEDED_COPY,
-  ApplicationsComponent,
-  FAILURE_REASON_COPY,
-  FAILURE_REASONS,
-  PAUSE_REASONS,
-} from './applications.component';
+import { ApplicationsComponent } from './applications.component';
 import { Application } from '../../core/models/application.model';
 import { JobOfferRead } from '../../core/models/job-offer.model';
-import { TabTitleService } from '../../core/services/tab-title.service';
 import {
   AddJobOfferDialogComponent,
   AddJobOfferDialogResult,
 } from './add-job-offer-dialog/add-job-offer-dialog.component';
-import {
-  StartPortalFillDialogComponent,
-  StartPortalFillDialogResult,
-} from './start-portal-fill-dialog/start-portal-fill-dialog.component';
 import {
   cleanupCompactCardOverlays,
   findCompactCardMenuItem,
@@ -48,16 +38,6 @@ function spyOnAddJobOfferDialog(
  * itself toggles open/closed, so this doubles as `openCardMenu`/`closeCardMenu`. */
 const toggleCardMenu = openCompactCardMenu;
 
-/** Same as `toggleCardMenu`, but for use inside `fakeAsync` - `await`ing a real Promise there breaks
- * the fake zone, so this flushes microtasks with `tick()` instead of `whenStable()`. */
-function toggleCardMenuInFakeAsync(fixture: ComponentFixture<unknown>): void {
-  const trigger = fixture.nativeElement.querySelector('.compact-card__menu-trigger') as HTMLButtonElement;
-  trigger.click();
-  fixture.detectChanges();
-  tick();
-  fixture.detectChanges();
-}
-
 function menuItemByText(label: string): HTMLButtonElement | undefined {
   return (findCompactCardMenuItem(label) as HTMLButtonElement | null) ?? undefined;
 }
@@ -76,6 +56,7 @@ describe('ApplicationsComponent', () => {
   let httpMock: HttpTestingController;
 
   beforeEach(async () => {
+    localStorage.clear();
     await TestBed.configureTestingModule({
       imports: [ApplicationsComponent, NoopAnimationsModule],
       providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
@@ -105,6 +86,7 @@ describe('ApplicationsComponent', () => {
     status: 'draft',
     sent_at: null,
     sent_to_email: null,
+    submission: null,
     created_at: new Date().toISOString(),
     job_offer: {
       id: 42,
@@ -133,6 +115,7 @@ describe('ApplicationsComponent', () => {
         status: 'draft',
         sent_at: null,
         sent_to_email: null,
+        submission: null,
         created_at: new Date().toISOString(),
         job_offer: {
           id: 42,
@@ -391,36 +374,6 @@ describe('ApplicationsComponent', () => {
       expect(deleteSpy).toHaveBeenCalledWith(sentApplication);
     });
 
-    it('Covers R10: routes the "Start auto-fill" menu selection to the start-portal-fill dialog, then onStartPortalFill with its result', async () => {
-      flushList([sentApplication]);
-      const fakeDialogRef = {
-        afterClosed: () => of<StartPortalFillDialogResult>({ url: 'https://portal.example/apply', dryRun: true }),
-      } as unknown as MatDialogRef<StartPortalFillDialogComponent, StartPortalFillDialogResult>;
-      const openSpy = spyOn(component['dialog'], 'open').and.returnValue(fakeDialogRef);
-      const startSpy = vi.spyOn(component, 'onStartPortalFill').mockImplementation(() => {});
-
-      await toggleCardMenu(fixture);
-      menuItemByText('Start auto-fill')!.click();
-
-      expect(openSpy).toHaveBeenCalled();
-      expect(openSpy.calls.mostRecent().args[0]).toBe(StartPortalFillDialogComponent);
-      expect(startSpy).toHaveBeenCalledWith(sentApplication, 'https://portal.example/apply', true);
-    });
-
-    it('Covers R10: does not start a run when the start-portal-fill dialog is cancelled', async () => {
-      flushList([sentApplication]);
-      const fakeDialogRef = {
-        afterClosed: () => of(undefined),
-      } as unknown as MatDialogRef<StartPortalFillDialogComponent, StartPortalFillDialogResult>;
-      spyOn(component['dialog'], 'open').and.returnValue(fakeDialogRef);
-      const startSpy = vi.spyOn(component, 'onStartPortalFill').mockImplementation(() => {});
-
-      await toggleCardMenu(fixture);
-      menuItemByText('Start auto-fill')!.click();
-
-      expect(startSpy).not.toHaveBeenCalled();
-    });
-
     it('Covers R12: shows the busy indicator while a status update is in flight, then clears it once it resolves', () => {
       flushList([sentApplication]);
 
@@ -572,542 +525,135 @@ describe('ApplicationsComponent', () => {
     }
   });
 
-  describe('portal auto-fill (U7)', () => {
-    const startUrl = `${environment.apiBaseUrl}/applications/1/portal-fill/start`;
-    const statusUrl = `${environment.apiBaseUrl}/applications/1/portal-fill/status`;
-    const continueUrl = `${environment.apiBaseUrl}/applications/1/portal-fill/continue`;
-    const cancelUrl = `${environment.apiBaseUrl}/applications/1/portal-fill/cancel`;
-
-    function expectStatusPoll() {
-      return httpMock.expectOne((request) => request.url === statusUrl && request.method === 'GET');
-    }
-
-    function startRun(): void {
-      component['onStartPortalFill'](sampleApplication, 'https://portal.example/apply');
-      const startReq = httpMock.expectOne((request) => request.url === startUrl && request.method === 'POST');
-      expect(startReq.request.body).toEqual({
-        application_form_url: 'https://portal.example/apply',
-        dry_run: false,
-      });
-      startReq.flush({ ...sampleApplication, automation_state: 'running', action_needed_reason: null });
-      fixture.detectChanges();
-    }
-
-    it('starts a run via start() and begins polling status', fakeAsync(() => {
-      flushList([sampleApplication]);
-
-      startRun();
-      expect(component['portalFillStartingId']()).toBeNull();
-
-      tick(5000);
-      const pollReq = expectStatusPoll();
-      pollReq.flush({ automation_state: 'running', action_needed_reason: null });
-      fixture.destroy(); // still `running` - stop the periodic poll so fakeAsync can settle.
-    }));
-
-    it('renders reason-specific banner copy on paused and lets Continue resume polling', fakeAsync(() => {
-      flushList([sampleApplication]);
-      startRun();
-
-      tick(5000);
-      expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
-      fixture.detectChanges();
-
-      const text = fixture.nativeElement.textContent as string;
-      expect(text).toContain('A captcha appeared');
-
-      component['onContinuePortalFill'](sampleApplication);
-      const continueReq = httpMock.expectOne(
-        (request) => request.url === continueUrl && request.method === 'POST',
-      );
-      continueReq.flush({ ...sampleApplication, automation_state: 'paused', action_needed_reason: 'captcha' });
-
-      // Polling keeps going while paused - the paused-phase poll picks the next tick up.
-      tick(5000);
-      expectStatusPoll().flush({ automation_state: 'running', action_needed_reason: null });
-      fixture.destroy(); // still `running` - stop the periodic poll so fakeAsync can settle.
-    }));
-
-    it('a failing poll tick does not stop the overall poll', fakeAsync(() => {
-      flushList([sampleApplication]);
-      startRun();
-
-      tick(5000);
-      expectStatusPoll().flush('boom', { status: 500, statusText: 'Server Error' });
-
-      // Next tick still fires - the failed tick did not terminate the poll.
-      tick(5000);
-      expectStatusPoll().flush({ automation_state: 'running', action_needed_reason: null });
-      fixture.destroy(); // still `running` - stop the periodic poll so fakeAsync can settle.
-    }));
-
-    it('the running phase stops polling after its bounded timeout', fakeAsync(() => {
-      flushList([sampleApplication]);
-      startRun();
-
-      tick(30 * 60 * 1000 + 5000);
-      httpMock.match(() => true).forEach((request) => {
-        if (!request.cancelled) {
-          request.flush({ automation_state: 'running', action_needed_reason: null });
-        }
-      });
-      flush();
-
-      httpMock.expectNone((request) => request.url === statusUrl);
-    }));
-
-    it('the paused phase keeps polling with no fixed timeout', fakeAsync(() => {
-      flushList([sampleApplication]);
-      startRun();
-
-      tick(5000);
-      expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
-
-      // Advance well beyond the running-phase timeout - the paused phase has none of its own.
-      tick(30 * 60 * 1000 + 5000);
-      httpMock.match(() => true).forEach((request) => {
-        if (!request.cancelled) {
-          request.flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
-        }
-      });
-      fixture.detectChanges();
-
-      expect(fixture.nativeElement.textContent as string).toContain('A captcha appeared');
-
-      // Still polling: one more explicit tick produces one more request.
-      tick(5000);
-      expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
-      fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
-    }));
-
-    it('Cancel calls cancelPortalFill() and clears the banner', fakeAsync(() => {
-      flushList([sampleApplication]);
-      startRun();
-
-      tick(5000);
-      expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'pre_submit_confirmation' });
-      fixture.detectChanges();
-      expect(fixture.nativeElement.textContent as string).toContain('Form is filled');
-
-      component['onCancelPortalFill'](sampleApplication);
-      const cancelReq = httpMock.expectOne(
-        (request) => request.url === cancelUrl && request.method === 'POST',
-      );
-      cancelReq.flush({
-        ...sampleApplication,
-        automation_state: 'failed',
-        action_needed_reason: 'cancelled_by_user',
-      });
-      fixture.detectChanges();
-
-      const text = fixture.nativeElement.textContent as string;
-      expect(text).not.toContain('Form is filled');
-      expect(text).toContain('Cancelled.');
-      fixture.destroy(); // the paused-phase poll is still awaiting its next tick - stop it for fakeAsync.
-    }));
-
-    it('Covers R4: replaces the status chip content with the submitted confirmation, not a banner', fakeAsync(() => {
-      flushList([sampleApplication]);
-      startRun();
-
-      tick(5000);
-      expectStatusPoll().flush({ automation_state: 'submitted', action_needed_reason: null });
-      fixture.detectChanges();
-
-      const chipsText = Array.from(fixture.nativeElement.querySelectorAll('.compact-card__chip'))
-        .map((chip) => (chip as HTMLElement).textContent)
-        .join(' ');
-      expect(chipsText).toContain('Submitted via portal on');
-      // Still capped at 2 chips (status + source) - no third chip added.
-      expect(fixture.nativeElement.querySelectorAll('.compact-card__chip').length).toBe(2);
-      expect(fixture.nativeElement.querySelector('.compact-card__inline-attention')).toBeNull();
-    }));
-
-    it('Covers R13: shows a dismissible, translated failure notice inline, and re-enables "Start auto-fill" once dismissed', fakeAsync(() => {
-      flushList([sampleApplication]);
-      startRun();
-
-      tick(5000);
-      expectStatusPoll().flush({ automation_state: 'failed', action_needed_reason: 'iframe_not_found' });
-      fixture.detectChanges();
-
-      const attention = fixture.nativeElement.querySelector('.compact-card__inline-attention') as HTMLElement;
-      expect(attention).not.toBeNull();
-      expect(attention.textContent).toContain("Couldn't find the application form on that page.");
-
-      toggleCardMenuInFakeAsync(fixture);
-      expect(isCompactCardMenuItemDisabled(menuItemByText('Start auto-fill')!)).toBe(false);
-      toggleCardMenuInFakeAsync(fixture); // close, so it doesn't interfere with the dismiss below
-
-      const dismissButton = attention.querySelector('button[aria-label="Dismiss"]') as HTMLButtonElement;
-      expect(dismissButton).not.toBeNull();
-      dismissButton.click();
-      fixture.detectChanges();
-
-      expect(fixture.nativeElement.querySelector('.compact-card__inline-attention')).toBeNull();
-    }));
-
-    it('Covers R3/R9: shows inline attention for running/action-needed states, and disables "Mark accepted"/"Mark rejected"/"Delete"/"Start auto-fill" in the menu while active', fakeAsync(() => {
-      flushList([sampleApplication]);
-      startRun();
-
-      let attention = fixture.nativeElement.querySelector('.compact-card__inline-attention') as HTMLElement;
-      expect(attention).not.toBeNull();
-      expect(attention.textContent).toContain('Auto-fill is running');
-
-      toggleCardMenuInFakeAsync(fixture); // open
-      for (const label of ['Mark accepted', 'Mark rejected', 'Delete', 'Start auto-fill']) {
-        expect(isCompactCardMenuItemDisabled(menuItemByText(label)!)).toBe(true);
-      }
-      toggleCardMenuInFakeAsync(fixture); // close, so the next open below starts from a known state
-
-      tick(5000);
-      expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
-      fixture.detectChanges();
-
-      attention = fixture.nativeElement.querySelector('.compact-card__inline-attention') as HTMLElement;
-      expect(attention).not.toBeNull();
-      expect(attention.textContent).toContain('A captcha appeared');
-
-      toggleCardMenuInFakeAsync(fixture); // open
-      for (const label of ['Mark accepted', 'Mark rejected', 'Delete', 'Start auto-fill']) {
-        expect(isCompactCardMenuItemDisabled(menuItemByText(label)!)).toBe(true);
-      }
-      toggleCardMenuInFakeAsync(fixture); // close
-
-      tick(5000);
-      expectStatusPoll().flush({ automation_state: 'submitted', action_needed_reason: null });
-      fixture.detectChanges();
-
-      expect(fixture.nativeElement.querySelector('.compact-card__inline-attention')).toBeNull();
-      toggleCardMenuInFakeAsync(fixture); // open
-      expect(isCompactCardMenuItemDisabled(menuItemByText('Delete')!)).toBe(false);
-      expect(isCompactCardMenuItemDisabled(menuItemByText('Mark accepted')!)).toBe(false);
-      expect(isCompactCardMenuItemDisabled(menuItemByText('Mark rejected')!)).toBe(false);
-    }));
-
-    it('signals TabTitleService when a poll observes a transition to paused while backgrounded', fakeAsync(() => {
-      const tabTitleService = TestBed.inject(TabTitleService);
-      const settledSpy = vi.spyOn(tabTitleService, 'markGenerationSettled');
-      vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
-
-      flushList([sampleApplication]);
-      startRun();
-      expect(settledSpy).not.toHaveBeenCalled();
-
-      tick(5000);
-      expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
-
-      expect(settledSpy).toHaveBeenCalledTimes(1);
-
-      // A further tick that is still `paused` is not a new transition - no extra call.
-      tick(5000);
-      expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
-      expect(settledSpy).toHaveBeenCalledTimes(1);
-      fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
-    }));
-
-    it('Covers R11: the dry-run checkbox sends dry_run: true on start', fakeAsync(() => {
-      flushList([sampleApplication]);
-
-      component['onStartPortalFill'](sampleApplication, 'https://portal.example/apply', true);
-      const startReq = httpMock.expectOne((request) => request.url === startUrl && request.method === 'POST');
-      expect(startReq.request.body).toEqual({
-        application_form_url: 'https://portal.example/apply',
-        dry_run: true,
-      });
-      startReq.flush({ ...sampleApplication, automation_state: 'running', action_needed_reason: null });
-      fixture.detectChanges();
-
-      tick(5000);
-      expectStatusPoll().flush({
-        automation_state: 'running',
-        action_needed_reason: null,
-        action_needed_detail: null,
-        failure_class: null,
-      });
-      fixture.destroy(); // still `running` - stop the periodic poll so fakeAsync can settle.
-    }));
-
-    it('Covers R3/KTD5: the status poll carries failure_class into a retryable failure notice', fakeAsync(() => {
-      flushList([sampleApplication]);
-      startRun();
-
-      tick(5000);
-      expectStatusPoll().flush({
-        automation_state: 'failed',
-        action_needed_reason: 'browser_launch_failed',
-        action_needed_detail: null,
-        failure_class: 'retryable',
-      });
-      fixture.detectChanges();
-
-      const text = fixture.nativeElement.textContent as string;
-      expect(text).toContain('The browser could not be launched.');
-      expect(text).toContain('This failure is retryable');
-      expect(text).toContain('re-enter the form URL below');
-    }));
-
-    it('Covers R3/KTD5: a terminal failure is labeled as not retryable', fakeAsync(() => {
-      flushList([sampleApplication]);
-      startRun();
-
-      tick(5000);
-      expectStatusPoll().flush({
-        automation_state: 'failed',
-        action_needed_reason: 'iframe_untrusted_host',
-        action_needed_detail: null,
-        failure_class: 'terminal',
-      });
-      fixture.detectChanges();
-
-      const text = fixture.nativeElement.textContent as string;
-      expect(text).toContain('hosted on an untrusted site');
-      expect(text).toContain('This failure is not retryable');
-      expect(text).not.toContain('This failure is retryable');
-    }));
-
-    it('Covers R9: the pause notice renders action_needed_detail for low_confidence_field and screening_question', fakeAsync(() => {
-      flushList([sampleApplication]);
-      startRun();
-
-      tick(5000);
-      expectStatusPoll().flush({
-        automation_state: 'paused',
-        action_needed_reason: 'low_confidence_field',
-        action_needed_detail: 'Berufserfahrung',
-        failure_class: null,
-      });
-      fixture.detectChanges();
-
-      let text = fixture.nativeElement.textContent as string;
-      expect(text).toContain('A field needs your review');
-      expect(text).toContain('Berufserfahrung');
-
-      tick(5000);
-      expectStatusPoll().flush({
-        automation_state: 'paused',
-        action_needed_reason: 'screening_question',
-        action_needed_detail: 'Arbeitserlaubnis',
-        failure_class: null,
-      });
-      fixture.detectChanges();
-
-      text = fixture.nativeElement.textContent as string;
-      expect(text).toContain('A screening question needs a factual answer');
-      expect(text).toContain('Arbeitserlaubnis');
-      expect(text).not.toContain('Berufserfahrung');
-      fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
-    }));
-
-    it('Covers KTD4/R11: the dry-run pause copy and resume action differ from pre_submit_confirmation', fakeAsync(() => {
-      flushList([sampleApplication]);
-      startRun();
-
-      tick(5000);
-      expectStatusPoll().flush({
-        automation_state: 'paused',
-        action_needed_reason: 'dry_run',
-        action_needed_detail: null,
-        failure_class: null,
-      });
-      fixture.detectChanges();
-
-      let text = fixture.nativeElement.textContent as string;
-      expect(text).toContain('Dry run complete');
-      expect(text).not.toContain('Form is filled');
-      expect(text).toContain('Submit for real');
-      expect(text).not.toContain('Continue');
-
-      tick(5000);
-      expectStatusPoll().flush({
-        automation_state: 'paused',
-        action_needed_reason: 'pre_submit_confirmation',
-        action_needed_detail: null,
-        failure_class: null,
-      });
-      fixture.detectChanges();
-
-      text = fixture.nativeElement.textContent as string;
-      expect(text).toContain('Form is filled');
-      expect(text).toContain('Continue');
-      expect(text).not.toContain('Submit for real');
-      fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
-    }));
-
-    describe('pause-time screenshot (R2/U2/U4)', () => {
-      const screenshotUrl = `${environment.apiBaseUrl}/applications/1/portal-fill/screenshot`;
-
-      function queryScreenshotImg(): HTMLImageElement | null {
-        return fixture.nativeElement.querySelector('.application-card__portal-fill-screenshot');
-      }
-
-      it('renders the screenshot image on a pause, pointing at the screenshot endpoint', fakeAsync(() => {
-        flushList([sampleApplication]);
-        startRun();
-
-        tick(5000);
-        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'pre_submit_confirmation' });
-        fixture.detectChanges();
-
-        const img = queryScreenshotImg();
-        expect(img).not.toBeNull();
-        // t=1, not t=0: a new pause bumps the token too (not just manual Refresh),
-        // so a second pause within the same run can't reuse a stale cached image.
-        expect(img!.getAttribute('src')).toBe(`${screenshotUrl}?t=1`);
-        fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
-      }));
-
-      it('does not render the screenshot image outside a pause', fakeAsync(() => {
-        flushList([sampleApplication]);
-        startRun();
-
-        tick(5000);
-        expectStatusPoll().flush({ automation_state: 'running', action_needed_reason: null });
-        fixture.detectChanges();
-
-        expect(queryScreenshotImg()).toBeNull();
-        fixture.destroy(); // still `running` - stop the periodic poll so fakeAsync can settle.
-      }));
-
-      it('Refresh re-requests the image with a new cache-busting token', fakeAsync(() => {
-        flushList([sampleApplication]);
-        startRun();
-
-        tick(5000);
-        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'pre_submit_confirmation' });
-        fixture.detectChanges();
-
-        component['onRefreshScreenshot'](sampleApplication);
-        fixture.detectChanges();
-
-        expect(queryScreenshotImg()!.getAttribute('src')).toBe(`${screenshotUrl}?t=2`);
-        fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
-      }));
-
-      it('hides the image instead of a broken-image icon on any load failure', fakeAsync(() => {
-        flushList([sampleApplication]);
-        startRun();
-
-        tick(5000);
-        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'pre_submit_confirmation' });
-        fixture.detectChanges();
-
-        queryScreenshotImg()!.dispatchEvent(new Event('error'));
-        fixture.detectChanges();
-
-        expect(queryScreenshotImg()).toBeNull();
-        fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
-      }));
-
-      it('a fresh pause clears a previous load failure and shows the image again', fakeAsync(() => {
-        flushList([sampleApplication]);
-        startRun();
-
-        tick(5000);
-        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'low_confidence_field' });
-        fixture.detectChanges();
-        queryScreenshotImg()!.dispatchEvent(new Event('error'));
-        fixture.detectChanges();
-        expect(queryScreenshotImg()).toBeNull();
-
-        component['onContinuePortalFill'](sampleApplication);
-        httpMock.expectOne((request) => request.url === continueUrl && request.method === 'POST').flush({
-          ...sampleApplication,
-          automation_state: 'running',
-          action_needed_reason: null,
-        });
-        tick(5000);
-        expectStatusPoll().flush({ automation_state: 'running', action_needed_reason: null });
-        fixture.detectChanges();
-
-        tick(5000);
-        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'pre_submit_confirmation' });
-        fixture.detectChanges();
-
-        expect(queryScreenshotImg()).not.toBeNull();
-        fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
-      }));
-
-      it('a second, different pause within the same run gets a distinct screenshot URL, not a stale cached one', fakeAsync(() => {
-        flushList([sampleApplication]);
-        startRun();
-
-        tick(5000);
-        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
-        fixture.detectChanges();
-        const firstSrc = queryScreenshotImg()!.getAttribute('src');
-
-        component['onContinuePortalFill'](sampleApplication);
-        httpMock.expectOne((request) => request.url === continueUrl && request.method === 'POST').flush({
-          ...sampleApplication,
-          automation_state: 'running',
-          action_needed_reason: null,
-        });
-        tick(5000);
-        expectStatusPoll().flush({ automation_state: 'running', action_needed_reason: null });
-        fixture.detectChanges();
-
-        tick(5000);
-        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'pre_submit_confirmation' });
-        fixture.detectChanges();
-
-        // Without a fresh cache-busting token, this second pause's <img> would carry the SAME
-        // URL as the captcha pause above, and a browser that already cached that URL's response
-        // would keep showing the stale, wrong screenshot during this later, mandatory review.
-        expect(queryScreenshotImg()!.getAttribute('src')).not.toBe(firstSrc);
-        fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
-      }));
-
-      it('shows the live connection instructions only for a captcha pause', fakeAsync(() => {
-        flushList([sampleApplication]);
-        startRun();
-
-        tick(5000);
-        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
-        fixture.detectChanges();
-
-        let text = fixture.nativeElement.textContent as string;
-        expect(text).toContain('localhost:9222');
-
-        component['onContinuePortalFill'](sampleApplication);
-        httpMock.expectOne((request) => request.url === continueUrl && request.method === 'POST').flush({
-          ...sampleApplication,
-          automation_state: 'running',
-          action_needed_reason: null,
-        });
-        tick(5000);
-        expectStatusPoll().flush({ automation_state: 'running', action_needed_reason: null });
-        fixture.detectChanges();
-
-        tick(5000);
-        expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'pre_submit_confirmation' });
-        fixture.detectChanges();
-
-        text = fixture.nativeElement.textContent as string;
-        expect(text).not.toContain('localhost:9222');
-        fixture.destroy(); // still `paused` - stop the periodic poll so fakeAsync can settle.
-      }));
-    });
-  });
-
-  describe('portal auto-fill outcome copy (U6)', () => {
-    it('Covers U6: every pause and failure reason has specific copy', () => {
-      flushList([]);
-
-      for (const reason of PAUSE_REASONS) {
-        expect(ACTION_NEEDED_COPY[reason]).toBeTruthy();
-      }
-      for (const reason of FAILURE_REASONS) {
-        expect(FAILURE_REASON_COPY[reason]).toBeTruthy();
-      }
+  describe('apply via LinkedIn (U4)', () => {
+    const fillRequestUrl = `${environment.apiBaseUrl}/applications/1/fill-request`;
+
+    const linkedInApplication: Application = {
+      ...sampleApplication,
+      job_offer: { ...sampleApplication.job_offer, source_platform: 'linkedin' },
+    };
+
+    const submittedApplication: Application = {
+      ...linkedInApplication,
+      submission: {
+        platform: 'linkedin',
+        portal_url: 'https://www.linkedin.com/jobs/view/1',
+        submitted_at: new Date('2026-09-01T10:00:00Z').toISOString(),
+      },
+    };
+
+    it('Covers R1/R2: shows "Apply via LinkedIn" for a LinkedIn-sourced application with no submission', async () => {
+      flushList([linkedInApplication]);
+
+      await toggleCardMenu(fixture);
+      const item = menuItemByText('Apply via LinkedIn');
+      expect(item).toBeDefined();
+      expect(isCompactCardMenuItemDisabled(item!)).toBe(false);
     });
 
-    it('Covers U6: unknown reasons are absent from the maps so the component fallback applies', () => {
-      flushList([]);
+    it('Covers R1/P2: opens a blank tab synchronously and points it at the job URL on success', async () => {
+      flushList([linkedInApplication]);
+      const pendingTab = {
+        location: { href: '' },
+        close: jasmine.createSpy('close'),
+        opener: null,
+      } as unknown as Window;
+      const openSpy = spyOn(window, 'open').and.returnValue(pendingTab);
 
-      expect(ACTION_NEEDED_COPY['not_a_reason']).toBeUndefined();
-      expect(FAILURE_REASON_COPY['not_a_reason']).toBeUndefined();
+      await toggleCardMenu(fixture);
+      menuItemByText('Apply via LinkedIn')!.click();
+
+      // Der Tab wird synchron im Klick geöffnet, nicht erst im HTTP-Callback.
+      expect(openSpy).toHaveBeenCalledWith('', '_blank');
+
+      const req = httpMock.expectOne(
+        (request) => request.url === fillRequestUrl && request.method === 'POST',
+      );
+      expect(req.request.body).toEqual({});
+      req.flush({ job_url: 'https://www.linkedin.com/jobs/view/123' });
+      fixture.detectChanges();
+
+      expect(pendingTab.location.href).toBe('https://www.linkedin.com/jobs/view/123');
+      expect(component['fillRequestingId']()).toBeNull();
+    });
+
+    it('Covers R11: shows the applied indicator and hides the trigger once a submission exists', async () => {
+      flushList([submittedApplication]);
+
+      await toggleCardMenu(fixture);
+      expect(menuItemByText('Apply via LinkedIn')).toBeUndefined();
+      const detailRow = document.querySelector('.compact-card__menu-detail-row');
+      expect(detailRow?.textContent).toContain('Applied via LinkedIn on');
+    });
+
+    it('Covers R2: never shows the trigger for a non-LinkedIn application', async () => {
+      flushList([sampleApplication]);
+
+      await toggleCardMenu(fixture);
+      expect(menuItemByText('Apply via LinkedIn')).toBeUndefined();
+    });
+
+    it('Covers U4/P2: a failed fill request closes the blank tab and re-enables the trigger', async () => {
+      flushList([linkedInApplication]);
+      const snackBar = TestBed.inject(MatSnackBar);
+      const snackSpy = spyOn(snackBar, 'open');
+      const pendingTab = {
+        location: { href: '' },
+        close: jasmine.createSpy('close'),
+        opener: null,
+      } as unknown as Window;
+      const openSpy = spyOn(window, 'open').and.returnValue(pendingTab);
+
+      await toggleCardMenu(fixture);
+      menuItemByText('Apply via LinkedIn')!.click();
+
+      const req = httpMock.expectOne((request) => request.url === fillRequestUrl);
+      req.flush(
+        { detail: 'Nur LinkedIn-Bewerbungen können einen Fill starten (R2).' },
+        { status: 422, statusText: 'Unprocessable Entity' },
+      );
+      fixture.detectChanges();
+
+      expect(snackSpy).toHaveBeenCalled();
+      expect(openSpy).toHaveBeenCalledWith('', '_blank');
+      expect(pendingTab.close).toHaveBeenCalled();
+      expect(pendingTab.location.href).toBe('');
+      expect(component['fillRequestingId']()).toBeNull();
+
+      await toggleCardMenu(fixture);
+      const item = menuItemByText('Apply via LinkedIn');
+      expect(item).toBeDefined();
+      expect(isCompactCardMenuItemDisabled(item!)).toBe(false);
+    });
+
+    describe('install hint', () => {
+      it('Covers R17/KTD9: shows the one-time install hint when a fillable LinkedIn application exists', () => {
+        flushList([linkedInApplication]);
+
+        const text = fixture.nativeElement.textContent as string;
+        expect(text).toContain('unpacked');
+        expect(fixture.nativeElement.querySelector('.applications__install-hint')).not.toBeNull();
+      });
+
+      it('Covers R17/KTD9: hides the hint after it is dismissed and persists the dismissal', () => {
+        flushList([linkedInApplication]);
+        expect(fixture.nativeElement.querySelector('.applications__install-hint')).not.toBeNull();
+
+        const dismiss = fixture.nativeElement.querySelector(
+          'button[aria-label="Dismiss install hint"]',
+        ) as HTMLButtonElement;
+        dismiss.click();
+        fixture.detectChanges();
+
+        expect(fixture.nativeElement.querySelector('.applications__install-hint')).toBeNull();
+        expect(localStorage.getItem('applications.extension-install-hint-dismissed')).toBe('1');
+      });
+
+      it('Covers R17: does not show the hint when no fillable LinkedIn application exists', () => {
+        flushList([sampleApplication]);
+
+        expect(fixture.nativeElement.querySelector('.applications__install-hint')).toBeNull();
+      });
     });
   });
 });

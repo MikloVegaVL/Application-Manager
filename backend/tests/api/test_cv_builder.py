@@ -43,7 +43,7 @@ def client():
 
     app.dependency_overrides[get_db] = _override_get_db
     try:
-        yield TestClient(app)
+        yield TestClient(app, base_url="http://localhost")
     finally:
         app.dependency_overrides.clear()
 
@@ -70,7 +70,7 @@ def client_with_session():
 
     app.dependency_overrides[get_db] = _override_get_db
     try:
-        yield TestClient(app), testing_session_local
+        yield TestClient(app, base_url="http://localhost"), testing_session_local
     finally:
         app.dependency_overrides.clear()
 

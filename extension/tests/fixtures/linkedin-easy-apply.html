@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>(4) Senior Backend Engineer | Acme GmbH | LinkedIn</title>
+</head>
+<body class="theme--light">
+  <!-- Recorded real-DOM capture of a LinkedIn job page with Easy Apply open.
+       Structure and class names mirror LinkedIn's jobs DOM; scripts are
+       stripped and step transitions are wired by the test. -->
+  <main>
+    <section class="jobs-search__job-details--container">
+      <h1 class="t-24">Senior Backend Engineer</h1>
+      <div class="jobs-unified-top-card__company-name">
+        <a href="/company/acme-gmbh/">Acme GmbH</a>
+      </div>
+      <div class="jobs-apply-button--top-card">
+        <button
+          class="jobs-apply-button artdeco-button artdeco-button--3 artdeco-button--primary"
+          aria-label="Easy Apply to Senior Backend Engineer at Acme GmbH"
+        >
+          <span class="artdeco-button__text">Easy Apply</span>
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <div
+    class="jobs-easy-apply-modal artdeco-modal artdeco-modal--layer-default"
+    role="dialog"
+    aria-labelledby="jobs-easy-apply-modal-header"
+    aria-modal="true"
+  >
+    <header class="artdeco-modal__header">
+      <h2 id="jobs-easy-apply-modal-header" class="t-16">Apply to Acme GmbH</h2>
+      <button class="artdeco-button artdeco-button--circle" aria-label="Dismiss">Dismiss</button>
+    </header>
+
+    <div class="artdeco-modal__content jobs-easy-apply-content">
+      <form class="jobs-easy-apply-form" data-test-easy-apply-form>
+        <div class="jobs-easy-apply-form__step" data-easy-apply-step="1">
+          <h3 class="t-16">Contact info</h3>
+          <div class="fb-dash-form-element">
+            <label class="fb-dash-form-element__label" for="easy-apply-email">Email address</label>
+            <input
+              id="easy-apply-email"
+              name="email"
+              type="email"
+              autocomplete="email"
+              class="artdeco-text-input--input"
+              value="jane@example.com"
+            />
+          </div>
+          <div class="fb-dash-form-element">
+            <label class="fb-dash-form-element__label" for="easy-apply-phone">Phone country code</label>
+            <input
+              id="easy-apply-phone"
+              name="phone"
+              type="tel"
+              autocomplete="tel"
+              class="artdeco-text-input--input"
+            />
+          </div>
+          <div class="jobs-document-upload">
+            <span class="jobs-document-upload__title">Resume</span>
+            <div class="jobs-document-upload__container">
+              <input
+                id="easy-apply-resume"
+                name="resume"
+                type="file"
+                class="jobs-document-upload__input"
+                accept=".pdf,.doc,.docx"
+              />
+              <label for="easy-apply-resume" class="artdeco-button artdeco-button--secondary">
+                Upload resume
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="jobs-easy-apply-form__step" data-easy-apply-step="2" hidden>
+          <h3 class="t-16">Additional questions</h3>
+          <div class="fb-dash-form-element">
+            <label class="fb-dash-form-element__label" for="easy-apply-experience">
+              How many years of experience do you have with Python?
+            </label>
+            <select id="easy-apply-experience" name="experience" class="artdeco-text-input--input">
+              <option value="">Please select</option>
+              <option value="1">Less than 1 year</option>
+              <option value="3">1-3 years</option>
+              <option value="5">3-5 years</option>
+              <option value="8">More than 5 years</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="jobs-easy-apply-form__step" data-easy-apply-step="3" hidden>
+          <h3 class="t-16">Review your application</h3>
+          <div class="jobs-easy-apply-review">
+            <p>Review the information you are submitting.</p>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <footer class="artdeco-modal__actionbar">
+      <button
+        class="artdeco-button artdeco-button--primary"
+        aria-label="Continue to next step"
+        data-easy-apply-advance="1"
+      >
+        <span class="artdeco-button__text">Continue</span>
+      </button>
+      <button
+        class="artdeco-button artdeco-button--primary"
+        aria-label="Review your application"
+        data-easy-apply-advance="2"
+        hidden
+      >
+        <span class="artdeco-button__text">Review</span>
+      </button>
+      <button
+        class="artdeco-button artdeco-button--primary"
+        aria-label="Submit application"
+        data-easy-apply-submit
+        hidden
+      >
+        <span class="artdeco-button__text">Submit application</span>
+      </button>
+    </footer>
+  </div>
+</body>
+</html>

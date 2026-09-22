@@ -10,6 +10,7 @@ from app.db.database import Base
 
 if TYPE_CHECKING:
     from app.models.job_offer import JobOffer
+    from app.models.portal_submission import PortalSubmission
 
 
 class ApplicationStatus(str, enum.Enum):
@@ -50,33 +51,23 @@ class Application(Base):
     # angezeigt, damit nachvollziehbar ist, wohin die Bewerbung ging.
     sent_to_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
 
-    # Portal-Auto-Fill-Status (Playwright-gestützter Agent, siehe
-    # docs/plans/2026-09-19-002-feat-portal-application-auto-fill-agent-plan.md).
-    # Bewusst kein `ApplicationStatus`-Wert (KTD3): `status` bildet das
-    # finale, nutzersichtbare Ergebnis ab, dieser Automations-Zwischenstatus
-    # ist unabhängig davon. Ein einfacher `String` statt `Enum(...,
-    # native_enum=False)` wie bei `status` genügt hier, da die Werte
-    # ausschließlich vom Python-Code der späteren Units (nicht von der DB)
-    # geschrieben/geprüft werden.
-    automation_state: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    # Doppelfunktion je nach `automation_state` (KTD3): bei "paused" der
-    # Pausengrund (captcha/low_confidence_field/pre_submit_confirmation), bei
-    # "failed" der Fehlgrund (timeout/iframe_not_found/unhandled_error/
-    # cancelled_by_user). Wird von U1 selbst nicht beschrieben.
-    action_needed_reason: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    # Konkretes Feld/Frage-Label zur Pause (R9/KTD1) - ergänzt
-    # `action_needed_reason` um das "wo". Wird bei jedem Zustandsübergang ohne
-    # Detail auf `None` zurückgesetzt.
-    action_needed_detail: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    automation_started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
     job_offer: Mapped["JobOffer"] = relationship(back_populates="applications")
+
+    # Jüngster Portal-Submit dieser Bewerbung (R11/KTD3). `viewonly` +
+    # `uselist=False` + `order_by` liefert genau die neueste Zeile (SQLAlchemy
+    # ergänzt ein LIMIT 1), damit `ApplicationRead` das "applied"-Indiz ohne
+    # zweiten Request rendern kann. Kein `back_populates`: die Rückrichtung
+    # bleibt die `viewonly`-Relation auf `PortalSubmission.application`.
+    submission: Mapped["PortalSubmission | None"] = relationship(
+        "PortalSubmission",
+        viewonly=True,
+        uselist=False,
+        order_by="desc(PortalSubmission.submitted_at)",
+    )
 
     def __repr__(self) -> str:  # pragma: no cover - Debug-Hilfe
         return f"<Application id={self.id} job_offer_id={self.job_offer_id} status={self.status}>"

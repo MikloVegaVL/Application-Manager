@@ -75,24 +75,12 @@ services:
       # Persistiert generierte Bewerbungs-PDFs über Container-Neustarts hinweg.
       - ./backend/generated:/app/generated
     ports:
-      - "8000:8000"
-      # Chromium-Remote-Debugging (R3/KTD3/KTD8, für eine Captcha-Pause) - NUR
-      # auf 127.0.0.1 gemappt, nicht auf allen Host-Interfaces: die
-      # ungebundene Kurzsyntax ("9222:9222") würde den Port auf 0.0.0.0
-      # veröffentlichen und damit jedem im selben Netzwerk volle,
-      # unauthentifizierte Kontrolle über den Automations-Browser geben,
-      # statt nur "der eigenen Maschine" wie in R3 vorausgesetzt.
-      #
-      # ACHTUNG (Reviewer-Fund, correctness/adversarial): dieser Literal
-      # MUSS manuell mit backend/.env(.example)s PORTAL_FILL_DEBUG_PORT und
-      # applications.component.ts' `PORTAL_FILL_DEBUG_PORT`-Konstante
-      # synchron gehalten werden - `${PORTAL_FILL_DEBUG_PORT}` würde hier
-      # NICHT funktionieren, da Compose-Variablensubstitution die WURZEL-
-      # `.env` liest (POSTGRES_USER etc.), nicht backend/.env (das nur per
-      # `env_file:` in den Container geladen wird). Ändert sich der Wert nur
-      # in backend/.env, bleibt dieses Mapping stumm auf dem alten Port -
-      # keine Fehlermeldung, die Live-Ansicht zeigt einfach nichts mehr an.
-      - "127.0.0.1:9222:9222"
+      # KTD13: die API ist unauthentifiziert und ein lokales Einzelnutzer-
+      # Werkzeug - deshalb NUR auf Loopback veröffentlichen, nicht auf allen
+      # Host-Interfaces. Die ungebundene Kurzsyntax ("8000:8000") würde den
+      # Port auf 0.0.0.0 exponieren und damit jedem im selben Netzwerk
+      # Zugriff auf Profildaten und die fill-Endpunkte geben.
+      - "127.0.0.1:8000:8000"
     restart: unless-stopped
 
   # --- Angular-Frontend (Nginx) ----------------------------------------------
@@ -103,7 +91,10 @@ services:
     depends_on:
       - backend
     ports:
-      - "8080:80"
+      # KTD13: auch das Frontend nur auf Loopback - sein nginx `/api/`-Proxy
+      # reicht sonst dieselben unauthentifizierten Endpunkte wie der
+      # Backend-Port an jedes Gerät im Netzwerk weiter.
+      - "127.0.0.1:8080:80"
     restart: unless-stopped
 
 volumes:

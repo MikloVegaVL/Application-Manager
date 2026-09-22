@@ -70,7 +70,7 @@ def client(db_session_local):
 
     app.dependency_overrides[get_db] = _override_get_db
     try:
-        yield TestClient(app)
+        yield TestClient(app, base_url="http://localhost")
     finally:
         app.dependency_overrides.clear()
 
@@ -209,6 +209,62 @@ def test_list_applications_orders_most_recently_created_first(client: TestClient
     assert response.status_code == 200
     body = response.json()
     assert [item["id"] for item in body] == [second_id, first_id]
+
+
+def test_list_applications_eager_loads_submission_without_n_plus_1(
+    client: TestClient, db_session_local
+) -> None:
+    # P2: `ApplicationRead.submission` darf die Bewerbungsliste nicht pro Zeile
+    # nachladen. `joinedload(Application.submission)` erledigt das in EINEM
+    # Statement; ohne Eager-Loading käme hier je Bewerbung ein zusätzliches
+    # SELECT auf `portal_submissions`.
+    session = db_session_local()
+    try:
+        for index in range(3):
+            job_offer = _create_job_offer(
+                session,
+                title=f"Job {index}",
+                company="Acme GmbH",
+                source_url=f"https://example.com/job/eager-{index}",
+            )
+            application = _create_application(session, job_offer_id=job_offer.id)
+            session.add(
+                PortalSubmission(
+                    application_id=application.id,
+                    company="Acme GmbH",
+                    job_title=f"Job {index}",
+                    platform="linkedin",
+                    portal_url=f"https://www.linkedin.com/jobs/view/{index}",
+                    submitted_at=datetime(2026, 9, 22, 10, 0, tzinfo=timezone.utc),
+                )
+            )
+        session.commit()
+        engine = session.get_bind()
+    finally:
+        session.close()
+
+    statements: list[str] = []
+
+    def _record(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _record)
+    try:
+        response = client.get("/api/applications")
+    finally:
+        event.remove(engine, "before_cursor_execute", _record)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 3
+    assert all(item["submission"] is not None for item in body)
+
+    submission_selects = [
+        statement
+        for statement in statements
+        if "portal_submissions" in statement.lower() and statement.lstrip().lower().startswith("select")
+    ]
+    assert len(submission_selects) <= 1
 
 
 def test_delete_application_removes_it(client: TestClient, db_session_local) -> None:
@@ -833,52 +889,8 @@ def test_failed_send_creates_no_log_entry_and_leaves_status_unchanged(
         session.close()
 
 
-# --- Portal automation state + PortalSubmission log (U1, docs/plans/2026-09-19
-# -002-feat-portal-application-auto-fill-agent-plan.md) --------------------
-
-
-def test_new_application_defaults_automation_fields_to_null(
-    client: TestClient, db_session_local
-) -> None:
-    session = db_session_local()
-    try:
-        job_offer = _create_job_offer(
-            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/portal-1"
-        )
-        application_id = _create_application(session, job_offer_id=job_offer.id).id
-    finally:
-        session.close()
-
-    session = db_session_local()
-    try:
-        application = session.get(Application, application_id)
-        assert application.automation_state is None
-        assert application.action_needed_reason is None
-        assert application.automation_started_at is None
-    finally:
-        session.close()
-
-
-def test_application_read_response_includes_automation_fields_as_null(
-    client: TestClient, db_session_local
-) -> None:
-    session = db_session_local()
-    try:
-        job_offer = _create_job_offer(
-            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/portal-2"
-        )
-        _create_application(session, job_offer_id=job_offer.id)
-    finally:
-        session.close()
-
-    response = client.get("/api/applications")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert len(body) == 1
-    assert body[0]["automation_state"] is None
-    assert body[0]["action_needed_reason"] is None
-    assert body[0]["automation_started_at"] is None
+# --- PortalSubmission log (U7, docs/plans/2026-09-19-002-feat-portal-
+# application-auto-fill-agent-plan.md) --------------------------------------
 
 
 def test_portal_submission_can_be_created_and_read_back_via_relationship(
@@ -914,67 +926,6 @@ def test_portal_submission_can_be_created_and_read_back_via_relationship(
         assert row.platform == "personio"
     finally:
         session.close()
-
-
-def test_delete_application_returns_409_while_automation_is_active(
-    client: TestClient, db_session_local
-) -> None:
-    # P0-Regression (adversarial-reviewer): eine `Application` mit aktivem
-    # Portal-Auto-Fill-Lauf darf nicht gelöscht werden - sonst könnte z. B.
-    # während der pausierten `pre_submit_confirmation` die Bewerbung gelöscht
-    # und danach per `continue` trotzdem der echte Submit auf dem externen
-    # Portal ausgelöst werden, ohne jede lokale Spur (`_record_submission()`/
-    # `_set_state()` fänden die Zeile dann nicht mehr).
-    session = db_session_local()
-    try:
-        job_offer = _create_job_offer(
-            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/portal-delete-1"
-        )
-        application = Application(job_offer_id=job_offer.id, automation_state="paused")
-        session.add(application)
-        session.commit()
-        session.refresh(application)
-        application_id = application.id
-    finally:
-        session.close()
-
-    response = client.delete(f"/api/applications/{application_id}")
-
-    assert response.status_code == 409
-
-    session = db_session_local()
-    try:
-        assert session.get(Application, application_id) is not None
-    finally:
-        session.close()
-
-
-@pytest.mark.parametrize("automation_state", [None, "failed", "submitted"])
-def test_delete_application_still_succeeds_when_automation_is_not_active(
-    client: TestClient, db_session_local, automation_state
-) -> None:
-    # Kein Regressionsrisiko durch den neuen Guard: eine `Application`, die
-    # nie automatisiert wurde oder deren Lauf bereits terminal beendet ist,
-    # muss weiterhin normal löschbar bleiben.
-    session = db_session_local()
-    try:
-        job_offer = _create_job_offer(
-            session,
-            title="Backend Engineer",
-            company="Acme GmbH",
-            source_url=f"https://example.com/job/portal-delete-{automation_state}",
-        )
-        application = Application(job_offer_id=job_offer.id, automation_state=automation_state)
-        session.add(application)
-        session.commit()
-        session.refresh(application)
-        application_id = application.id
-    finally:
-        session.close()
-
-    response = client.delete(f"/api/applications/{application_id}")
-
-    assert response.status_code == 204
 
 
 def test_deleting_application_sets_portal_submission_application_id_to_null_not_the_row(
