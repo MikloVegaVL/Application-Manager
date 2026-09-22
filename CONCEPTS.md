@@ -23,6 +23,9 @@ The domain a skill belongs to, used to group skills into compact sections in a r
 ### Applied
 A saved job offer is considered applied: saving creates a draft application immediately, so "saved", "on the Applications page", and "applied" describe the same set of job offers. A job offer stops being applied only when its application is deleted, which also removes the job offer.
 
+### Sent Mail outcome
+Whether a logged sent-email's linked application currently stands at Offer, Rejection, or Pending — derived live from the application's `ApplicationStatus`, not a snapshot taken at send time, so it can change after the email was sent. Distinct from Run outcome (the portal auto-fill run's own submitted/needs-you/blocked-with-a-reason result) despite the shared word.
+
 ## Portal Auto-Fill
 
 ### Action needed
