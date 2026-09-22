@@ -6,6 +6,9 @@ export interface SentEmail {
   job_offer_id: number | null;
   /** Live (kein Snapshot) - URL der ursprünglichen Stellenanzeige, `null` sobald die Application gelöscht ist. */
   ad_url: string | null;
+  /** Live (kein Snapshot) - abgeleitet aus dem Status der verknüpften Application; "pending" ohne Entscheidung
+   * oder nach Löschung der Application. */
+  outcome: 'offer' | 'rejection' | 'pending';
   company: string | null;
   job_title: string | null;
   source_platform: string | null;
@@ -23,4 +26,5 @@ export interface SentEmailFilterParams {
   sender_email?: string | null;
   date_from?: string | null;
   date_to?: string | null;
+  outcome?: string | null;
 }
