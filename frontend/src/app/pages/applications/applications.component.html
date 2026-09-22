@@ -81,201 +81,89 @@
   @if (!loading() && filteredApplications().length > 0) {
     <div class="applications__results">
       @for (application of filteredApplications(); track application.id) {
-        <mat-card class="application-card" appearance="outlined">
-          <mat-card-header>
-            <mat-card-title>{{ application.job_offer.title }}</mat-card-title>
-            <mat-card-subtitle>
-              {{ application.job_offer.company }}
-              @if (application.job_offer.location) {
-                · {{ application.job_offer.location }}
-              }
-            </mat-card-subtitle>
-          </mat-card-header>
+        <app-compact-card
+          [viewModel]="cardViewModel(application)"
+          [busy]="isCardBusy(application)"
+          (menuItemClick)="onMenuAction(application, $event)"
+        >
+          @if (automationState(application) === 'running') {
+            <div inlineAttention class="application-card__portal-fill-running">
+              <mat-progress-spinner mode="indeterminate" diameter="16" />
+              <span>Auto-fill is running ...</span>
+              <button mat-button color="warn" type="button" (click)="onCancelPortalFill(application)">
+                Cancel
+              </button>
+            </div>
+          }
 
-          <mat-card-content class="application-card__content">
-            <div class="application-card__meta">
-              <mat-chip-set>
-                <mat-chip
-                  [class.application-card__status--sent]="application.status === 'sent'"
-                  [class.application-card__status--accepted]="application.status === 'accepted'"
-                  [class.application-card__status--rejected]="application.status === 'rejected'"
-                >
-                  {{ statusLabel(application.status) }}
-                </mat-chip>
-                <mat-chip>{{ sourceLabel(application.job_offer.source_platform) }}</mat-chip>
-              </mat-chip-set>
-
-              <div class="application-card__outcome">
-                <span class="application-card__outcome-label"> Outcome </span>
-                <mat-button-toggle-group
-                  class="application-card__outcome-options"
-                  [value]="application.status"
-                  [disabled]="isUpdatingStatus(application) || isPortalFillActive(application)"
-                  [hideSingleSelectionIndicator]="true"
-                  (change)="onStatusChange(application, $event.value)"
-                  aria-label="Outcome"
-                >
-                  <mat-button-toggle value="accepted" class="application-card__outcome-accept">
-                    <mat-icon>check</mat-icon>
-                    {{ statusLabel('accepted') }}
-                  </mat-button-toggle>
-                  <mat-button-toggle value="rejected" class="application-card__outcome-reject">
-                    <mat-icon>close</mat-icon>
-                    {{ statusLabel('rejected') }}
-                  </mat-button-toggle>
-                </mat-button-toggle-group>
-                @if (isUpdatingStatus(application)) {
-                  <mat-progress-spinner mode="indeterminate" diameter="16" />
+          @if (showActionNeededBanner(application)) {
+            <div inlineAttention class="application-card__portal-fill-banner">
+              <mat-icon>front_hand</mat-icon>
+              <span>
+                {{ actionNeededCopy(application) }}
+                @if (actionNeededDetail(application); as detail) {
+                  <span class="application-card__portal-fill-detail">{{ detail }}</span>
                 }
+                @if (isCaptchaPause(application)) {
+                  <span class="application-card__portal-fill-captcha-instructions">
+                    {{ captchaConnectionInstructions }}
+                  </span>
+                }
+              </span>
+              @if (screenshotAvailable(application)) {
+                <div class="application-card__portal-fill-screenshot-wrap">
+                  <img
+                    class="application-card__portal-fill-screenshot"
+                    [src]="screenshotUrl(application)"
+                    (error)="onScreenshotLoadError(application)"
+                    alt="Current state of the paused form"
+                  />
+                  <button
+                    mat-button
+                    type="button"
+                    class="application-card__portal-fill-screenshot-refresh"
+                    (click)="onRefreshScreenshot(application)"
+                  >
+                    Refresh
+                  </button>
+                </div>
+              }
+              <div class="application-card__portal-fill-banner-actions">
+                <button
+                  mat-stroked-button
+                  color="primary"
+                  type="button"
+                  (click)="onContinuePortalFill(application)"
+                >
+                  {{ continueActionLabel(application) }}
+                </button>
+                <button mat-button color="warn" type="button" (click)="onCancelPortalFill(application)">
+                  Cancel
+                </button>
               </div>
-
-              @if (application.sent_to_email) {
-                <div class="application-card__sent-to">
-                  <mat-icon>mail_outline</mat-icon>
-                  <span>
-                    <span class="application-card__sent-to-label"> Sent to: </span>
-                    {{ application.sent_to_email }}
-                  </span>
-                </div>
-              }
             </div>
+          }
 
-            <div class="application-card__portal-fill">
-              @if (automationState(application) === 'submitted') {
-                <div class="application-card__portal-fill-submitted">
-                  <mat-icon>check_circle</mat-icon>
-                  <span>Submitted via portal on {{ submittedDateLabel(application) }}</span>
-                </div>
-              }
-
-              @if (automationState(application) === 'running') {
-                <div class="application-card__portal-fill-running">
-                  <mat-progress-spinner mode="indeterminate" diameter="16" />
-                  <span>Auto-fill is running ...</span>
-                  <button mat-button color="warn" type="button" (click)="onCancelPortalFill(application)">
-                    Cancel
-                  </button>
-                </div>
-              }
-
-              @if (showActionNeededBanner(application)) {
-                <div class="application-card__portal-fill-banner">
-                  <mat-icon>front_hand</mat-icon>
-                  <span>
-                    {{ actionNeededCopy(application) }}
-                    @if (actionNeededDetail(application); as detail) {
-                      <span class="application-card__portal-fill-detail">{{ detail }}</span>
-                    }
-                    @if (isCaptchaPause(application)) {
-                      <span class="application-card__portal-fill-captcha-instructions">
-                        {{ captchaConnectionInstructions }}
-                      </span>
-                    }
-                  </span>
-                  @if (screenshotAvailable(application)) {
-                    <div class="application-card__portal-fill-screenshot-wrap">
-                      <img
-                        class="application-card__portal-fill-screenshot"
-                        [src]="screenshotUrl(application)"
-                        (error)="onScreenshotLoadError(application)"
-                        alt="Current state of the paused form"
-                      />
-                      <button
-                        mat-button
-                        type="button"
-                        class="application-card__portal-fill-screenshot-refresh"
-                        (click)="onRefreshScreenshot(application)"
-                      >
-                        Refresh
-                      </button>
-                    </div>
-                  }
-                  <div class="application-card__portal-fill-banner-actions">
-                    <button
-                      mat-stroked-button
-                      color="primary"
-                      type="button"
-                      (click)="onContinuePortalFill(application)"
-                    >
-                      {{ continueActionLabel(application) }}
-                    </button>
-                    <button mat-button color="warn" type="button" (click)="onCancelPortalFill(application)">
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              }
-
-              @if (showFailureNotice(application)) {
-                <div class="application-card__portal-fill-failed">
-                  <mat-icon>error_outline</mat-icon>
-                  <span>
-                    {{ failureCopy(application) }}
-                    <span class="application-card__portal-fill-retryability">
-                      {{ failureRetryabilityCopy(application) }}
-                    </span>
-                  </span>
-                  <button
-                    mat-icon-button
-                    type="button"
-                    aria-label="Dismiss"
-                    (click)="onDismissFailure(application)"
-                  >
-                    <mat-icon>close</mat-icon>
-                  </button>
-                </div>
-              }
-
-              @if (showPortalFillTrigger(application)) {
-                <div class="application-card__portal-fill-trigger">
-                  <mat-form-field appearance="outline" class="application-card__portal-fill-url">
-                    <mat-label>Application form URL</mat-label>
-                    <input matInput #portalFillUrl type="url" placeholder="https://..." />
-                  </mat-form-field>
-                  <mat-checkbox #portalFillDryRun class="application-card__portal-fill-dry-run">
-                    Dry run (fill without submitting)
-                  </mat-checkbox>
-                  <button
-                    mat-stroked-button
-                    color="primary"
-                    type="button"
-                    [disabled]="portalFillStartingId() === application.id"
-                    (click)="onStartPortalFill(application, portalFillUrl.value, portalFillDryRun.checked)"
-                  >
-                    @if (portalFillStartingId() === application.id) {
-                      <mat-progress-spinner mode="indeterminate" diameter="18" />
-                    } @else {
-                      <mat-icon>smart_toy</mat-icon>
-                    }
-                    Auto-fill portal
-                  </button>
-                </div>
-              }
+          @if (showFailureNotice(application)) {
+            <div inlineAttention class="application-card__portal-fill-failed">
+              <mat-icon>error_outline</mat-icon>
+              <span>
+                {{ failureCopy(application) }}
+                <span class="application-card__portal-fill-retryability">
+                  {{ failureRetryabilityCopy(application) }}
+                </span>
+              </span>
+              <button
+                mat-icon-button
+                type="button"
+                aria-label="Dismiss"
+                (click)="onDismissFailure(application)"
+              >
+                <mat-icon>close</mat-icon>
+              </button>
             </div>
-          </mat-card-content>
-
-          <mat-card-actions class="application-card__actions">
-            <button
-              mat-button
-              color="warn"
-              type="button"
-              [disabled]="isDeleting(application) || isPortalFillActive(application)"
-              (click)="onDelete(application)"
-            >
-              @if (isDeleting(application)) {
-                <mat-progress-spinner mode="indeterminate" diameter="18" />
-              } @else {
-                <mat-icon>delete</mat-icon>
-              }
-              Delete
-            </button>
-
-            <a mat-stroked-button color="primary" [routerLink]="['/editor', application.job_offer.id]">
-              <mat-icon>open_in_new</mat-icon>
-              Open application
-            </a>
-          </mat-card-actions>
-        </mat-card>
+          }
+        </app-compact-card>
       }
     </div>
   }

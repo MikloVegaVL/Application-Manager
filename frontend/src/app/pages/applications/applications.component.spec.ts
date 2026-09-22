@@ -21,6 +21,10 @@ import {
   AddJobOfferDialogComponent,
   AddJobOfferDialogResult,
 } from './add-job-offer-dialog/add-job-offer-dialog.component';
+import {
+  StartPortalFillDialogComponent,
+  StartPortalFillDialogResult,
+} from './start-portal-fill-dialog/start-portal-fill-dialog.component';
 import { environment } from '../../../environments/environment';
 
 /** Ersetzt `MatDialog.open()` durch einen Fake, der sofort mit `result` schließt. */
@@ -32,6 +36,33 @@ function spyOnAddJobOfferDialog(
     afterClosed: () => of(result),
   } as unknown as MatDialogRef<AddJobOfferDialogComponent, AddJobOfferDialogResult>;
   return spyOn(component['dialog'], 'open').and.returnValue(fakeDialogRef);
+}
+
+/** Toggles the ⋮ menu of the (only) rendered compact card - mirrors CompactCardComponent's own spec.
+ * The trigger button itself toggles open/closed, so this doubles as `openCardMenu`/`closeCardMenu`. */
+async function toggleCardMenu(fixture: ComponentFixture<unknown>): Promise<void> {
+  const trigger = fixture.nativeElement.querySelector('.compact-card__menu-trigger') as HTMLButtonElement;
+  trigger.click();
+  fixture.detectChanges();
+  await fixture.whenStable();
+  fixture.detectChanges();
+}
+
+/** Same as `toggleCardMenu`, but for use inside `fakeAsync` - `await`ing a real Promise there breaks
+ * the fake zone, so this flushes microtasks with `tick()` instead of `whenStable()`. */
+function toggleCardMenuInFakeAsync(fixture: ComponentFixture<unknown>): void {
+  const trigger = fixture.nativeElement.querySelector('.compact-card__menu-trigger') as HTMLButtonElement;
+  trigger.click();
+  fixture.detectChanges();
+  tick();
+  fixture.detectChanges();
+}
+
+/** The `⋮` menu is portaled to `document.body` via the CDK overlay (see CompactCardComponent spec). */
+function menuItemByText(label: string): HTMLButtonElement | undefined {
+  return Array.from(document.querySelectorAll<HTMLButtonElement>('.mat-mdc-menu-item')).find((item) =>
+    item.textContent?.includes(label),
+  );
 }
 
 const manualDialogResult: AddJobOfferDialogResult = {
@@ -61,6 +92,7 @@ describe('ApplicationsComponent', () => {
 
   afterEach(() => {
     httpMock.verify();
+    document.querySelectorAll('.cdk-overlay-container').forEach((el) => el.remove());
   });
 
   function flushList(applications: Application[]): void {
@@ -262,7 +294,7 @@ describe('ApplicationsComponent', () => {
     expect(text).toContain('No applications match your search.');
   });
 
-  it('shows the recipient email on the card once the application was sent', () => {
+  it('Covers R2: shows the recipient email as a non-interactive row in the ⋮ menu once the application was sent', async () => {
     const sentApplication: Application = {
       ...sampleApplication,
       status: 'sent',
@@ -271,16 +303,23 @@ describe('ApplicationsComponent', () => {
     };
     flushList([sentApplication]);
 
-    const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain('Sent to');
-    expect(text).toContain('recruiter@example.com');
+    // Not visible on the card itself (R2: no separate visible chip) ...
+    const cardHeaderText = (fixture.nativeElement.querySelector('.compact-card__header') as HTMLElement)
+      .textContent as string;
+    expect(cardHeaderText).not.toContain('recruiter@example.com');
+
+    // ... only inside the ⋮ menu, as a non-interactive detail row.
+    await toggleCardMenu(fixture);
+    const detailRow = document.querySelector('.compact-card__menu-detail-row');
+    expect(detailRow?.textContent).toContain('Sent to');
+    expect(detailRow?.textContent).toContain('recruiter@example.com');
   });
 
-  it('does not show a recipient row before the application was sent', () => {
+  it('does not show a recipient row in the ⋮ menu before the application was sent', async () => {
     flushList([sampleApplication]);
 
-    const text = fixture.nativeElement.textContent as string;
-    expect(text).not.toContain('Sent to');
+    await toggleCardMenu(fixture);
+    expect(document.querySelector('.compact-card__menu-detail-row')).toBeNull();
   });
 
   it('Covers R4, U2: renders the Direct source label for a manually-saved job offer', () => {
@@ -292,6 +331,119 @@ describe('ApplicationsComponent', () => {
 
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Direct');
+  });
+
+  describe('compact card (U2)', () => {
+    const sentApplication: Application = { ...sampleApplication, status: 'sent' };
+
+    it('Covers R1/R2/R3/R6: shows only header, chips, and the primary action by default for a sent application with no active run', () => {
+      flushList([sentApplication]);
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('Backend Engineer');
+      expect(text).toContain('Acme GmbH');
+      expect(text).toContain(component.statusLabel('sent'));
+      expect(text).toContain(component.sourceLabel('arbeitsagentur'));
+      expect(text).toContain('Open application');
+      expect(fixture.nativeElement.querySelector('.compact-card__inline-attention')).toBeNull();
+    });
+
+    it('renders "Open application" as a native anchor to the existing editor route, unchanged', () => {
+      flushList([sentApplication]);
+
+      const anchor = fixture.nativeElement.querySelector(
+        '.compact-card__primary-action',
+      ) as HTMLAnchorElement;
+      expect(anchor.tagName).toBe('A');
+      expect(anchor.textContent).toContain('Open application');
+      expect(anchor.getAttribute('href')).toContain('/editor/42');
+    });
+
+    it('Covers R2: routes "Mark accepted" / "Mark rejected" menu selections to onStatusChange with the same arguments as today', async () => {
+      flushList([sentApplication]);
+      const statusSpy = vi.spyOn(component, 'onStatusChange').mockImplementation(() => {});
+
+      await toggleCardMenu(fixture);
+      menuItemByText('Mark accepted')!.click();
+      expect(statusSpy).toHaveBeenCalledWith(sentApplication, 'accepted');
+
+      await toggleCardMenu(fixture);
+      menuItemByText('Mark rejected')!.click();
+      expect(statusSpy).toHaveBeenCalledWith(sentApplication, 'rejected');
+    });
+
+    it('Covers R2: routes the "Delete" menu selection to onDelete (still behind window.confirm)', async () => {
+      flushList([sentApplication]);
+      const deleteSpy = vi.spyOn(component, 'onDelete').mockImplementation(() => {});
+
+      await toggleCardMenu(fixture);
+      menuItemByText('Delete')!.click();
+
+      expect(deleteSpy).toHaveBeenCalledWith(sentApplication);
+    });
+
+    it('Covers R10: routes the "Start auto-fill" menu selection to the start-portal-fill dialog, then onStartPortalFill with its result', async () => {
+      flushList([sentApplication]);
+      const fakeDialogRef = {
+        afterClosed: () => of<StartPortalFillDialogResult>({ url: 'https://portal.example/apply', dryRun: true }),
+      } as unknown as MatDialogRef<StartPortalFillDialogComponent, StartPortalFillDialogResult>;
+      const openSpy = spyOn(component['dialog'], 'open').and.returnValue(fakeDialogRef);
+      const startSpy = vi.spyOn(component, 'onStartPortalFill').mockImplementation(() => {});
+
+      await toggleCardMenu(fixture);
+      menuItemByText('Start auto-fill')!.click();
+
+      expect(openSpy).toHaveBeenCalled();
+      expect(openSpy.calls.mostRecent().args[0]).toBe(StartPortalFillDialogComponent);
+      expect(startSpy).toHaveBeenCalledWith(sentApplication, 'https://portal.example/apply', true);
+    });
+
+    it('Covers R10: does not start a run when the start-portal-fill dialog is cancelled', async () => {
+      flushList([sentApplication]);
+      const fakeDialogRef = {
+        afterClosed: () => of(undefined),
+      } as unknown as MatDialogRef<StartPortalFillDialogComponent, StartPortalFillDialogResult>;
+      spyOn(component['dialog'], 'open').and.returnValue(fakeDialogRef);
+      const startSpy = vi.spyOn(component, 'onStartPortalFill').mockImplementation(() => {});
+
+      await toggleCardMenu(fixture);
+      menuItemByText('Start auto-fill')!.click();
+
+      expect(startSpy).not.toHaveBeenCalled();
+    });
+
+    it('Covers R12: shows the busy indicator while a status update is in flight, then clears it once it resolves', () => {
+      flushList([sentApplication]);
+
+      component.onStatusChange(sentApplication, 'accepted');
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.compact-card__busy')).not.toBeNull();
+
+      const updateReq = httpMock.expectOne(
+        (request) => request.url === `${environment.apiBaseUrl}/applications/1` && request.method === 'PUT',
+      );
+      updateReq.flush({ ...sentApplication, status: 'accepted' });
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('.compact-card__busy')).toBeNull();
+    });
+
+    it('Covers R12: shows the busy indicator while Delete is in flight, then the card is gone once it resolves', () => {
+      spyOn(window, 'confirm').and.returnValue(true);
+      flushList([sentApplication]);
+
+      component.onDelete(sentApplication);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.compact-card__busy')).not.toBeNull();
+
+      const deleteReq = httpMock.expectOne(
+        (request) => request.url === `${environment.apiBaseUrl}/applications/1` && request.method === 'DELETE',
+      );
+      deleteReq.flush(null, { status: 204, statusText: 'No Content' });
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('app-compact-card')).toBeNull();
+    });
   });
 
   it('Covers AE1, R5, R7: saves a manually-entered job offer and navigates to its editor', () => {
@@ -545,7 +697,7 @@ describe('ApplicationsComponent', () => {
       fixture.destroy(); // the paused-phase poll is still awaiting its next tick - stop it for fakeAsync.
     }));
 
-    it('replaces the trigger with a persistent indicator on submitted', fakeAsync(() => {
+    it('Covers R4: replaces the status chip content with the submitted confirmation, not a banner', fakeAsync(() => {
       flushList([sampleApplication]);
       startRun();
 
@@ -553,12 +705,16 @@ describe('ApplicationsComponent', () => {
       expectStatusPoll().flush({ automation_state: 'submitted', action_needed_reason: null });
       fixture.detectChanges();
 
-      const text = fixture.nativeElement.textContent as string;
-      expect(text).toContain('Submitted via portal on');
-      expect(text).not.toContain('Auto-fill portal');
+      const chipsText = Array.from(fixture.nativeElement.querySelectorAll('.compact-card__chip'))
+        .map((chip) => (chip as HTMLElement).textContent)
+        .join(' ');
+      expect(chipsText).toContain('Submitted via portal on');
+      // Still capped at 2 chips (status + source) - no third chip added.
+      expect(fixture.nativeElement.querySelectorAll('.compact-card__chip').length).toBe(2);
+      expect(fixture.nativeElement.querySelector('.compact-card__inline-attention')).toBeNull();
     }));
 
-    it('shows a dismissible, translated failure notice and re-enables the trigger', fakeAsync(() => {
+    it('Covers R13: shows a dismissible, translated failure notice inline, and re-enables "Start auto-fill" once dismissed', fakeAsync(() => {
       flushList([sampleApplication]);
       startRun();
 
@@ -566,37 +722,59 @@ describe('ApplicationsComponent', () => {
       expectStatusPoll().flush({ automation_state: 'failed', action_needed_reason: 'iframe_not_found' });
       fixture.detectChanges();
 
-      let text = fixture.nativeElement.textContent as string;
-      expect(text).toContain("Couldn't find the application form on that page.");
-      expect(text).toContain('Auto-fill portal');
+      const attention = fixture.nativeElement.querySelector('.compact-card__inline-attention') as HTMLElement;
+      expect(attention).not.toBeNull();
+      expect(attention.textContent).toContain("Couldn't find the application form on that page.");
 
-      component['onDismissFailure'](sampleApplication);
+      toggleCardMenuInFakeAsync(fixture);
+      expect(menuItemByText('Start auto-fill')!.disabled).toBe(false);
+      toggleCardMenuInFakeAsync(fixture); // close, so it doesn't interfere with the dismiss below
+
+      const dismissButton = attention.querySelector('button[aria-label="Dismiss"]') as HTMLButtonElement;
+      expect(dismissButton).not.toBeNull();
+      dismissButton.click();
       fixture.detectChanges();
 
-      text = fixture.nativeElement.textContent as string;
-      expect(text).not.toContain("Couldn't find the application form on that page.");
-      expect(text).toContain('Auto-fill portal');
+      expect(fixture.nativeElement.querySelector('.compact-card__inline-attention')).toBeNull();
     }));
 
-    it('disables Delete and the Outcome toggle while a run is running or paused', fakeAsync(() => {
+    it('Covers R3/R9: shows inline attention for running/action-needed states, and disables "Mark accepted"/"Mark rejected"/"Delete"/"Start auto-fill" in the menu while active', fakeAsync(() => {
       flushList([sampleApplication]);
       startRun();
 
-      const deleteButton: HTMLButtonElement = fixture.nativeElement.querySelector(
-        '.application-card__actions button',
-      );
-      expect(deleteButton.disabled).toBe(true);
+      let attention = fixture.nativeElement.querySelector('.compact-card__inline-attention') as HTMLElement;
+      expect(attention).not.toBeNull();
+      expect(attention.textContent).toContain('Auto-fill is running');
 
-      const outcomeButton: HTMLButtonElement = fixture.nativeElement.querySelector(
-        '.application-card__outcome-accept button',
-      );
-      expect(outcomeButton.disabled).toBe(true);
+      toggleCardMenuInFakeAsync(fixture); // open
+      for (const label of ['Mark accepted', 'Mark rejected', 'Delete', 'Start auto-fill']) {
+        expect(menuItemByText(label)!.disabled).toBe(true);
+      }
+      toggleCardMenuInFakeAsync(fixture); // close, so the next open below starts from a known state
+
+      tick(5000);
+      expectStatusPoll().flush({ automation_state: 'paused', action_needed_reason: 'captcha' });
+      fixture.detectChanges();
+
+      attention = fixture.nativeElement.querySelector('.compact-card__inline-attention') as HTMLElement;
+      expect(attention).not.toBeNull();
+      expect(attention.textContent).toContain('A captcha appeared');
+
+      toggleCardMenuInFakeAsync(fixture); // open
+      for (const label of ['Mark accepted', 'Mark rejected', 'Delete', 'Start auto-fill']) {
+        expect(menuItemByText(label)!.disabled).toBe(true);
+      }
+      toggleCardMenuInFakeAsync(fixture); // close
 
       tick(5000);
       expectStatusPoll().flush({ automation_state: 'submitted', action_needed_reason: null });
       fixture.detectChanges();
 
-      expect(deleteButton.disabled).toBe(false);
+      expect(fixture.nativeElement.querySelector('.compact-card__inline-attention')).toBeNull();
+      toggleCardMenuInFakeAsync(fixture); // open
+      expect(menuItemByText('Delete')!.disabled).toBe(false);
+      expect(menuItemByText('Mark accepted')!.disabled).toBe(false);
+      expect(menuItemByText('Mark rejected')!.disabled).toBe(false);
     }));
 
     it('signals TabTitleService when a poll observes a transition to paused while backgrounded', fakeAsync(() => {

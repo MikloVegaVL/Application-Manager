@@ -1,14 +1,10 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Router, RouterLink } from '@angular/router';
+import { Router } from '@angular/router';
 import { catchError, of, switchMap, takeUntil, takeWhile, timer } from 'rxjs';
 
 import { MatButtonModule } from '@angular/material/button';
-import { MatButtonToggleModule } from '@angular/material/button-toggle';
-import { MatCardModule } from '@angular/material/card';
-import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatChipsModule } from '@angular/material/chips';
 import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
@@ -24,9 +20,20 @@ import { JobService, jobSaveConflictId } from '../../core/services/job.service';
 import { TabTitleService } from '../../core/services/tab-title.service';
 import { sourceLabel as getSourceLabel } from '../../core/utils/source-label.util';
 import {
+  CompactCardComponent,
+  CompactCardDetailRowItem,
+  CompactCardMenuItem,
+  CompactCardViewModel,
+  InlineAttentionDirective,
+} from '../../shared/compact-card/compact-card.component';
+import {
   AddJobOfferDialogComponent,
   AddJobOfferDialogResult,
 } from './add-job-offer-dialog/add-job-offer-dialog.component';
+import {
+  StartPortalFillDialogComponent,
+  StartPortalFillDialogResult,
+} from './start-portal-fill-dialog/start-portal-fill-dialog.component';
 
 type AutomationState = PortalFillStatus['automation_state'];
 
@@ -95,12 +102,9 @@ type ApplicationFilter = 'all' | ApplicationStatus;
   selector: 'app-applications',
   standalone: true,
   imports: [
-    RouterLink,
+    CompactCardComponent,
+    InlineAttentionDirective,
     MatButtonModule,
-    MatButtonToggleModule,
-    MatCardModule,
-    MatCheckboxModule,
-    MatChipsModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
@@ -219,14 +223,6 @@ export class ApplicationsComponent implements OnInit {
 
   onFilterChange(filter: ApplicationFilter): void {
     this.filter.set(filter);
-  }
-
-  isDeleting(application: Application): boolean {
-    return this.deletingId() === application.id;
-  }
-
-  isUpdatingStatus(application: Application): boolean {
-    return this.updatingStatusId() === application.id;
   }
 
   /** Speichert eine per selektierbarem Label gewählte Zusage/Absage sofort im Backend. */
@@ -613,5 +609,128 @@ export class ApplicationsComponent implements OnInit {
         this.pollPortalFillPhase(applicationId, otherPhase);
       }
     });
+  }
+
+  // --- Compact card (U2) -------------------------------------------------
+
+  /** Memoized per-application view-models for `<app-compact-card>` (U2/R2/R6). A `computed()` keyed
+   * by application id - NOT a plain method invoked as `cardViewModel(application)` straight from the
+   * `@for` binding, which would build a fresh object every change-detection tick and defeat the
+   * child's `OnPush` (this matters: there's already a 5s poll for active auto-fill runs, see
+   * `pollPortalFillPhase`). Angular's `computed()` tracks every signal read during its synchronous
+   * evaluation transitively, so reading `filteredApplications()` and (via `buildCardViewModel()`'s
+   * calls into `automationState()`/`isPortalFillActive()`/`showPortalFillTrigger()`) `portalFillStatuses()`
+   * is enough for this to recompute exactly when either changes - not on every tick.
+   *
+   * `dismissedFailureIds()` is read explicitly below even though no view-model field reflects it: a
+   * dismiss click lands on content *projected* into `<app-compact-card>`, so it marks this (declaring)
+   * component dirty, not the OnPush `CompactCardComponent` hosting it - the inline-attention slot
+   * there only re-evaluates its `ContentChild` when `[viewModel]`/`[busy]` change reference. Without
+   * this read, the map (and every cached view-model's identity) wouldn't change on dismiss, the input
+   * binding would stay referentially equal, and the slot would go stale showing an empty wrapper. */
+  private readonly cardViewModelsById = computed(() => {
+    const applications = this.filteredApplications();
+    this.dismissedFailureIds();
+
+    const map = new Map<number, CompactCardViewModel>();
+    for (const application of applications) {
+      map.set(application.id, this.buildCardViewModel(application));
+    }
+    return map;
+  });
+
+  protected cardViewModel(application: Application): CompactCardViewModel {
+    return this.cardViewModelsById().get(application.id) ?? this.buildCardViewModel(application);
+  }
+
+  /** True while a request this card's primary action or `⋮` menu can trigger is in flight (R12) -
+   * "Open application" itself is a plain navigation link with no async step, so it never contributes. */
+  protected isCardBusy(application: Application): boolean {
+    return (
+      this.deletingId() === application.id ||
+      this.updatingStatusId() === application.id ||
+      this.portalFillStartingId() === application.id
+    );
+  }
+
+  /** Routes a `(menuItemClick)` id from `<app-compact-card>` to the existing handler - no behavior
+   * changes here (R8), only which UI element triggers it. */
+  protected onMenuAction(application: Application, itemId: string): void {
+    switch (itemId) {
+      case 'mark-accepted':
+        this.onStatusChange(application, 'accepted');
+        break;
+      case 'mark-rejected':
+        this.onStatusChange(application, 'rejected');
+        break;
+      case 'delete':
+        this.onDelete(application);
+        break;
+      case 'start-auto-fill':
+        this.openStartPortalFillDialog(application);
+        break;
+    }
+  }
+
+  /** R10: replaces the former always-visible inline URL/dry-run form with the shared dialog - the
+   * confirmed result still goes through the unchanged `onStartPortalFill` flow. */
+  private openStartPortalFillDialog(application: Application): void {
+    const dialogRef = this.dialog.open(StartPortalFillDialogComponent, { width: '480px' });
+    dialogRef.afterClosed().subscribe((result?: StartPortalFillDialogResult) => {
+      if (!result) {
+        return;
+      }
+      this.onStartPortalFill(application, result.url, result.dryRun);
+    });
+  }
+
+  private buildCardViewModel(application: Application): CompactCardViewModel {
+    const active = this.isPortalFillActive(application);
+    const activeReason = 'An auto-fill run is in progress for this application.';
+
+    const menuItems: CompactCardMenuItem[] = [
+      { id: 'mark-accepted', label: 'Mark accepted', icon: 'check', disabled: active, disabledReason: activeReason },
+      { id: 'mark-rejected', label: 'Mark rejected', icon: 'close', disabled: active, disabledReason: activeReason },
+      {
+        id: 'start-auto-fill',
+        label: 'Start auto-fill',
+        icon: 'smart_toy',
+        // R9: stays visible but disabled while active; also disabled once `submitted` - mirrors
+        // `showPortalFillTrigger()`, which hid the inline form in exactly those cases before.
+        disabled: !this.showPortalFillTrigger(application),
+        disabledReason: active
+          ? activeReason
+          : 'This application already has a submitted auto-fill run.',
+      },
+      { id: 'delete', label: 'Delete', icon: 'delete', disabled: active, disabledReason: activeReason },
+    ];
+
+    const detailRowItems: CompactCardDetailRowItem[] = application.sent_to_email
+      ? [{ label: `Sent to: ${application.sent_to_email}` }]
+      : [];
+
+    return {
+      title: application.job_offer.title,
+      company: application.job_offer.company,
+      location: application.job_offer.location ?? '',
+      // R1/R4: status (or, once `submitted`, its confirmation copy) plus source - capped at 2 by the
+      // shared card itself.
+      chips: [{ label: this.statusChipLabel(application) }, { label: this.sourceLabel(application.job_offer.source_platform) }],
+      primaryAction: {
+        label: 'Open application',
+        link: { routerLink: ['/editor', application.job_offer.id] },
+      },
+      menuItems,
+      detailRowItems,
+    };
+  }
+
+  /** R4: on `submitted`, the status chip's content becomes the submitted confirmation (same copy the
+   * old full banner used) instead of the plain status label - never a third chip. */
+  private statusChipLabel(application: Application): string {
+    if (this.automationState(application) === 'submitted') {
+      return `Submitted via portal on ${this.submittedDateLabel(application)}`;
+    }
+    return this.statusLabel(application.status);
   }
 }
