@@ -75,126 +75,7 @@
 }
 
 .application-card {
-  display: flex;
-  flex-direction: column;
-
-  &__status--sent,
-  &__status--accepted {
-    background-color: var(--app-success);
-    color: var(--app-on-success);
-  }
-
-  &__status--rejected {
-    background-color: var(--app-error);
-    color: var(--app-on-error);
-  }
-
-  &__meta {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-
-  &__outcome {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  &__outcome-label {
-    color: var(--app-muted-text);
-    font-size: 0.8125rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  &__outcome-options {
-    // Kompaktere Segmented-Control für die Ergebnis-Auswahl (Zusage/Absage).
-    --mat-standard-button-toggle-height: 32px;
-    --mat-standard-button-toggle-label-text-size: 0.8125rem;
-    --mat-standard-button-toggle-label-text-line-height: 1rem;
-    --mat-standard-button-toggle-shape: 16px;
-
-    ::ng-deep .mat-button-toggle-label-content {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 0 10px;
-    }
-
-    mat-icon {
-      font-size: 16px;
-      width: 16px;
-      height: 16px;
-    }
-  }
-
-  &__outcome-accept.mat-button-toggle-checked {
-    --mat-standard-button-toggle-selected-state-background-color: var(--app-success);
-    --mat-standard-button-toggle-selected-state-text-color: var(--app-on-success);
-  }
-
-  &__outcome-reject.mat-button-toggle-checked {
-    --mat-standard-button-toggle-selected-state-background-color: var(--app-error);
-    --mat-standard-button-toggle-selected-state-text-color: var(--app-on-error);
-  }
-
-  &__sent-to {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    max-width: 100%;
-    color: var(--app-secondary-text);
-    font-size: 0.8125rem;
-
-    mat-icon {
-      flex-shrink: 0;
-      width: 16px;
-      height: 16px;
-      font-size: 16px;
-      color: var(--app-muted-text);
-    }
-
-    span {
-      overflow-wrap: anywhere;
-    }
-  }
-
-  &__sent-to-label {
-    color: var(--app-muted-text);
-  }
-
-  &__actions {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: auto;
-  }
-
-  &__portal-fill {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-top: 12px;
-  }
-
-  &__portal-fill-trigger {
-    display: flex;
-    align-items: flex-start;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  &__portal-fill-url {
-    flex: 1 1 220px;
-  }
-
   &__portal-fill-running,
-  &__portal-fill-submitted,
   &__portal-fill-banner,
   &__portal-fill-failed {
     display: flex;
@@ -216,14 +97,9 @@
     }
   }
 
-  &__portal-fill-running,
-  &__portal-fill-submitted {
+  &__portal-fill-running {
     color: var(--app-muted-text);
     border: 1px solid var(--app-border, rgba(0, 0, 0, 0.12));
-  }
-
-  &__portal-fill-submitted mat-icon {
-    color: var(--app-success);
   }
 
   &__portal-fill-banner {
@@ -266,10 +142,6 @@
     color: var(--app-error);
     border: 1px solid var(--app-error);
     background-color: color-mix(in srgb, var(--app-error) 12%, transparent);
-  }
-
-  mat-card-content {
-    flex: 1;
   }
 }
 

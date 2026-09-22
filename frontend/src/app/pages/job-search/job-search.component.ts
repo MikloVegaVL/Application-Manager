@@ -5,7 +5,6 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 
 import { MatButtonModule } from '@angular/material/button';
-import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
@@ -23,6 +22,13 @@ import { JobSearchStateService } from '../../core/services/job-search-state.serv
 import { JobService, jobSaveConflictId } from '../../core/services/job.service';
 import { extractEmail } from '../../core/utils/email-extraction.util';
 import { sourceLabel as getSourceLabel } from '../../core/utils/source-label.util';
+import {
+  CompactCardChip,
+  CompactCardComponent,
+  CompactCardDetailRowItem,
+  CompactCardMenuItem,
+  CompactCardViewModel,
+} from '../../shared/compact-card/compact-card.component';
 
 @Component({
   selector: 'app-job-search',
@@ -30,13 +36,13 @@ import { sourceLabel as getSourceLabel } from '../../core/utils/source-label.uti
   imports: [
     ReactiveFormsModule,
     MatButtonModule,
-    MatCardModule,
     MatChipsModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
     MatProgressSpinnerModule,
     MatSelectModule,
+    CompactCardComponent,
   ],
   templateUrl: './job-search.component.html',
   styleUrl: './job-search.component.scss',
@@ -241,6 +247,127 @@ export class JobSearchComponent {
    * unverändert). */
   displayedRecipient(job: JobOffer): string | null {
     return this.applicationEmail(job) ?? this.recipientEmail(job);
+  }
+
+  /**
+   * Per-`source_url` view-models for the U4 card layout (R5/R6/R11/R12) -
+   * `computed()` rebuilds this `Map` only when a signal read while building
+   * it actually changes (`filteredResults`, `savedJobIds`,
+   * `savingSourceUrl`, `generatingSourceUrl`, `lookupLoadingUrls`, the
+   * state service's lookup-result cache). `cardViewModel()` below then only
+   * does a `Map` lookup per template call, returning the *same* object
+   * reference across change-detection ticks for an unaffected card - which
+   * is what lets `CompactCardComponent`'s `OnPush` skip re-rendering it.
+   * Calling `buildCardViewModel()` directly from the `@for` binding instead
+   * would allocate a fresh object every tick and defeat that.
+   */
+  private readonly cardViewModels = computed<Map<string, CompactCardViewModel>>(() => {
+    const map = new Map<string, CompactCardViewModel>();
+    for (const job of this.filteredResults()) {
+      map.set(job.source_url, this.buildCardViewModel(job));
+    }
+    return map;
+  });
+
+  cardViewModel(job: JobOffer): CompactCardViewModel {
+    return this.cardViewModels().get(job.source_url) ?? this.buildCardViewModel(job);
+  }
+
+  /** True while a request this card's primary action or `⋮` menu can
+   * trigger is in flight (R12) - "Open ad" and "Source of this address"
+   * are plain navigation links with no async step, so they never
+   * contribute. */
+  isCardBusy(job: JobOffer): boolean {
+    return this.isSaving(job) || this.isGenerating(job) || this.isLookingUp(job);
+  }
+
+  private buildCardViewModel(job: JobOffer): CompactCardViewModel {
+    const chips: CompactCardChip[] = [{ label: this.sourceLabel(job.source_platform) }];
+    const lookup = this.lookupResult(job);
+    if (lookup) {
+      chips.push({ label: this.lookupStatusChipLabel(lookup.status) });
+    }
+
+    const detailRowItems: CompactCardDetailRowItem[] = [];
+    const recipient = this.displayedRecipient(job);
+    if (recipient) {
+      detailRowItems.push({ label: `Recipient: ${recipient}` });
+    }
+
+    const menuItems: CompactCardMenuItem[] = [
+      {
+        id: 'open-ad',
+        label: 'Open ad',
+        icon: 'open_in_new',
+        link: { href: job.source_url, target: '_blank', rel: 'noopener noreferrer' },
+      },
+    ];
+    const sourceUrl = this.applicationEmailSourceUrl(job);
+    if (sourceUrl) {
+      // R11: mirrors the Applications sent-to-email placement, but as a real
+      // anchor (not the plain-text detail row above) since it navigates.
+      menuItems.push({
+        id: 'source-link',
+        label: 'Source of this address',
+        icon: 'open_in_new',
+        link: { href: sourceUrl, target: '_blank', rel: 'noopener noreferrer' },
+      });
+    }
+    menuItems.push({
+      id: 'save-job',
+      label: this.isSaved(job) ? 'Saved' : 'Save job',
+      icon: this.isSaved(job) ? 'bookmark_added' : 'bookmark_add',
+      disabled: this.isSaved(job) || this.isSaving(job),
+    });
+    // R8: keep the existing `extractEmail` gating for "Find email (again)"
+    // untouched - it stays keyed off `recipientEmail()`, not lookup state.
+    if (!this.recipientEmail(job)) {
+      menuItems.push({
+        id: 'find-email',
+        label: lookup ? 'Find email again' : 'Find email',
+        icon: 'travel_explore',
+        disabled: this.isLookingUp(job),
+      });
+    }
+
+    return {
+      title: job.title,
+      company: job.company,
+      location: job.location ?? '',
+      chips,
+      snippet: job.description_text || 'No description available.',
+      primaryAction: {
+        label: 'Generate application',
+        disabled: this.isGenerating(job),
+      },
+      menuItems,
+      detailRowItems,
+    };
+  }
+
+  private lookupStatusChipLabel(status: ApplicationEmailLookupResult['status']): string {
+    switch (status) {
+      case 'found':
+        return 'Application email found';
+      case 'not-found':
+        return 'No application email found';
+      case 'failed':
+        return "Couldn't reach the employer's site — try again";
+    }
+  }
+
+  /** Routes a `⋮` menu selection (id from `CompactCardMenuItem.id`) to the
+   * existing handler - "Open ad" and "Source of this address" need none,
+   * they navigate natively via the view-model's `link`. */
+  onMenuAction(job: JobOffer, itemId: string): void {
+    switch (itemId) {
+      case 'save-job':
+        this.onSaveJob(job);
+        break;
+      case 'find-email':
+        this.onFindApplicationEmail(job);
+        break;
+    }
   }
 
   /**

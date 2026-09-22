@@ -1,0 +1,138 @@
+<article class="compact-card">
+  <header class="compact-card__header">
+    <div class="compact-card__heading">
+      <h3 class="compact-card__title">{{ viewModel.title }}</h3>
+      <p class="compact-card__company">{{ viewModel.company }}</p>
+      @if (viewModel.location) {
+        <p class="compact-card__location">{{ viewModel.location }}</p>
+      }
+    </div>
+
+    @if (busy) {
+      <span class="compact-card__busy" aria-live="polite" aria-label="Busy">
+        <mat-progress-spinner
+          class="compact-card__busy-spinner"
+          diameter="16"
+          strokeWidth="2"
+          mode="indeterminate"
+        ></mat-progress-spinner>
+      </span>
+    }
+  </header>
+
+  @if (visibleChips.length > 0) {
+    <div class="compact-card__chips">
+      @for (chip of visibleChips; track chip.label) {
+        <span class="compact-card__chip">{{ chip.label }}</span>
+      }
+    </div>
+  }
+
+  @if (hasInlineAttention) {
+    <div class="compact-card__inline-attention">
+      <ng-content select="[inlineAttention]"></ng-content>
+    </div>
+  }
+
+  @if (viewModel.snippet) {
+    <p class="compact-card__snippet">{{ viewModel.snippet }}</p>
+  }
+
+  <div class="compact-card__actions">
+    @if (viewModel.primaryAction.link; as link) {
+      @if (link.routerLink) {
+        <a
+          class="compact-card__primary-action"
+          mat-flat-button
+          color="primary"
+          [routerLink]="link.routerLink"
+          [attr.aria-disabled]="isPrimaryActionDisabled ? 'true' : null"
+          [class.compact-card__primary-action--disabled]="isPrimaryActionDisabled"
+          (click)="onPrimaryActionLinkClick($event)"
+        >{{ viewModel.primaryAction.label }}</a>
+      } @else {
+        <a
+          class="compact-card__primary-action"
+          mat-flat-button
+          color="primary"
+          [href]="link.href"
+          [target]="link.target ?? null"
+          [rel]="link.rel ?? null"
+          [attr.aria-disabled]="isPrimaryActionDisabled ? 'true' : null"
+          [class.compact-card__primary-action--disabled]="isPrimaryActionDisabled"
+          (click)="onPrimaryActionLinkClick($event)"
+        >{{ viewModel.primaryAction.label }}</a>
+      }
+    } @else {
+      <button
+        class="compact-card__primary-action"
+        mat-flat-button
+        color="primary"
+        type="button"
+        [disabled]="isPrimaryActionDisabled"
+        (click)="onPrimaryActionClick()"
+      >{{ viewModel.primaryAction.label }}</button>
+    }
+
+    <button
+      class="compact-card__menu-trigger"
+      mat-icon-button
+      type="button"
+      aria-label="More actions"
+      [disabled]="busy"
+      [matMenuTriggerFor]="menu"
+    >
+      <mat-icon>more_vert</mat-icon>
+    </button>
+
+    <mat-menu #menu="matMenu">
+      @for (detail of viewModel.detailRowItems ?? []; track detail.label) {
+        <div class="compact-card__menu-detail-row">{{ detail.label }}</div>
+      }
+
+      @for (item of viewModel.menuItems ?? []; track item.id) {
+        @if (item.link && !item.disabled) {
+          @if (item.link.routerLink) {
+            <a mat-menu-item [routerLink]="item.link.routerLink">
+              @if (item.icon) {
+                <mat-icon>{{ item.icon }}</mat-icon>
+              }
+              <span>{{ item.label }}</span>
+            </a>
+          } @else {
+            <a
+              mat-menu-item
+              [href]="item.link.href"
+              [target]="item.link.target ?? null"
+              [rel]="item.link.rel ?? null"
+            >
+              @if (item.icon) {
+                <mat-icon>{{ item.icon }}</mat-icon>
+              }
+              <span>{{ item.label }}</span>
+            </a>
+          }
+        } @else {
+          <span
+            class="compact-card__menu-item-wrap"
+            [attr.aria-disabled]="item.disabled ? 'true' : null"
+            [matTooltip]="item.disabledReason ?? ''"
+            [matTooltipDisabled]="!item.disabled || !item.disabledReason"
+          >
+            <button
+              mat-menu-item
+              type="button"
+              [class.compact-card__menu-item--disabled]="item.disabled"
+              (click)="onMenuItemClick(item)"
+            >
+              @if (item.icon) {
+                <mat-icon>{{ item.icon }}</mat-icon>
+              }
+              <span>{{ item.label }}</span>
+            </button>
+          </span>
+        }
+      }
+    </mat-menu>
+  </div>
+</article>

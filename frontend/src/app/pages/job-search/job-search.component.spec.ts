@@ -13,6 +13,12 @@ import {
   JobSearchResponse,
 } from '../../core/models/job-offer.model';
 import { JobSearchStateService } from '../../core/services/job-search-state.service';
+import {
+  cleanupCompactCardOverlays,
+  findCompactCardMenuItem,
+  isCompactCardMenuItemDisabled,
+  openCompactCardMenu,
+} from '../../shared/compact-card/compact-card-test-helpers';
 import { environment } from '../../../environments/environment';
 
 describe('JobSearchComponent', () => {
@@ -34,7 +40,38 @@ describe('JobSearchComponent', () => {
 
   afterEach(() => {
     httpMock.verify();
+    cleanupCompactCardOverlays();
   });
+
+  /** Opens the compact card's `⋮` menu (single-card fixtures only). */
+  const openCardMenu = () => openCompactCardMenu(fixture);
+
+  const cardMenuItemByText = findCompactCardMenuItem;
+
+  function cardMenuDetailRowText(): string {
+    return Array.from(document.querySelectorAll('.compact-card__menu-detail-row'))
+      .map((row) => row.textContent ?? '')
+      .join(' ');
+  }
+
+  async function settle(): Promise<void> {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  /** Opens the menu, clicks the item whose text includes `text`, and settles -
+   * the menu is expected closed beforehand (it auto-closes on selection, so
+   * chaining calls of this is safe). */
+  async function clickCardMenuItem(text: string): Promise<void> {
+    await openCardMenu();
+    const item = cardMenuItemByText(text);
+    if (!item) {
+      throw new Error(`Menu item containing "${text}" not found`);
+    }
+    item.click();
+    await settle();
+  }
 
   it('should create', () => {
     expect(component).toBeTruthy();
@@ -474,8 +511,8 @@ describe('JobSearchComponent', () => {
     expect(component['sourceStatuses']().length).toBe(0);
   });
 
-  describe('recipient email on the result card', () => {
-    it('shows the recipient email extracted from the job description', () => {
+  describe('recipient email on the result card (U4: rendered as a ⋮ menu detail row)', () => {
+    it('shows the recipient email extracted from the job description as a menu detail row', async () => {
       triggerSearch();
       flushSearch({
         results: [
@@ -491,12 +528,14 @@ describe('JobSearchComponent', () => {
         sources: [{ platform: 'arbeitsagentur', status: 'ok', reason: null }],
       });
 
-      const text = fixture.nativeElement.textContent as string;
-      expect(text).toContain('Recipient');
-      expect(text).toContain('bewerbung@acme.example');
+      await openCardMenu();
+      expect(cardMenuDetailRowText()).toContain('bewerbung@acme.example');
+      // extractEmail() already found an address - the "Find email" action
+      // must not offer to look one up (R8: gating unchanged).
+      expect(cardMenuItemByText('Find email')).toBeNull();
     });
 
-    it('shows a placeholder when the description has no email address', () => {
+    it('shows no recipient detail row and offers "Find email" when the description has no email address', async () => {
       triggerSearch();
       flushSearch({
         results: [
@@ -512,9 +551,9 @@ describe('JobSearchComponent', () => {
         sources: [{ platform: 'arbeitsagentur', status: 'ok', reason: null }],
       });
 
-      const text = fixture.nativeElement.textContent as string;
-      expect(text).toContain('Recipient');
-      expect(text).toContain('—');
+      await openCardMenu();
+      expect(cardMenuDetailRowText()).toBe('');
+      expect(cardMenuItemByText('Find email')).toBeTruthy();
     });
   });
 
@@ -746,7 +785,7 @@ describe('JobSearchComponent', () => {
     });
   });
 
-  describe('application-email lookup action', () => {
+  describe('application-email lookup action (U4: "Find email"/"Find email again" in the ⋮ menu)', () => {
     const lookupUrl = `${environment.apiBaseUrl}/jobs/application-email-lookup`;
 
     function flushJobSearch(descriptionText: string | null): void {
@@ -766,13 +805,10 @@ describe('JobSearchComponent', () => {
       });
     }
 
-    function findEmailButton() {
-      return fixture.debugElement.query(By.css('.job-card__find-email-btn'));
-    }
-
-    function clickFindEmail(): void {
-      (findEmailButton().nativeElement as HTMLButtonElement).click();
-      fixture.detectChanges();
+    function chipsText(): string {
+      return Array.from(fixture.nativeElement.querySelectorAll('.compact-card__chip'))
+        .map((chip) => chip.textContent)
+        .join(' ');
     }
 
     function flushLookup(result: ApplicationEmailLookupResult) {
@@ -783,99 +819,112 @@ describe('JobSearchComponent', () => {
       return req;
     }
 
-    it('Covers R1, R7: renders the returned address and its source link', () => {
+    it('Covers R1, R7, R11: renders the returned address as a detail row and its source link as a real anchor', async () => {
       flushJobSearch('Wir suchen eine Softwareentwicklerin (m/w/d).');
-      expect(findEmailButton()).toBeTruthy();
+      await openCardMenu();
+      const findEmailItem = cardMenuItemByText('Find email');
+      expect(findEmailItem).toBeTruthy();
+      (findEmailItem as HTMLElement).click();
+      await settle();
 
-      clickFindEmail();
       flushLookup({
         status: 'found',
         email: 'bewerbung@acme.example',
         source_url: 'https://acme.example/karriere',
       });
 
-      const text = fixture.nativeElement.textContent as string;
-      expect(text).toContain('bewerbung@acme.example');
-      expect(text).toContain('Source of this address');
+      await openCardMenu();
+      expect(cardMenuDetailRowText()).toContain('bewerbung@acme.example');
 
-      const link = fixture.debugElement.query(By.css('.job-card__recipient-source'));
-      expect(link.nativeElement.getAttribute('href')).toBe('https://acme.example/karriere');
-      expect(link.nativeElement.getAttribute('target')).toBe('_blank');
-      expect(link.nativeElement.getAttribute('rel')).toBe('noopener noreferrer');
+      const link = cardMenuItemByText('Source of this address') as HTMLAnchorElement;
+      expect(link).toBeTruthy();
+      expect(link.tagName).toBe('A');
+      expect(link.getAttribute('href')).toBe('https://acme.example/karriere');
+      expect(link.getAttribute('target')).toBe('_blank');
+      expect(link.getAttribute('rel')).toBe('noopener noreferrer');
     });
 
-    it('Covers R2, R12: the action is absent when the posting text already yields an address', () => {
+    it('Covers R2, R12: the "Find email" action is absent when the posting text already yields an address', async () => {
       flushJobSearch('Bitte sende deine Bewerbung an bewerbung@acme.example.');
 
-      expect(findEmailButton()).toBeFalsy();
+      await openCardMenu();
+      expect(cardMenuItemByText('Find email')).toBeFalsy();
       httpMock.expectNone((request) => request.url === lookupUrl);
     });
 
-    it('Covers R9: a not-found result renders the not-found state and keeps the placeholder', () => {
+    it('Covers R9: a not-found result renders the not-found state as a header chip', async () => {
       flushJobSearch('Wir suchen eine Softwareentwicklerin (m/w/d).');
-      clickFindEmail();
+      await clickCardMenuItem('Find email');
       flushLookup({ status: 'not-found' });
 
-      const text = fixture.nativeElement.textContent as string;
-      expect(text).toContain('No application email found');
-      expect(text).toContain('—');
-      expect(text).not.toContain("Couldn't reach the employer's site");
+      const chips = chipsText();
+      expect(chips).toContain('No application email found');
+      expect(chips).not.toContain("Couldn't reach the employer's site");
     });
 
-    it('Covers R9: a failed result renders the distinct failure copy', () => {
+    it('Covers R9: a failed result renders the distinct failure copy as a header chip', async () => {
       flushJobSearch('Wir suchen eine Softwareentwicklerin (m/w/d).');
-      clickFindEmail();
+      await clickCardMenuItem('Find email');
       flushLookup({ status: 'failed' });
 
-      const text = fixture.nativeElement.textContent as string;
-      expect(text).toContain("Couldn't reach the employer's site — try again");
-      expect(text).not.toContain('No application email found');
+      const chips = chipsText();
+      expect(chips).toContain("Couldn't reach the employer's site — try again");
+      expect(chips).not.toContain('No application email found');
     });
 
-    it('Covers A5: an HTTP error on the lookup maps to the distinct failure copy and re-enables the action', () => {
+    it('Covers A5: an HTTP error on the lookup maps to the distinct failure copy and re-enables the action', async () => {
       flushJobSearch('Wir suchen eine Softwareentwicklerin (m/w/d).');
-      clickFindEmail();
+      await clickCardMenuItem('Find email');
 
       const req = httpMock.expectOne((request) => request.url === lookupUrl);
       req.flush(null, { status: 500, statusText: 'Internal Server Error' });
       fixture.detectChanges();
 
-      const text = fixture.nativeElement.textContent as string;
-      expect(text).toContain("Couldn't reach the employer's site — try again");
-      expect(text).not.toContain('No application email found');
-      expect((findEmailButton().nativeElement as HTMLButtonElement).disabled).toBeFalse();
+      const chips = chipsText();
+      expect(chips).toContain("Couldn't reach the employer's site — try again");
+      expect(chips).not.toContain('No application email found');
+
+      const trigger = fixture.nativeElement.querySelector('.compact-card__menu-trigger') as HTMLButtonElement;
+      expect(trigger.disabled).toBeFalse();
+
+      await openCardMenu();
+      expect(isCompactCardMenuItemDisabled(cardMenuItemByText('Find email')!)).toBe(false);
     });
 
-    it('Covers R11: a re-run can be triggered after an address is already displayed', () => {
+    it('Covers R11: a re-run can be triggered after an address is already displayed, even though the item stays (existing gating preserved)', async () => {
       flushJobSearch('Wir suchen eine Softwareentwicklerin (m/w/d).');
-      clickFindEmail();
+      await clickCardMenuItem('Find email');
       flushLookup({
         status: 'found',
         email: 'bewerbung@acme.example',
         source_url: 'https://acme.example/karriere',
       });
 
-      expect(findEmailButton().nativeElement.textContent).toContain('Find email again');
+      await openCardMenu();
+      const rerunItem = cardMenuItemByText('Find email again');
+      expect(rerunItem).toBeTruthy();
+      (rerunItem as HTMLElement).click();
+      await settle();
 
-      clickFindEmail();
       flushLookup({
         status: 'found',
         email: 'jobs@acme.example',
         source_url: 'https://acme.example/jobs',
       });
 
-      const text = fixture.nativeElement.textContent as string;
-      expect(text).toContain('jobs@acme.example');
-      expect(text).not.toContain('bewerbung@acme.example');
+      await openCardMenu();
+      const detailText = cardMenuDetailRowText();
+      expect(detailText).toContain('jobs@acme.example');
+      expect(detailText).not.toContain('bewerbung@acme.example');
     });
 
-    it('Covers R11: a re-run sends force=true in the lookup payload so the backend re-scrapes', () => {
+    it('Covers R11: a re-run sends force=true in the lookup payload so the backend re-scrapes', async () => {
       flushJobSearch('Wir suchen eine Softwareentwicklerin (m/w/d).');
-      clickFindEmail();
+      await clickCardMenuItem('Find email');
       const firstReq = flushLookup({ status: 'not-found' });
       expect(firstReq.request.body.force).toBeFalse();
 
-      clickFindEmail();
+      await clickCardMenuItem('Find email again');
       const rerunReq = flushLookup({
         status: 'found',
         email: 'jobs@acme.example',
@@ -884,9 +933,9 @@ describe('JobSearchComponent', () => {
       expect(rerunReq.request.body.force).toBeTrue();
     });
 
-    it('Covers KTD7/A1: saving after a successful lookup sends the cached address and its source url', () => {
+    it('Covers KTD7/A1: saving after a successful lookup sends the cached address and its source url', async () => {
       flushJobSearch('Wir suchen eine Softwareentwicklerin (m/w/d).');
-      clickFindEmail();
+      await clickCardMenuItem('Find email');
       flushLookup({
         status: 'found',
         email: 'bewerbung@acme.example',
@@ -902,17 +951,108 @@ describe('JobSearchComponent', () => {
       saveReq.flush({ ...job, id: 1, created_at: new Date().toISOString(), is_processed: false });
     });
 
-    it('Loading: the action is disabled and a spinner shows while the request is in flight', () => {
+    it('Covers R12: the busy indicator shows and the primary action + ⋮ trigger disable while the lookup is in flight', async () => {
       flushJobSearch('Wir suchen eine Softwareentwicklerin (m/w/d).');
-      clickFindEmail();
+      await openCardMenu();
+      const item = cardMenuItemByText('Find email') as HTMLButtonElement;
+      item.click();
+      fixture.detectChanges();
 
-      const button = findEmailButton().nativeElement as HTMLButtonElement;
-      expect(button.disabled).toBeTrue();
-      expect(button.querySelector('mat-progress-spinner')).toBeTruthy();
+      const trigger = fixture.nativeElement.querySelector('.compact-card__menu-trigger') as HTMLButtonElement;
+      const primaryButton = fixture.nativeElement.querySelector(
+        '.compact-card__primary-action',
+      ) as HTMLButtonElement;
+      expect(trigger.disabled).toBeTrue();
+      expect(primaryButton.disabled).toBeTrue();
+      expect(fixture.nativeElement.querySelector('.compact-card__busy')).toBeTruthy();
 
       flushLookup({ status: 'not-found' });
 
-      expect((findEmailButton().nativeElement as HTMLButtonElement).disabled).toBeFalse();
+      expect(
+        (fixture.nativeElement.querySelector('.compact-card__menu-trigger') as HTMLButtonElement).disabled,
+      ).toBeFalse();
+      expect(fixture.nativeElement.querySelector('.compact-card__busy')).toBeFalsy();
+    });
+  });
+
+  describe('compact card layout (U4)', () => {
+    function flushSingleJob(overrides: Partial<{ description_text: string | null }> = {}) {
+      triggerSearch();
+      flushSearch({
+        results: [
+          {
+            title: 'Angular Developer',
+            company: 'Acme',
+            location: 'Berlin',
+            source_url: 'https://example.com/job/1',
+            description_text: overrides.description_text ?? 'Bitte sende deine Bewerbung an bewerbung@acme.example.',
+            source_platform: 'arbeitsagentur',
+          },
+        ],
+        sources: [{ platform: 'arbeitsagentur', status: 'ok', reason: null }],
+      });
+      return component['results']()[0];
+    }
+
+    it('Covers R5, R6: shows the snippet, source chip and "Generate application" as the sole primary action', () => {
+      flushSingleJob();
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain('bewerbung@acme.example');
+      // The chip uses the friendly source label (sourceLabel()), same as the
+      // existing source-filter chips - not the raw platform key.
+      expect(text).toContain('Arbeitsagentur');
+
+      const primaryButton = fixture.nativeElement.querySelector(
+        '.compact-card__primary-action',
+      ) as HTMLButtonElement;
+      expect(primaryButton.textContent).toContain('Generate application');
+    });
+
+    it('Covers R6, R8: clicking the primary action calls onGenerateApplication unchanged and disables while generating', () => {
+      const job = flushSingleJob();
+      const router = TestBed.inject(Router);
+      spyOn(router, 'navigate').and.resolveTo(true);
+      spyOn(component, 'onGenerateApplication').and.callThrough();
+
+      const primaryButton = fixture.nativeElement.querySelector(
+        '.compact-card__primary-action',
+      ) as HTMLButtonElement;
+      primaryButton.click();
+      fixture.detectChanges();
+
+      expect(component.onGenerateApplication).toHaveBeenCalledWith(job);
+      expect(primaryButton.disabled).toBeTrue();
+
+      httpMock
+        .expectOne((request) => request.url === `${environment.apiBaseUrl}/jobs/save`)
+        .flush({ ...job, id: 3, created_at: new Date().toISOString(), is_processed: false });
+    });
+
+    it('Covers R6: selecting "Save job" from the menu calls onSaveJob, removing the card on success (unchanged)', async () => {
+      const job = flushSingleJob();
+      spyOn(component, 'onSaveJob').and.callThrough();
+
+      await clickCardMenuItem('Save job');
+
+      expect(component.onSaveJob).toHaveBeenCalledWith(job);
+
+      httpMock
+        .expectOne((request) => request.url === `${environment.apiBaseUrl}/jobs/save`)
+        .flush({ ...job, id: 4, created_at: new Date().toISOString(), is_processed: false });
+
+      expect(component['results']().length).toBe(0);
+    });
+
+    it('Covers R6: "Open ad" renders as a native anchor to job.source_url, unchanged', async () => {
+      const job = flushSingleJob();
+
+      await openCardMenu();
+      const link = cardMenuItemByText('Open ad') as HTMLAnchorElement;
+      expect(link.tagName).toBe('A');
+      expect(link.getAttribute('href')).toBe(job.source_url);
+      expect(link.getAttribute('target')).toBe('_blank');
+      expect(link.getAttribute('rel')).toBe('noopener noreferrer');
     });
   });
 });
