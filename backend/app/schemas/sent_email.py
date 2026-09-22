@@ -1,9 +1,12 @@
 """Pydantic-Schemas für protokollierte Bewerbungsmail-Versände (`SentEmail`)."""
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
 __all__ = ["SentEmailRead"]
+
+SentEmailOutcome = Literal["offer", "rejection", "pending"]
 
 
 class SentEmailRead(BaseModel):
@@ -24,7 +27,7 @@ class SentEmailRead(BaseModel):
     application_id: int | None
     job_offer_id: int | None
     ad_url: str | None
-    outcome: str
+    outcome: SentEmailOutcome
     company: str | None
     job_title: str | None
     source_platform: str | None
@@ -45,4 +48,4 @@ class SentEmailFilter(BaseModel):
     sender_email: str | None = None
     date_from: date | None = None
     date_to: date | None = None
-    outcome: str | None = None
+    outcome: SentEmailOutcome | None = None

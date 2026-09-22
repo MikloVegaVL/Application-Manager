@@ -407,6 +407,15 @@ def test_entry_with_deleted_application_has_outcome_pending(client, db_session_l
 # --- outcome filter (U3, R5) --------------------------------------------
 
 
+def test_filter_by_invalid_outcome_value_returns_422(client) -> None:
+    """Regression: `outcome` is typed `Literal["offer", "rejection", "pending"]`
+    (review finding), so an unrecognized value must be rejected by FastAPI/
+    Pydantic instead of silently falling into the "pending" branch."""
+    response = client.get("/api/sent-emails", params={"outcome": "bogus"})
+
+    assert response.status_code == 422
+
+
 def test_filter_by_outcome_rejection_returns_only_rejected_entries(client, db_session_local) -> None:
     """Covers AE5."""
     session = db_session_local()
