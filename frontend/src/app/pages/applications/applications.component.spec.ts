@@ -356,6 +356,18 @@ describe('ApplicationsComponent', () => {
       expect(anchor.getAttribute('href')).toContain('/editor/42');
     });
 
+    it('adds "Open ad" to the ⋮ menu as a native anchor to the job offer source URL, mirroring Job search', async () => {
+      flushList([sentApplication]);
+
+      await toggleCardMenu(fixture);
+      const link = menuItemByText('Open ad') as unknown as HTMLAnchorElement;
+
+      expect(link.tagName).toBe('A');
+      expect(link.getAttribute('href')).toBe(sentApplication.job_offer.source_url);
+      expect(link.getAttribute('target')).toBe('_blank');
+      expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    });
+
     it('Covers R2: routes "Mark accepted" / "Mark rejected" menu selections to onStatusChange with the same arguments as today', async () => {
       flushList([sentApplication]);
       const statusSpy = vi.spyOn(component, 'onStatusChange').mockImplementation(() => {});

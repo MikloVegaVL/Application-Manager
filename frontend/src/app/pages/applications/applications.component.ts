@@ -644,7 +644,8 @@ export class ApplicationsComponent implements OnInit {
   }
 
   /** True while a request this card's primary action or `⋮` menu can trigger is in flight (R12) -
-   * "Open application" itself is a plain navigation link with no async step, so it never contributes. */
+   * "Open application" and "Open ad" are plain navigation links with no async step, so they never
+   * contribute. */
   protected isCardBusy(application: Application): boolean {
     return (
       this.deletingId() === application.id ||
@@ -689,6 +690,12 @@ export class ApplicationsComponent implements OnInit {
     const activeReason = 'An auto-fill run is in progress for this application.';
 
     const menuItems: CompactCardMenuItem[] = [
+      {
+        id: 'open-ad',
+        label: 'Open ad',
+        icon: 'open_in_new',
+        link: { href: application.job_offer.source_url, target: '_blank', rel: 'noopener noreferrer' },
+      },
       { id: 'mark-accepted', label: 'Mark accepted', icon: 'check', disabled: active, disabledReason: activeReason },
       { id: 'mark-rejected', label: 'Mark rejected', icon: 'close', disabled: active, disabledReason: activeReason },
       {
