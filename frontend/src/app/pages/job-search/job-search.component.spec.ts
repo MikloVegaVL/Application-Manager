@@ -13,6 +13,11 @@ import {
   JobSearchResponse,
 } from '../../core/models/job-offer.model';
 import { JobSearchStateService } from '../../core/services/job-search-state.service';
+import {
+  cleanupCompactCardOverlays,
+  findCompactCardMenuItem,
+  openCompactCardMenu,
+} from '../../shared/compact-card/compact-card-test-helpers';
 import { environment } from '../../../environments/environment';
 
 describe('JobSearchComponent', () => {
@@ -34,30 +39,13 @@ describe('JobSearchComponent', () => {
 
   afterEach(() => {
     httpMock.verify();
-    // The `⋮` menu is portaled to document.body via the CDK overlay (see
-    // CompactCardComponent) - clean up between tests so a leftover open
-    // menu from a previous test can't be picked up by the next one.
-    document.querySelectorAll('.cdk-overlay-container').forEach((el) => el.remove());
+    cleanupCompactCardOverlays();
   });
 
-  /** Opens the compact card's `⋮` menu (single-card fixtures only) and
-   * waits for the CDK overlay to render, mirroring
-   * `compact-card.component.spec.ts`'s `openMenu` helper. */
-  async function openCardMenu(): Promise<void> {
-    const trigger = fixture.nativeElement.querySelector(
-      '.compact-card__menu-trigger',
-    ) as HTMLButtonElement;
-    trigger.click();
-    fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
-  }
+  /** Opens the compact card's `⋮` menu (single-card fixtures only). */
+  const openCardMenu = () => openCompactCardMenu(fixture);
 
-  /** Finds an open menu's item (button or anchor) whose text includes `text`. */
-  function cardMenuItemByText(text: string): HTMLElement | null {
-    const items = Array.from(document.querySelectorAll('.mat-mdc-menu-item')) as HTMLElement[];
-    return items.find((item) => item.textContent?.includes(text)) ?? null;
-  }
+  const cardMenuItemByText = findCompactCardMenuItem;
 
   function cardMenuDetailRowText(): string {
     return Array.from(document.querySelectorAll('.compact-card__menu-detail-row'))

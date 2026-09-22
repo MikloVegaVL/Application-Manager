@@ -25,6 +25,11 @@ import {
   StartPortalFillDialogComponent,
   StartPortalFillDialogResult,
 } from './start-portal-fill-dialog/start-portal-fill-dialog.component';
+import {
+  cleanupCompactCardOverlays,
+  findCompactCardMenuItem,
+  openCompactCardMenu,
+} from '../../shared/compact-card/compact-card-test-helpers';
 import { environment } from '../../../environments/environment';
 
 /** Ersetzt `MatDialog.open()` durch einen Fake, der sofort mit `result` schließt. */
@@ -38,15 +43,9 @@ function spyOnAddJobOfferDialog(
   return spyOn(component['dialog'], 'open').and.returnValue(fakeDialogRef);
 }
 
-/** Toggles the ⋮ menu of the (only) rendered compact card - mirrors CompactCardComponent's own spec.
- * The trigger button itself toggles open/closed, so this doubles as `openCardMenu`/`closeCardMenu`. */
-async function toggleCardMenu(fixture: ComponentFixture<unknown>): Promise<void> {
-  const trigger = fixture.nativeElement.querySelector('.compact-card__menu-trigger') as HTMLButtonElement;
-  trigger.click();
-  fixture.detectChanges();
-  await fixture.whenStable();
-  fixture.detectChanges();
-}
+/** Toggles the ⋮ menu of the (only) rendered compact card - the trigger button
+ * itself toggles open/closed, so this doubles as `openCardMenu`/`closeCardMenu`. */
+const toggleCardMenu = openCompactCardMenu;
 
 /** Same as `toggleCardMenu`, but for use inside `fakeAsync` - `await`ing a real Promise there breaks
  * the fake zone, so this flushes microtasks with `tick()` instead of `whenStable()`. */
@@ -58,11 +57,8 @@ function toggleCardMenuInFakeAsync(fixture: ComponentFixture<unknown>): void {
   fixture.detectChanges();
 }
 
-/** The `⋮` menu is portaled to `document.body` via the CDK overlay (see CompactCardComponent spec). */
 function menuItemByText(label: string): HTMLButtonElement | undefined {
-  return Array.from(document.querySelectorAll<HTMLButtonElement>('.mat-mdc-menu-item')).find((item) =>
-    item.textContent?.includes(label),
-  );
+  return (findCompactCardMenuItem(label) as HTMLButtonElement | null) ?? undefined;
 }
 
 const manualDialogResult: AddJobOfferDialogResult = {
@@ -92,7 +88,7 @@ describe('ApplicationsComponent', () => {
 
   afterEach(() => {
     httpMock.verify();
-    document.querySelectorAll('.cdk-overlay-container').forEach((el) => el.remove());
+    cleanupCompactCardOverlays();
   });
 
   function flushList(applications: Application[]): void {

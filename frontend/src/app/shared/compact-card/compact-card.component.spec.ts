@@ -8,6 +8,7 @@ import {
   CompactCardViewModel,
   InlineAttentionDirective,
 } from './compact-card.component';
+import { cleanupCompactCardOverlays, openCompactCardMenu } from './compact-card-test-helpers';
 
 function baseViewModel(overrides: Partial<CompactCardViewModel> = {}): CompactCardViewModel {
   return {
@@ -17,14 +18,6 @@ function baseViewModel(overrides: Partial<CompactCardViewModel> = {}): CompactCa
     primaryAction: { label: 'Generate letter' },
     ...overrides,
   };
-}
-
-async function openMenu(fixture: ComponentFixture<unknown>): Promise<void> {
-  const trigger = fixture.nativeElement.querySelector('.compact-card__menu-trigger') as HTMLButtonElement;
-  trigger.click();
-  fixture.detectChanges();
-  await fixture.whenStable();
-  fixture.detectChanges();
 }
 
 describe('CompactCardComponent', () => {
@@ -41,7 +34,7 @@ describe('CompactCardComponent', () => {
   });
 
   afterEach(() => {
-    document.querySelectorAll('.cdk-overlay-container').forEach((el) => el.remove());
+    cleanupCompactCardOverlays();
   });
 
   function setViewModel(viewModel: CompactCardViewModel, busy = false): void {
@@ -125,7 +118,7 @@ describe('CompactCardComponent', () => {
       }),
     );
 
-    await openMenu(fixture);
+    await openCompactCardMenu(fixture);
 
     const menuItem = document.querySelector('.mat-mdc-menu-item') as HTMLButtonElement;
     expect(menuItem).toBeTruthy();
@@ -152,7 +145,7 @@ describe('CompactCardComponent', () => {
       }),
     );
 
-    await openMenu(fixture);
+    await openCompactCardMenu(fixture);
 
     const menuItem = document.querySelector('.mat-mdc-menu-item') as HTMLButtonElement;
     expect(menuItem).toBeTruthy();
@@ -179,7 +172,7 @@ describe('CompactCardComponent', () => {
       }),
     );
 
-    await openMenu(fixture);
+    await openCompactCardMenu(fixture);
 
     const detailRow = document.querySelector('.compact-card__menu-detail-row');
     expect(detailRow?.textContent).toContain('Sent to: recruiter@example.com');
