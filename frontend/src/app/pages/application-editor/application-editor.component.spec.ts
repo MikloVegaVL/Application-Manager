@@ -321,6 +321,59 @@ describe('ApplicationEditorComponent', () => {
     });
   });
 
+  describe('onDownloadCoverLetter()', () => {
+    const downloadUrl = `${environment.apiBaseUrl}/applications/1/cover-letter.pdf`;
+
+    it('downloads the saved cover letter as a PDF blob', () => {
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,' });
+
+      component.onDownloadCoverLetter();
+      expect(component['downloading']()).toBeTrue();
+
+      const req = httpMock.expectOne((r) => r.url === downloadUrl && r.method === 'GET');
+      req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+
+      expect(component['downloading']()).toBeFalse();
+    });
+
+    it('makes no request when no application is loaded', () => {
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,' });
+      component['application'].set(null);
+
+      component.onDownloadCoverLetter();
+
+      expect(component['downloading']()).toBeFalse();
+      httpMock.expectNone((r) => r.url.includes('cover-letter.pdf'));
+    });
+
+    it('ignores a second click while a download is already in flight', () => {
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,' });
+
+      component.onDownloadCoverLetter();
+      component.onDownloadCoverLetter();
+
+      httpMock.expectOne((r) => r.url === downloadUrl && r.method === 'GET').flush(
+        new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+      );
+      expect(component['downloading']()).toBeFalse();
+    });
+
+    it('resets the downloading flag and shows an error when the download fails', () => {
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,' });
+
+      component.onDownloadCoverLetter();
+      const req = httpMock.expectOne((r) => r.url === downloadUrl);
+      // `responseType: 'blob'` requires a real Blob body - a string body throws
+      // before the error path can be exercised.
+      req.flush(new Blob(['server error'], { type: 'text/plain' }), {
+        status: 500,
+        statusText: 'Internal Server Error',
+      });
+
+      expect(component['downloading']()).toBeFalse();
+    });
+  });
+
   describe('onRegenerate()', () => {
     let tabTitleService: TabTitleService;
     let confirmSpy: jasmine.Spy;

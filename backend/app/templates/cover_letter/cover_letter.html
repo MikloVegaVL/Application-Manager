@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cover Letter - {{ full_name }}</title>
+<style>
+  @page {
+    size: A4;
+    margin: 2.2cm;
+    @bottom-center {
+      content: "Page " counter(page) " of " counter(pages);
+      font-size: 8pt;
+      color: #999;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: 'Helvetica Neue', 'Arial', sans-serif;
+    color: #1a1a1a;
+    margin: 0;
+    font-size: 10.5pt;
+    line-height: 1.5;
+  }
+
+  .sender { margin-bottom: 9mm; }
+  .sender__name { font-size: 14pt; font-weight: 700; margin: 0 0 1.5mm; }
+  .sender__contact { color: #555; margin: 0; }
+
+  .recipient { margin-bottom: 6mm; }
+  .recipient__company { font-weight: 700; }
+  .recipient__title { color: #555; }
+
+  /* `pre-line` erhält die Zeilenumbrüche des gespeicherten Anschreibens
+     (Anrede, Absätze, Grußformel), kollabiert aber überzählige Leerzeichen -
+     so bleiben die Absätze des Nutzertextes 1:1 erhalten. */
+  .letter-body { white-space: pre-line; }
+</style>
+</head>
+<body>
+  <div class="sender">
+    <div class="sender__name">{{ full_name }}</div>
+    {% if address %}<div class="sender__contact">{{ address }}</div>{% endif %}
+    {% if phone %}<div class="sender__contact">{{ phone }}</div>{% endif %}
+    <div class="sender__contact">{{ email }}</div>
+  </div>
+
+  <div class="recipient">
+    <div class="recipient__company">{{ company }}</div>
+    {% if job_title %}<div class="recipient__title">{{ job_title }}</div>{% endif %}
+  </div>
+
+  <div class="letter-body">{{ cover_letter_text }}</div>
+</body>
+</html>

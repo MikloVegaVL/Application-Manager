@@ -393,6 +393,15 @@ export class ApplicationsComponent implements OnInit {
       { id: 'mark-rejected', label: 'Mark rejected', icon: 'close' },
     ];
 
+    if (application.cover_letter_text) {
+      menuItems.push({
+        id: 'download-cover-letter',
+        label: 'Download cover letter (PDF)',
+        icon: 'download',
+        link: { href: this.applicationService.coverLetterDownloadUrl(application.id) },
+      });
+    }
+
     if (this.canApplyViaLinkedIn(application)) {
       menuItems.push({ id: 'apply-via-linkedin', label: 'Apply via LinkedIn', icon: 'work' });
     }

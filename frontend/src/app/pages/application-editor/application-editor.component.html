@@ -27,6 +27,21 @@
     <button
       mat-button
       type="button"
+      matTooltip="Downloads the saved cover letter as a PDF"
+      [disabled]="!application() || downloading()"
+      (click)="onDownloadCoverLetter()"
+    >
+      @if (downloading()) {
+        <mat-progress-spinner mode="indeterminate" diameter="18" />
+      } @else {
+        <mat-icon>download</mat-icon>
+      }
+      Download PDF
+    </button>
+
+    <button
+      mat-button
+      type="button"
       matTooltip="Generates a new cover letter, replacing the current text"
       [disabled]="!application() || busy()"
       (click)="onRegenerate()"

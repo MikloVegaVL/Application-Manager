@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
@@ -59,5 +59,18 @@ export class ApplicationService {
    * Request bewusst aus der CORS-Simple-Request-Klasse (KTD13). */
   requestFill(applicationId: number): Observable<FillRequestResponse> {
     return this.http.post<FillRequestResponse>(`${this.baseUrl}/${applicationId}/fill-request`, {});
+  }
+
+  /** Lädt das gespeicherte Anschreiben einer Bewerbung als PDF-Download (Blob). */
+  downloadCoverLetter(applicationId: number): Observable<HttpResponse<Blob>> {
+    return this.http.get(`${this.baseUrl}/${applicationId}/cover-letter.pdf`, {
+      responseType: 'blob',
+      observe: 'response',
+    });
+  }
+
+  /** Direkt-Download-URL des Anschreibens (für einfache `<a href>`-Links, z. B. das Karten-Menü). */
+  coverLetterDownloadUrl(applicationId: number): string {
+    return `${this.baseUrl}/${applicationId}/cover-letter.pdf`;
   }
 }

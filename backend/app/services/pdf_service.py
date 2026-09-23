@@ -347,3 +347,39 @@ def render_sent_emails_pdf(entries: list[Any], *, filtered: bool = False) -> byt
         base_url=str(_TEMPLATES_DIR / "sent_emails"),
         error_log_message="PDF-Erzeugung des Sent-Emails-Protokolls via WeasyPrint fehlgeschlagen.",
     )
+
+
+def render_cover_letter_pdf(
+    *,
+    full_name: str,
+    email: str,
+    phone: str | None,
+    address: str | None,
+    company: str,
+    job_title: str | None,
+    cover_letter_text: str,
+) -> bytes:
+    """Rendert ein gespeichertes Anschreiben (`Application.cover_letter_text`)
+    als herunterladbares PDF.
+
+    Der Text wird unverändert übernommen (Nutzerinhalt, wird nie übersetzt) -
+    lediglich ein Briefkopf mit Absender (Name/Kontakt aus dem Profil) und
+    Empfänger (Firma + Stellenbezeichnung) wird davorgesetzt. Das Template
+    erhält die Zeilenumbrüche des Textes per `white-space: pre-line`, damit
+    Anrede/Absätze/Grußformel exakt so erscheinen wie gespeichert."""
+    template = _env.get_template("cover_letter/cover_letter.html")
+    html_content = template.render(
+        full_name=full_name,
+        email=email,
+        phone=phone,
+        address=address,
+        company=company,
+        job_title=job_title,
+        cover_letter_text=cover_letter_text,
+    )
+
+    return _write_pdf_or_raise(
+        html_content,
+        base_url=str(_TEMPLATES_DIR / "cover_letter"),
+        error_log_message="PDF-Erzeugung des Anschreibens via WeasyPrint fehlgeschlagen.",
+    )

@@ -351,6 +351,25 @@ describe('ApplicationsComponent', () => {
       expect(link.getAttribute('rel')).toBe('noopener noreferrer');
     });
 
+    it('adds "Download cover letter (PDF)" to the ⋮ menu as a native anchor to the backend endpoint', async () => {
+      flushList([sentApplication]);
+
+      await toggleCardMenu(fixture);
+      const link = menuItemByText('Download cover letter (PDF)') as unknown as HTMLAnchorElement;
+
+      expect(link.tagName).toBe('A');
+      expect(link.getAttribute('href')).toBe(
+        `${environment.apiBaseUrl}/applications/1/cover-letter.pdf`,
+      );
+    });
+
+    it('does not show "Download cover letter (PDF)" when the application has no cover letter yet', async () => {
+      flushList([{ ...sampleApplication, cover_letter_text: null }]);
+
+      await toggleCardMenu(fixture);
+      expect(menuItemByText('Download cover letter (PDF)')).toBeUndefined();
+    });
+
     it('Covers R2: routes "Mark accepted" / "Mark rejected" menu selections to onStatusChange with the same arguments as today', async () => {
       flushList([sentApplication]);
       const statusSpy = vi.spyOn(component, 'onStatusChange').mockImplementation(() => {});

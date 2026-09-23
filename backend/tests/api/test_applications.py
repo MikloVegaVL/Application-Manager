@@ -889,6 +889,80 @@ def test_failed_send_creates_no_log_entry_and_leaves_status_unchanged(
         session.close()
 
 
+# --- Cover letter PDF download ------------------------------------------
+
+
+def test_download_cover_letter_pdf_returns_a_pdf_with_content_disposition(
+    client: TestClient, db_session_local
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/cl-pdf"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+        _create_profile(session)
+    finally:
+        session.close()
+
+    response = client.get(f"/api/applications/{application_id}/cover-letter.pdf")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert "cover_letter" in response.headers["content-disposition"]
+    assert response.content.startswith(b"%PDF")
+
+
+def test_download_cover_letter_pdf_contains_cover_letter_text_and_header(
+    client: TestClient, db_session_local
+) -> None:
+    from io import BytesIO
+
+    from pypdf import PdfReader
+
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/cl-pdf-text"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+        _create_profile(session)
+    finally:
+        session.close()
+
+    response = client.get(f"/api/applications/{application_id}/cover-letter.pdf")
+
+    reader = PdfReader(BytesIO(response.content))
+    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    assert "Sehr geehrte Damen und Herren" in text
+    assert "Acme GmbH" in text
+    assert "Backend Engineer" in text
+    assert "Max Mustermann" in text
+
+
+def test_download_cover_letter_pdf_returns_404_for_unknown_id(client: TestClient) -> None:
+    response = client.get("/api/applications/999/cover-letter.pdf")
+
+    assert response.status_code == 404
+
+
+def test_download_cover_letter_pdf_returns_422_when_no_profile_exists(
+    client: TestClient, db_session_local
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/cl-no-profile"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+    finally:
+        session.close()
+
+    response = client.get(f"/api/applications/{application_id}/cover-letter.pdf")
+
+    assert response.status_code == 422
+
+
 # --- PortalSubmission log (U7, docs/plans/2026-09-19-002-feat-portal-
 # application-auto-fill-agent-plan.md) --------------------------------------
 

@@ -33,6 +33,7 @@ import { JobSearchStateService } from '../../core/services/job-search-state.serv
 import { JobService } from '../../core/services/job.service';
 import { TabTitleService } from '../../core/services/tab-title.service';
 import { parseBetreff } from '../../core/utils/cover-letter.util';
+import { downloadBlobResponse } from '../../core/utils/download-blob-response.util';
 import { extractEmail } from '../../core/utils/email-extraction.util';
 import {
   SendApplicationDialogComponent,
@@ -91,6 +92,8 @@ export class ApplicationEditorComponent implements OnInit {
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
   protected readonly sending = signal(false);
+  /** True während das Anschreiben als PDF heruntergeladen wird (sperrt den Download-Button). */
+  protected readonly downloading = signal(false);
   /** True während eine Regenerate-Anfrage läuft (R8) - sperrt Regenerate,
    * Save und Send bis die Anfrage abgeschlossen ist (KTD4). */
   protected readonly regenerating = signal(false);
@@ -305,6 +308,35 @@ export class ApplicationEditorComponent implements OnInit {
           this.snackBar.open(message, 'OK', { duration: 4000 });
         },
       });
+  }
+
+  /** Lädt das GESPEICHERTE Anschreiben als PDF herunter (konsistent mit dem
+   * Mailversand, der ebenfalls den gespeicherten Text nutzt) - der Dateiname
+   * kommt aus dem `Content-Disposition`-Header des Backends. */
+  onDownloadCoverLetter(): void {
+    const application = this.application();
+    if (!application || this.downloading()) {
+      return;
+    }
+
+    this.downloading.set(true);
+    this.applicationService.downloadCoverLetter(application.id).subscribe({
+      next: (response) => {
+        this.downloading.set(false);
+        if (!downloadBlobResponse(response, 'cover-letter.pdf')) {
+          this.snackBar.open('The cover letter PDF could not be downloaded.', 'OK', {
+            duration: 4000,
+          });
+        }
+      },
+      error: (error: HttpErrorResponse) => {
+        this.downloading.set(false);
+        const message =
+          (error.error?.detail as string | undefined) ??
+          'The cover letter PDF could not be downloaded.';
+        this.snackBar.open(message, 'OK', { duration: 4000 });
+      },
+    });
   }
 
   /** Erzeugt ein neues Anschreiben für eine Bewerbung, die bereits eines hat

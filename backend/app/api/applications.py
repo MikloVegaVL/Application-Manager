@@ -5,11 +5,14 @@ Mailversand hängt die vom Nutzer im Profil hochgeladene Lebenslauf-Datei an
 (siehe `app.api.profile`, `MasterProfile.cv_file_path`)."""
 from __future__ import annotations
 
+import io
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.database import get_db
@@ -25,6 +28,7 @@ from app.schemas.application import (
 )
 from app.services.ai_generator import ApplicationGenerationError, generate_application_content
 from app.services.mail_service import MailSendError, send_application_email
+from app.services.pdf_service import PdfRenderError, render_cover_letter_pdf
 
 router = APIRouter(prefix="/applications", tags=["Applications"])
 
@@ -161,6 +165,61 @@ def get_application(application_id: int, db: Session = Depends(get_db)) -> Appli
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung wurde nicht gefunden.")
     return application
+
+
+def _sanitize_filename_component(value: str) -> str:
+    """Ersetzt für Dateinamen unsichere Zeichen (Leerzeichen, Slashes,
+    Umlaute, ...) durch `_`, für den `Content-Disposition`-Dateinamen des
+    Anschreiben-Downloads - analog `_sanitize_filename_component` in
+    `app.api.cv_builder`."""
+    sanitized = re.sub(r"[^A-Za-z0-9_-]+", "_", value.strip())
+    return sanitized.strip("_") or "cover-letter"
+
+
+@router.get("/{application_id}/cover-letter.pdf")
+def download_cover_letter_pdf(application_id: int, db: Session = Depends(get_db)) -> StreamingResponse:
+    """Liefert das gespeicherte Anschreiben einer Bewerbung als PDF-Download.
+
+    Rendert `Application.cover_letter_text` (der zuletzt GESPEICHERTE Text,
+    nicht ein evtl. noch ungespeicherter Editor-Zustand - konsistent mit dem
+    Mailversand, der ebenfalls den gespeicherten Text nutzt) mit einem
+    Briefkopf aus Profil (Absender) und Stellenangebot (Empfänger)."""
+    application = db.get(Application, application_id)
+    if application is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung wurde nicht gefunden.")
+
+    profile = db.query(MasterProfile).first()
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
+        )
+
+    job_offer = db.get(JobOffer, application.job_offer_id)
+
+    try:
+        pdf_bytes = render_cover_letter_pdf(
+            full_name=profile.full_name,
+            email=profile.email,
+            phone=profile.phone,
+            address=profile.address,
+            company=job_offer.company if job_offer else "Unknown company",
+            job_title=job_offer.title if job_offer else None,
+            cover_letter_text=application.cover_letter_text or "",
+        )
+    except PdfRenderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not generate the cover letter PDF: {exc}",
+        ) from exc
+
+    company_slug = _sanitize_filename_component(job_offer.company) if job_offer else "cover-letter"
+    filename = f"cover_letter_{company_slug}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.put("/{application_id}", response_model=ApplicationRead)
