@@ -35,6 +35,16 @@ class Application(Base):
 
     cover_letter_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Welches der zwei unabhängigen Profile diese Bewerbung nutzt (U1,
+    # docs/plans/2026-09-23-001-feat-profile-types-plan.md) - manuell
+    # zugeordnet und nach der ersten Generierung gesperrt (R5). `SET NULL`
+    # statt `CASCADE` (siehe `ProfileAttachment.profile_id` für die
+    # gegenteilige, bewusste `CASCADE`-Wahl dort): ein gelöschtes Profil
+    # darf die Bewerbungshistorie nicht mitreißen (KTD10).
+    profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("master_profiles.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     # `native_enum=False` legt den Wert als VARCHAR ab statt als nativen
     # DB-Enum-Typ. Das hält den Wechsel SQLite -> PostgreSQL unkompliziert,
     # da für PostgreSQL sonst zusätzlich ein CREATE TYPE nötig wäre.
