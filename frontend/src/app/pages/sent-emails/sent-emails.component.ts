@@ -3,14 +3,17 @@ import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
 
+import { MatBadgeModule } from '@angular/material/badge';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatTableModule } from '@angular/material/table';
+import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { SENDER_EMAIL_OPTIONS } from '../../core/models/master-profile.model';
 import { SentEmail, SentEmailFilterParams } from '../../core/models/sent-email.model';
@@ -41,13 +44,16 @@ const DEFAULT_FULL_LOG_FILENAME = 'sent-emails-full-log.pdf';
     DatePipe,
     NgTemplateOutlet,
     RouterLink,
+    MatBadgeModule,
     MatButtonModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
+    MatMenuModule,
     MatProgressSpinnerModule,
     MatSelectModule,
     MatTableModule,
+    MatTooltipModule,
   ],
   templateUrl: './sent-emails.component.html',
   styleUrl: './sent-emails.component.scss',
@@ -63,11 +69,7 @@ export class SentEmailsComponent implements OnInit {
     'company',
     'ad_url',
     'source_platform',
-    'recipient_email',
     'sent_at',
-    'sender_email',
-    'subject',
-    'attachment_filenames',
     'outcome',
     'actions',
   ];

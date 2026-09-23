@@ -154,47 +154,9 @@
           </td>
         </ng-container>
 
-        <ng-container matColumnDef="recipient_email">
-          <th mat-header-cell *matHeaderCellDef>Recipient</th>
-          <td mat-cell *matCellDef="let entry">{{ entry.recipient_email }}</td>
-        </ng-container>
-
         <ng-container matColumnDef="sent_at">
           <th mat-header-cell *matHeaderCellDef>Sent</th>
           <td mat-cell *matCellDef="let entry">{{ entry.sent_at | date: 'medium' }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="sender_email">
-          <th mat-header-cell *matHeaderCellDef>Sender account</th>
-          <td mat-cell *matCellDef="let entry" [class.sent-emails__unknown]="!entry.sender_email">
-            {{ entry.sender_email ?? '—' }}
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="subject">
-          <th mat-header-cell *matHeaderCellDef>Subject</th>
-          <td mat-cell *matCellDef="let entry" [class.sent-emails__unknown]="!entry.subject">
-            {{ entry.subject ?? '—' }}
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="attachment_filenames">
-          <th mat-header-cell *matHeaderCellDef>Attachments</th>
-          <td
-            mat-cell
-            *matCellDef="let entry"
-            [class.sent-emails__unknown]="entry.attachment_filenames.length === 0"
-          >
-            @if (entry.attachment_filenames.length > 0) {
-              <ul class="sent-emails__attachments">
-                @for (filename of entry.attachment_filenames; track $index) {
-                  <li>{{ filename }}</li>
-                }
-              </ul>
-            } @else {
-              —
-            }
-          </td>
         </ng-container>
 
         <ng-container matColumnDef="outcome">
@@ -205,20 +167,79 @@
         <ng-container matColumnDef="actions">
           <th mat-header-cell *matHeaderCellDef></th>
           <td mat-cell *matCellDef="let entry">
-            <button
-              mat-icon-button
-              color="warn"
-              type="button"
-              [disabled]="isDeleting(entry)"
-              (click)="onDelete(entry)"
-              aria-label="Delete log entry"
-            >
-              @if (isDeleting(entry)) {
-                <mat-progress-spinner mode="indeterminate" diameter="18" />
-              } @else {
-                <mat-icon>delete</mat-icon>
-              }
-            </button>
+            <div class="sent-emails__row-actions">
+              <button
+                mat-icon-button
+                type="button"
+                aria-label="Show email details"
+                [matMenuTriggerFor]="detailsMenu"
+                [matTooltip]="'Recipient, subject, sender account'"
+              >
+                <mat-icon>info</mat-icon>
+              </button>
+              <mat-menu #detailsMenu="matMenu" xPosition="before">
+                <div class="sent-emails__menu-details">
+                  <div class="sent-emails__menu-detail-row">
+                    <span class="sent-emails__menu-detail-label">Recipient</span>
+                    <span class="sent-emails__menu-detail-value">{{ entry.recipient_email }}</span>
+                  </div>
+                  <div class="sent-emails__menu-detail-row">
+                    <span class="sent-emails__menu-detail-label">Subject</span>
+                    <span
+                      class="sent-emails__menu-detail-value"
+                      [class.sent-emails__unknown]="!entry.subject"
+                    >{{ entry.subject ?? '—' }}</span>
+                  </div>
+                  <div class="sent-emails__menu-detail-row">
+                    <span class="sent-emails__menu-detail-label">Sender account</span>
+                    <span
+                      class="sent-emails__menu-detail-value"
+                      [class.sent-emails__unknown]="!entry.sender_email"
+                    >{{ entry.sender_email ?? '—' }}</span>
+                  </div>
+                </div>
+              </mat-menu>
+
+              <button
+                mat-icon-button
+                type="button"
+                aria-label="Show attachments"
+                [matMenuTriggerFor]="attachmentsMenu"
+                [matTooltip]="'Attachments'"
+                [matBadge]="entry.attachment_filenames.length"
+                [matBadgeHidden]="entry.attachment_filenames.length === 0"
+                matBadgeColor="accent"
+              >
+                <mat-icon>attach_file</mat-icon>
+              </button>
+              <mat-menu #attachmentsMenu="matMenu" xPosition="before">
+                @if (entry.attachment_filenames.length > 0) {
+                  <div class="sent-emails__menu-attachments">
+                    <div class="sent-emails__menu-attachment-header">Attachments</div>
+                    @for (filename of entry.attachment_filenames; track $index) {
+                      <div class="sent-emails__menu-attachment">{{ filename }}</div>
+                    }
+                  </div>
+                } @else {
+                  <div class="sent-emails__menu-empty">No attachments</div>
+                }
+              </mat-menu>
+
+              <button
+                mat-icon-button
+                color="warn"
+                type="button"
+                [disabled]="isDeleting(entry)"
+                (click)="onDelete(entry)"
+                aria-label="Delete log entry"
+              >
+                @if (isDeleting(entry)) {
+                  <mat-progress-spinner mode="indeterminate" diameter="18" />
+                } @else {
+                  <mat-icon>delete</mat-icon>
+                }
+              </button>
+            </div>
           </td>
         </ng-container>
 

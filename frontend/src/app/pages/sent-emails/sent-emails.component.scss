@@ -97,13 +97,63 @@
     }
   }
 
-  // All attachments actually sent, one per line; wraps long filenames.
-  &__attachments {
-    margin: 0;
-    padding-left: 1.1em;
+  // Row-level action buttons (info / attachments / delete).
+  &__row-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  // Non-interactive detail rows rendered inside the "info" dropdown menu.
+  &__menu-details {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 16px;
+    min-width: 240px;
+    max-width: 360px;
+  }
+
+  &__menu-detail-row {
     display: flex;
     flex-direction: column;
     gap: 2px;
+  }
+
+  &__menu-detail-label {
+    color: var(--app-muted-text);
+    font-size: 0.75rem;
+  }
+
+  &__menu-detail-value {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  // Attachment list rendered inside the "attachments" dropdown menu.
+  &__menu-attachments {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 16px;
+    min-width: 240px;
+    max-width: 360px;
+  }
+
+  &__menu-attachment-header {
+    color: var(--app-muted-text);
+    font-size: 0.75rem;
+  }
+
+  &__menu-attachment {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  &__menu-empty {
+    padding: 12px 16px;
+    color: var(--app-muted-text);
+    font-style: italic;
   }
 
   &__job-title {

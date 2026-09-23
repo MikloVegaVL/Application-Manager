@@ -61,11 +61,24 @@ describe('SentEmailsComponent', () => {
 
   afterEach(() => {
     httpMock.verify();
+    // Menus portal to `document.body` via the CDK overlay; clear leftovers so a
+    // menu opened in one test can't leak into the next.
+    document.querySelectorAll('.cdk-overlay-container').forEach((el) => el.remove());
   });
 
   function flushList(entries: SentEmail[]): void {
     const req = httpMock.expectOne((request) => request.url === baseUrl && request.method === 'GET');
     req.flush(entries);
+    fixture.detectChanges();
+  }
+
+  async function openRowMenu(ariaLabel: string): Promise<void> {
+    const trigger = Array.from(
+      fixture.nativeElement.querySelectorAll<HTMLButtonElement>('button[mat-icon-button]'),
+    ).find((button) => button.getAttribute('aria-label') === ariaLabel);
+    trigger?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
     fixture.detectChanges();
   }
 
@@ -80,7 +93,7 @@ describe('SentEmailsComponent', () => {
     expect(component['entries']().length).toBe(1);
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Acme GmbH');
-    expect(text).toContain('recruiter@example.com');
+    expect(text).toContain('Backend Engineer');
   });
 
   it('re-requests the list with the new filter when a filter control changes', () => {
@@ -111,16 +124,55 @@ describe('SentEmailsComponent', () => {
   it('renders a delete control on each row', () => {
     flushList([sampleEntry]);
 
-    const buttons: HTMLElement[] = Array.from(fixture.nativeElement.querySelectorAll('table button'));
+    const buttons: HTMLElement[] = Array.from(
+      fixture.nativeElement.querySelectorAll('button[aria-label="Delete log entry"]'),
+    );
     expect(buttons.length).toBe(1);
   });
 
-  it('renders every attachment filename, not just the CV', () => {
+  it('renders every attachment filename in the attachments dropdown, not just the CV', async () => {
     flushList([sampleEntry]);
 
-    const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain('lebenslauf.pdf');
-    expect(text).toContain('zeugnis.pdf');
+    await openRowMenu('Show attachments');
+
+    const attachments = Array.from(
+      document.querySelectorAll<HTMLElement>('.sent-emails__menu-attachment'),
+    );
+    expect(attachments.map((el) => el.textContent)).toEqual(['lebenslauf.pdf', 'zeugnis.pdf']);
+  });
+
+  it('shows Recipient, Subject and Sender account in the details dropdown', async () => {
+    flushList([sampleEntry]);
+
+    await openRowMenu('Show email details');
+
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('.sent-emails__menu-detail-row'));
+    expect(
+      rows.map((row) => row.querySelector('.sent-emails__menu-detail-label')?.textContent),
+    ).toEqual(['Recipient', 'Subject', 'Sender account']);
+    expect(
+      rows.map((row) => row.querySelector('.sent-emails__menu-detail-value')?.textContent),
+    ).toEqual(['recruiter@example.com', 'Bewerbung', 'absender@example.com']);
+  });
+
+  it('shows "No attachments" in the attachments dropdown when there are none', async () => {
+    flushList([backfilledEntry]);
+
+    await openRowMenu('Show attachments');
+
+    expect(document.querySelector('.sent-emails__menu-empty')?.textContent).toBe('No attachments');
+  });
+
+  it('shows the attachment count as a badge on the attachments trigger', () => {
+    flushList([sampleEntry]);
+
+    const trigger = Array.from(
+      fixture.nativeElement.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="Show attachments"]',
+      ),
+    )[0];
+    const badge = trigger.querySelector('.mat-badge-content');
+    expect(badge?.textContent?.trim()).toBe('2');
   });
 
   it('lets table cells wrap instead of clipping long content (no overflow hiding)', () => {
