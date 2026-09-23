@@ -1,5 +1,6 @@
 """Pydantic-Schemas für Bewerbungen (`Application`)."""
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -74,12 +75,23 @@ class ApplicationRead(ApplicationBase):
     job_offer: JobOfferRead
     # `null`, solange kein Portal-Fill erfolgreich gemeldet wurde (R11).
     submission: ApplicationSubmissionSummary | None = None
+    # Zugeordnetes Profil (`it`/`full_life`, U3/R4/R5) - `null`, solange noch
+    # nicht generiert wurde. Gelesen über `Application.profile_type` (Property,
+    # siehe `app.models.application`), das intern die verknüpfte
+    # `MasterProfile.profile_type` auflöst.
+    profile_type: str | None = None
 
 
 class ApplicationGenerateRequest(BaseModel):
-    """Payload für `POST /api/applications/generate`."""
+    """Payload für `POST /api/applications/generate`.
+
+    `profile_type` ist nur bei der ERSTEN Generierung für ein Stellenangebot
+    Pflicht (R4) - ist für die Bewerbung bereits ein Profil gesperrt (R5),
+    wird ein hier mitgeschickter Wert ignoriert (siehe
+    `app.api.applications.generate_application`, KTD3)."""
 
     job_offer_id: int
+    profile_type: Literal["it", "full_life"] | None = None
 
 
 class ApplicationSendRequest(BaseModel):

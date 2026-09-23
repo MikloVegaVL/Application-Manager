@@ -10,6 +10,7 @@ from app.db.database import Base
 
 if TYPE_CHECKING:
     from app.models.job_offer import JobOffer
+    from app.models.master_profile import MasterProfile
     from app.models.portal_submission import PortalSubmission
 
 
@@ -67,6 +68,14 @@ class Application(Base):
 
     job_offer: Mapped["JobOffer"] = relationship(back_populates="applications")
 
+    # Zugeordnetes Profil (U3, R4/R5) - `None`, solange noch nicht generiert
+    # wurde, oder wenn das zugeordnete Profil zwischenzeitlich gelöscht wurde
+    # (`profile_id` ist `ON DELETE SET NULL`, siehe oben). Kein
+    # `back_populates`: `MasterProfile` hält bewusst keine Rückrelation auf
+    # seine Bewerbungen (wird aktuell nirgends gebraucht), analog `submission`
+    # unten, das ebenfalls einseitig bleibt.
+    profile: Mapped["MasterProfile | None"] = relationship("MasterProfile")
+
     # Jüngster Portal-Submit dieser Bewerbung (R11/KTD3). `viewonly` +
     # `uselist=False` + `order_by` liefert genau die neueste Zeile (SQLAlchemy
     # ergänzt ein LIMIT 1), damit `ApplicationRead` das "applied"-Indiz ohne
@@ -78,6 +87,13 @@ class Application(Base):
         uselist=False,
         order_by="desc(PortalSubmission.submitted_at)",
     )
+
+    @property
+    def profile_type(self) -> str | None:
+        """Für `ApplicationRead.profile_type` (U3) - abgeleitet aus der
+        verknüpften `MasterProfile.profile_type`, `None` solange kein Profil
+        zugeordnet ist (noch nicht generiert)."""
+        return self.profile.profile_type if self.profile else None
 
     def __repr__(self) -> str:  # pragma: no cover - Debug-Hilfe
         return f"<Application id={self.id} job_offer_id={self.job_offer_id} status={self.status}>"
