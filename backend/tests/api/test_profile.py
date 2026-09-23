@@ -890,6 +890,89 @@ def test_put_profile_full_life_does_not_collide_with_untyped_legacy_row(client, 
     db.close()
 
 
+# --- GET /profile/migration-status, POST /profile/migrate (U6, R8/KTD7) --
+#
+# Diese zwei Routen sind NICHT `profile_type`-skaliert - sie handeln vom
+# höchstens einen untypisierten Alt-Datensatz (`profile_type IS NULL`,
+# Vor-Migrations-Daten). `_create_profile(session_local, profile_type=None)`
+# (oben, bereits von U2 eingeführt) simuliert genau diesen Zustand.
+
+
+def test_migration_status_reports_untyped_profile(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local, profile_type=None)
+
+    response = test_client.get("/api/profile/migration-status")
+
+    assert response.status_code == 200
+    assert response.json() == {"has_untyped_profile": True}
+
+
+def test_migration_status_reports_none_on_fresh_install(client, tmp_path, monkeypatch):
+    """Kein Datensatz überhaupt vorhanden - der Prompt darf nicht erscheinen."""
+    test_client, _ = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+
+    response = test_client.get("/api/profile/migration-status")
+
+    assert response.status_code == 200
+    assert response.json() == {"has_untyped_profile": False}
+
+
+def test_migrate_profile_assigns_type_and_status_then_reports_none(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    legacy_profile = _create_profile(session_local, profile_type=None)
+
+    response = test_client.post("/api/profile/migrate", json={"profile_type": "it"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == legacy_profile.id
+    assert body["full_name"] == "Max Mustermann"
+
+    # Die Zeile trägt jetzt den gewählten Typ und ist über die normale
+    # typisierte Route erreichbar.
+    assert test_client.get("/api/profile/it").json()["id"] == legacy_profile.id
+
+    status_response = test_client.get("/api/profile/migration-status")
+    assert status_response.json() == {"has_untyped_profile": False}
+
+
+def test_migrate_profile_twice_returns_409(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local, profile_type=None)
+
+    first = test_client.post("/api/profile/migrate", json={"profile_type": "it"})
+    assert first.status_code == 200
+
+    second = test_client.post("/api/profile/migrate", json={"profile_type": "full_life"})
+
+    assert second.status_code == 409
+
+
+def test_migrate_profile_on_fresh_install_returns_409(client, tmp_path, monkeypatch):
+    """Keine Zeile überhaupt vorhanden - nichts zu migrieren."""
+    test_client, _ = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+
+    response = test_client.post("/api/profile/migrate", json={"profile_type": "it"})
+
+    assert response.status_code == 409
+
+
+def test_migrate_profile_rejects_bogus_profile_type(client, tmp_path, monkeypatch):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local, profile_type=None)
+
+    response = test_client.post("/api/profile/migrate", json={"profile_type": "bogus"})
+
+    assert response.status_code == 422
+
+
 def test_editing_it_profile_does_not_change_full_life_profile(client, tmp_path, monkeypatch):
     """R3: editing one profile never changes the other profile's data."""
     test_client, session_local = client

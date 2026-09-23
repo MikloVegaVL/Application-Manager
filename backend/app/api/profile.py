@@ -16,6 +16,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -146,6 +147,65 @@ def _require_image(file: UploadFile) -> tuple[bytes, str]:
         )
 
     return file_bytes, ext
+
+
+# --- Erstmalige Migration der untypisierten Alt-Zeile (U6, R8/KTD7) ------
+#
+# Anders als alle Routen oben/unten sind diese zwei NICHT auf einen
+# `profile_type` skaliert - sie handeln vom (höchstens einen) alten
+# `MasterProfile`-Datensatz mit `profile_type IS NULL` (Datenstand vor U1).
+# Deshalb müssen sie als statische Pfade VOR `GET /{profile_type}` registriert
+# sein, sonst würde Starlette "migration-status"/"migrate" fälschlich als
+# `profile_type`-Pfadparameter interpretieren. KTD7: es gibt bewusst kein
+# eigenes "Migration erledigt"-Flag - der Zustand ergibt sich allein aus
+# `profile_type IS NULL`; ein abgebrochener Migrationsversuch hinterlässt
+# einfach weiterhin eine untypisierte Zeile, der Prompt erscheint dann beim
+# nächsten Laden erneut, ohne dass zusätzlich etwas nachgeführt werden müsste.
+
+
+class MigrationStatusResponse(BaseModel):
+    """Antwort von `GET /profile/migration-status` (R8)."""
+
+    has_untyped_profile: bool
+
+
+class ProfileMigrationRequest(BaseModel):
+    """Payload für `POST /profile/migrate`."""
+
+    profile_type: ProfileType
+
+
+@router.get("/migration-status", response_model=MigrationStatusResponse)
+def get_migration_status(db: Session = Depends(get_db)) -> MigrationStatusResponse:
+    """Meldet, ob noch eine untypisierte Alt-Zeile (`profile_type IS NULL`)
+    existiert. Das Frontend zeigt den einmaligen Migrations-Prompt (R8) genau
+    dann, wenn `has_untyped_profile` true ist - sowohl auf einer frischen
+    Installation (gar keine Zeile vorhanden) als auch nach erfolgreicher
+    Migration ist das false, der Prompt bleibt dann aus."""
+    has_untyped_profile = db.query(MasterProfile).filter_by(profile_type=None).first() is not None
+    return MigrationStatusResponse(has_untyped_profile=has_untyped_profile)
+
+
+@router.post("/migrate", response_model=MasterProfileRead)
+def migrate_profile(payload: ProfileMigrationRequest, db: Session = Depends(get_db)) -> MasterProfile:
+    """Ordnet die untypisierte Alt-Zeile (`profile_type IS NULL`) einmalig
+    einem der beiden Profiltypen zu (R8) - eine explizite Nutzerentscheidung
+    statt einer stillen Auto-Zuordnung, da sich die beiden Profile im
+    Nachhinein nur schwer wieder trennen ließen (Product Contract Key
+    Decision). 409, falls keine untypisierte Zeile (mehr) existiert - entweder
+    wurde bereits migriert, oder es gibt auf einer frischen Installation
+    ohnehin noch gar keine Profil-Zeile."""
+    profile = db.query(MasterProfile).filter_by(profile_type=None).first()
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Es existiert kein untypisiertes Profil (mehr), das migriert werden könnte.",
+        )
+
+    profile.profile_type = payload.profile_type
+    db.commit()
+    db.refresh(profile)
+    return profile
 
 
 @router.get("/{profile_type}", response_model=MasterProfileRead)
