@@ -1054,5 +1054,25 @@ describe('JobSearchComponent', () => {
       expect(link.getAttribute('target')).toBe('_blank');
       expect(link.getAttribute('rel')).toBe('noopener noreferrer');
     });
+
+    it('marks the card as "Checked" after "Open ad" is clicked', async () => {
+      flushSingleJob();
+      expect(fixture.nativeElement.querySelector('.compact-card__checked')).toBeNull();
+
+      await clickCardMenuItem('Open ad');
+
+      const label = fixture.nativeElement.querySelector('.compact-card__checked');
+      expect(label).toBeTruthy();
+      expect(label?.textContent).toContain('Checked');
+    });
+
+    it('routes "Open ad" through onMenuAction and marks the ad as opened in state', () => {
+      const job = flushSingleJob();
+      expect(component['state'].openedAdUrls().has(job.source_url)).toBeFalse();
+
+      component.onMenuAction(job, 'open-ad');
+
+      expect(component['state'].openedAdUrls().has(job.source_url)).toBeTrue();
+    });
   });
 });

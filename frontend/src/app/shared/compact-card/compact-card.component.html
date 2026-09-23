@@ -8,6 +8,13 @@
       }
     </div>
 
+    @if (viewModel.checked) {
+      <span class="compact-card__checked">
+        <mat-icon>check_circle</mat-icon>
+        Checked
+      </span>
+    }
+
     @if (busy) {
       <span class="compact-card__busy" aria-live="polite" aria-label="Busy">
         <mat-progress-spinner
@@ -93,7 +100,7 @@
       @for (item of viewModel.menuItems ?? []; track item.id) {
         @if (item.link && !item.disabled) {
           @if (item.link.routerLink) {
-            <a mat-menu-item [routerLink]="item.link.routerLink">
+            <a mat-menu-item [routerLink]="item.link.routerLink" (click)="onMenuItemClick(item)">
               @if (item.icon) {
                 <mat-icon [color]="menuItemIconColor(item)">{{ item.icon }}</mat-icon>
               }
@@ -105,6 +112,7 @@
               [href]="item.link.href"
               [target]="item.link.target ?? null"
               [rel]="item.link.rel ?? null"
+              (click)="onMenuItemClick(item)"
             >
               @if (item.icon) {
                 <mat-icon [color]="menuItemIconColor(item)">{{ item.icon }}</mat-icon>

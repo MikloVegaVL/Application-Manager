@@ -51,6 +51,25 @@
     flex: 0 0 auto;
   }
 
+  &__checked {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
+    padding: 2px 8px;
+    border: 1px solid var(--app-accent);
+    border-radius: 12px;
+    color: var(--app-accent);
+    font-size: 0.75rem;
+    white-space: nowrap;
+
+    mat-icon {
+      font-size: 1rem;
+      width: 1rem;
+      height: 1rem;
+    }
+  }
+
   &__chips {
     display: flex;
     gap: 6px;

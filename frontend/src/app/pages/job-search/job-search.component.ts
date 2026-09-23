@@ -342,6 +342,7 @@ export class JobSearchComponent {
       },
       menuItems,
       detailRowItems,
+      checked: this.state.openedAdUrls().has(job.source_url),
     };
   }
 
@@ -361,6 +362,11 @@ export class JobSearchComponent {
    * they navigate natively via the view-model's `link`. */
   onMenuAction(job: JobOffer, itemId: string): void {
     switch (itemId) {
+      case 'open-ad':
+        // Die Anzeige wird nativ (target=_blank) geöffnet; hier nur den
+        // "Checked"-Zustand der Karte nachziehen.
+        this.state.markAdOpened(job.source_url);
+        break;
       case 'save-job':
         this.onSaveJob(job);
         break;

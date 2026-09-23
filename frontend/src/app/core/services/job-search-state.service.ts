@@ -54,6 +54,17 @@ export class JobSearchStateService {
    */
   readonly applicationEmailResults = signal<Map<string, ApplicationEmailLookupResult>>(new Map());
 
+  /** Merkt sich geöffnete Anzeigen (`source_url`), damit die Karte nach einem
+   * Klick auf "Open ad" als "Checked" markiert bleibt (in-session, wie
+   * `savedJobIds` - überlebt die Navigation, aber keinen Reload). */
+  readonly openedAdUrls = signal<Set<string>>(new Set());
+
+  markAdOpened(sourceUrl: string): void {
+    const updated = new Set(this.openedAdUrls());
+    updated.add(sourceUrl);
+    this.openedAdUrls.set(updated);
+  }
+
   cacheSavedJob(sourceUrl: string, id: number): void {
     const updated = new Map(this.savedJobIds());
     updated.set(sourceUrl, id);

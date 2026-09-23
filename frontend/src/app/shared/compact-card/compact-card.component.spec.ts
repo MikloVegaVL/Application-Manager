@@ -52,6 +52,16 @@ describe('CompactCardComponent', () => {
     expect(text).toContain('Berlin, Germany');
   });
 
+  it('renders the accent "Checked" label only when viewModel.checked is true', () => {
+    setViewModel(baseViewModel());
+    expect(fixture.nativeElement.querySelector('.compact-card__checked')).toBeNull();
+
+    setViewModel(baseViewModel({ checked: true }));
+    const label = fixture.nativeElement.querySelector('.compact-card__checked');
+    expect(label).toBeTruthy();
+    expect(label?.textContent).toContain('Checked');
+  });
+
   it('renders at most 2 chips even when more are supplied', () => {
     setViewModel(
       baseViewModel({
@@ -129,6 +139,32 @@ describe('CompactCardComponent', () => {
     menuItem.click();
 
     expect(emitted).toEqual(['archive']);
+  });
+
+  it('emits menuItemClick for a link menu item (e.g. "Open ad") while still navigating natively', async () => {
+    setViewModel(
+      baseViewModel({
+        menuItems: [
+          {
+            id: 'open-ad',
+            label: 'Open ad',
+            link: { href: 'https://example.com/job/1', target: '_blank', rel: 'noopener noreferrer' },
+          },
+        ],
+      }),
+    );
+
+    await openCompactCardMenu(fixture);
+
+    const menuItem = document.querySelector('.mat-mdc-menu-item') as HTMLAnchorElement;
+    expect(menuItem.tagName).toBe('A');
+    expect(menuItem.getAttribute('href')).toBe('https://example.com/job/1');
+
+    const emitted: string[] = [];
+    component.menuItemClick.subscribe((id) => emitted.push(id));
+    menuItem.click();
+
+    expect(emitted).toEqual(['open-ad']);
   });
 
   it('does not emit menuItemClick for a disabled menu item and renders a tooltip explaining why', async () => {

@@ -73,6 +73,9 @@ export interface CompactCardViewModel {
   menuItems?: CompactCardMenuItem[];
   /** Non-interactive rows rendered in the `⋮` menu (e.g. sent-to email - R2). */
   detailRowItems?: CompactCardDetailRowItem[];
+  /** When true, renders an accent-colored "Checked" label in the top-right
+   * corner (e.g. after the ad's "Open ad" link was clicked). */
+  checked?: boolean;
 }
 
 /**
