@@ -3,7 +3,13 @@ Profilfoto sowie zusätzliche PDF-Anhänge.
 
 Der frühere KI-gestützte CV-Import (`POST /profile/upload-cv`) samt seinen
 Tests ist mit U3 entfallen - sein Nachfolger `POST /cv-builder/parse` wird in
-`tests/api/test_cv_builder.py` getestet."""
+`tests/api/test_cv_builder.py` getestet.
+
+Mit U2 (docs/plans/2026-09-23-001-feat-profile-types-plan.md) trägt jeder
+Endpunkt einen `profile_type`-Pfadparameter (`it`/`full_life`) - die
+bestehenden Tests unten laufen (sofern nicht explizit anders benannt) über
+das `it`-Profil, ein eigener Block am Ende prüft die Typ-Trennung selbst
+(R1/R3)."""
 from __future__ import annotations
 
 import pytest
@@ -42,10 +48,12 @@ def client():
         app.dependency_overrides.clear()
 
 
-# --- PATCH /profile -------------------------------------------------------
+# --- PATCH /profile/{profile_type} ----------------------------------------
 #
 # CV-Builder-Save-Pfad (R2/R3/R4, KTD2): echtes partielles Update, beschränkt
-# auf Inhaltsfelder. Identitätsfelder bleiben `PUT /profile` vorbehalten.
+# auf Inhaltsfelder. Identitätsfelder bleiben `PUT /profile/{profile_type}`
+# vorbehalten. Läuft hier durchgängig über das `it`-Profil - die eigentliche
+# Typ-Trennung wird im Block "--- profile_type-Trennung" weiter unten geprüft.
 
 
 def test_patch_profile_updates_only_sent_content_fields(client, tmp_path, monkeypatch):
@@ -54,7 +62,7 @@ def test_patch_profile_updates_only_sent_content_fields(client, tmp_path, monkey
     _create_profile(session_local)
 
     response = test_client.patch(
-        "/api/profile",
+        "/api/profile/it",
         json={"summary": "Erfahrener Entwickler", "skills_json": [{"name": "Python", "level": "Experte"}]},
     )
 
@@ -72,7 +80,7 @@ def test_patch_profile_rejects_non_null_full_name(client, tmp_path, monkeypatch)
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    response = test_client.patch("/api/profile", json={"full_name": "Neuer Name"})
+    response = test_client.patch("/api/profile/it", json={"full_name": "Neuer Name"})
 
     assert response.status_code == 422
 
@@ -82,7 +90,7 @@ def test_patch_profile_rejects_non_null_email(client, tmp_path, monkeypatch):
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    response = test_client.patch("/api/profile", json={"email": "neu@example.com"})
+    response = test_client.patch("/api/profile/it", json={"email": "neu@example.com"})
 
     assert response.status_code == 422
 
@@ -95,7 +103,7 @@ def test_patch_profile_rejects_explicit_null_full_name(client, tmp_path, monkeyp
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    response = test_client.patch("/api/profile", json={"full_name": None})
+    response = test_client.patch("/api/profile/it", json={"full_name": None})
 
     assert response.status_code == 422
 
@@ -106,7 +114,7 @@ def test_patch_profile_rejects_explicit_null_email(client, tmp_path, monkeypatch
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    response = test_client.patch("/api/profile", json={"email": None})
+    response = test_client.patch("/api/profile/it", json={"email": None})
 
     assert response.status_code == 422
 
@@ -116,15 +124,15 @@ def test_patch_profile_ignores_photo_filename_field(client, tmp_path, monkeypatc
     `MasterProfileUpdate`, so Pydantic's default `extra='ignore'` drops it
     from the payload entirely - it can no longer be written via PATCH and so
     can no longer desync from `photo_path`, which only POST/DELETE
-    /profile/photo may write. (Not a 422: an undeclared field is silently
-    ignored, not rejected - this test proves it has zero effect, not that it
-    errors.)"""
+    /profile/{profile_type}/photo may write. (Not a 422: an undeclared field
+    is silently ignored, not rejected - this test proves it has zero effect,
+    not that it errors.)"""
     test_client, session_local = client
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
     response = test_client.patch(
-        "/api/profile",
+        "/api/profile/it",
         json={"summary": "Aktualisiert", "photo_filename": "sneaky.jpg"},
     )
 
@@ -138,7 +146,7 @@ def test_patch_profile_requires_existing_profile(client, tmp_path, monkeypatch):
     test_client, _ = client
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
 
-    response = test_client.patch("/api/profile", json={"summary": "Hallo"})
+    response = test_client.patch("/api/profile/it", json={"summary": "Hallo"})
 
     assert response.status_code == 404
 
@@ -149,7 +157,7 @@ def test_patch_profile_partial_payload_leaves_other_fields_untouched(client, tmp
     _create_profile(session_local)
 
     first = test_client.patch(
-        "/api/profile",
+        "/api/profile/it",
         json={
             "summary": "Ursprüngliche Zusammenfassung",
             "experiences_json": [
@@ -165,7 +173,7 @@ def test_patch_profile_partial_payload_leaves_other_fields_untouched(client, tmp
     )
     assert first.status_code == 200
 
-    response = test_client.patch("/api/profile", json={"skills_json": [{"name": "SQL", "level": "Gut"}]})
+    response = test_client.patch("/api/profile/it", json={"skills_json": [{"name": "SQL", "level": "Gut"}]})
 
     assert response.status_code == 200
     body = response.json()
@@ -196,13 +204,13 @@ def test_patch_profile_round_trips_berufsbezeichnung(client, tmp_path, monkeypat
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    response = test_client.patch("/api/profile", json={"berufsbezeichnung": "Frontend Developer"})
+    response = test_client.patch("/api/profile/it", json={"berufsbezeichnung": "Frontend Developer"})
 
     assert response.status_code == 200
     assert response.json()["berufsbezeichnung"] == "Frontend Developer"
 
     # Ohne das Feld im Payload bleibt der Wert unangetastet (`exclude_unset`).
-    untouched = test_client.patch("/api/profile", json={"summary": "Neu"})
+    untouched = test_client.patch("/api/profile/it", json={"summary": "Neu"})
     assert untouched.json()["berufsbezeichnung"] == "Frontend Developer"
 
 
@@ -213,7 +221,7 @@ def test_get_profile_omits_content_language(client, tmp_path, monkeypatch):
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    response = test_client.get("/api/profile")
+    response = test_client.get("/api/profile/it")
 
     assert response.status_code == 200
     body = response.json()
@@ -231,12 +239,12 @@ def test_patch_profile_round_trips_template_2(client, tmp_path, monkeypatch):
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    response = test_client.patch("/api/profile", json={"template_id": "template-2"})
+    response = test_client.patch("/api/profile/it", json={"template_id": "template-2"})
 
     assert response.status_code == 200
     assert response.json()["template_id"] == "template-2"
 
-    reloaded = test_client.get("/api/profile")
+    reloaded = test_client.get("/api/profile/it")
     assert reloaded.status_code == 200
     assert reloaded.json()["template_id"] == "template-2"
 
@@ -249,12 +257,12 @@ def test_patch_profile_round_trips_template_3(client, tmp_path, monkeypatch):
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    response = test_client.patch("/api/profile", json={"template_id": "template-3"})
+    response = test_client.patch("/api/profile/it", json={"template_id": "template-3"})
 
     assert response.status_code == 200
     assert response.json()["template_id"] == "template-3"
 
-    reloaded = test_client.get("/api/profile")
+    reloaded = test_client.get("/api/profile/it")
     assert reloaded.status_code == 200
     assert reloaded.json()["template_id"] == "template-3"
 
@@ -268,12 +276,12 @@ def test_patch_profile_round_trips_template_4(client, tmp_path, monkeypatch):
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    response = test_client.patch("/api/profile", json={"template_id": "template-4"})
+    response = test_client.patch("/api/profile/it", json={"template_id": "template-4"})
 
     assert response.status_code == 200
     assert response.json()["template_id"] == "template-4"
 
-    reloaded = test_client.get("/api/profile")
+    reloaded = test_client.get("/api/profile/it")
     assert reloaded.status_code == 200
     assert reloaded.json()["template_id"] == "template-4"
 
@@ -283,7 +291,7 @@ def test_put_profile_round_trips_berufsbezeichnung(client, tmp_path, monkeypatch
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
 
     response = test_client.put(
-        "/api/profile",
+        "/api/profile/it",
         json={
             "full_name": "Max Mustermann",
             "email": "max@example.com",
@@ -297,12 +305,13 @@ def test_put_profile_round_trips_berufsbezeichnung(client, tmp_path, monkeypatch
 
 def test_put_profile_round_trips_linkedin_and_website(client, tmp_path, monkeypatch):
     """`linkedin`/`website` sind Identitätsfelder wie `phone`/`address`
-    (siehe `ce-debug`, 2026-09-14): `PUT /profile` persistiert sie."""
+    (siehe `ce-debug`, 2026-09-14): `PUT /profile/{profile_type}` persistiert
+    sie."""
     test_client, _session_local = client
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
 
     response = test_client.put(
-        "/api/profile",
+        "/api/profile/it",
         json={
             "full_name": "Max Mustermann",
             "email": "max@example.com",
@@ -322,12 +331,27 @@ def test_patch_profile_rejects_non_null_linkedin(client, tmp_path, monkeypatch):
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    response = test_client.patch("/api/profile", json={"linkedin": "linkedin.com/in/x"})
+    response = test_client.patch("/api/profile/it", json={"linkedin": "linkedin.com/in/x"})
 
     assert response.status_code == 422
 
 
-# --- POST/GET/DELETE /profile/cv-file -----------------------------------
+def test_put_profile_bogus_profile_type_returns_422(client, tmp_path, monkeypatch):
+    """FastAPI's own `Literal["it", "full_life"]` path-param validation
+    rejects any other value - no bespoke check needed (see `ProfileType` in
+    `app.api.profile`)."""
+    test_client, _ = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+
+    response = test_client.put(
+        "/api/profile/bogus_type",
+        json={"full_name": "Max Mustermann", "email": "max@example.com"},
+    )
+
+    assert response.status_code == 422
+
+
+# --- POST/GET/DELETE /profile/{profile_type}/cv-file ---------------------
 #
 # Die Lebenslauf-Anhang-Datei ist unabhängig vom KI-gestützten CV-Import
 # (`POST /cv-builder/parse`, siehe `test_cv_builder.py`): sie wird nicht
@@ -335,9 +359,11 @@ def test_patch_profile_rejects_non_null_linkedin(client, tmp_path, monkeypatch):
 # `app.api.applications.send_application`).
 
 
-def _create_profile(session_local) -> MasterProfile:
+def _create_profile(session_local, profile_type: str = "it", **overrides) -> MasterProfile:
     db = session_local()
-    profile = MasterProfile(full_name="Max Mustermann", email="max@example.com")
+    defaults = {"full_name": "Max Mustermann", "email": "max@example.com"}
+    defaults.update(overrides)
+    profile = MasterProfile(profile_type=profile_type, **defaults)
     db.add(profile)
     db.commit()
     db.refresh(profile)
@@ -350,7 +376,7 @@ def test_upload_cv_file_requires_existing_profile(client, tmp_path, monkeypatch)
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
 
     response = test_client.post(
-        "/api/profile/cv-file",
+        "/api/profile/it/cv-file",
         files={"file": ("lebenslauf.pdf", b"%PDF-1.4 fake", "application/pdf")},
     )
 
@@ -363,7 +389,7 @@ def test_upload_cv_file_rejects_non_pdf(client, tmp_path, monkeypatch):
     _create_profile(session_local)
 
     response = test_client.post(
-        "/api/profile/cv-file",
+        "/api/profile/it/cv-file",
         files={"file": ("lebenslauf.docx", b"not a pdf", "application/octet-stream")},
     )
 
@@ -376,7 +402,7 @@ def test_upload_cv_file_stores_file_and_sets_filename(client, tmp_path, monkeypa
     _create_profile(session_local)
 
     response = test_client.post(
-        "/api/profile/cv-file",
+        "/api/profile/it/cv-file",
         files={"file": ("mein-lebenslauf.pdf", b"%PDF-1.4 fake content", "application/pdf")},
     )
 
@@ -384,7 +410,7 @@ def test_upload_cv_file_stores_file_and_sets_filename(client, tmp_path, monkeypa
     body = response.json()
     assert body["cv_filename"] == "mein-lebenslauf.pdf"
 
-    download_response = test_client.get("/api/profile/cv-file")
+    download_response = test_client.get("/api/profile/it/cv-file")
     assert download_response.status_code == 200
     assert download_response.content == b"%PDF-1.4 fake content"
     assert 'filename="mein-lebenslauf.pdf"' in download_response.headers["content-disposition"]
@@ -395,7 +421,7 @@ def test_download_cv_file_returns_404_when_none_uploaded(client, tmp_path, monke
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    response = test_client.get("/api/profile/cv-file")
+    response = test_client.get("/api/profile/it/cv-file")
 
     assert response.status_code == 404
 
@@ -405,27 +431,64 @@ def test_delete_cv_file_clears_it(client, tmp_path, monkeypatch):
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
     test_client.post(
-        "/api/profile/cv-file",
+        "/api/profile/it/cv-file",
         files={"file": ("lebenslauf.pdf", b"%PDF-1.4 fake", "application/pdf")},
     )
 
-    response = test_client.delete("/api/profile/cv-file")
+    response = test_client.delete("/api/profile/it/cv-file")
 
     assert response.status_code == 200
     assert response.json()["cv_filename"] is None
-    assert test_client.get("/api/profile/cv-file").status_code == 404
+    assert test_client.get("/api/profile/it/cv-file").status_code == 404
 
 
-# --- POST/GET/DELETE /profile/attachments -------------------------------
+def test_upload_cv_file_it_and_full_life_produce_distinct_files(client, tmp_path, monkeypatch):
+    """Edge case from the U2 plan: uploading a CV to `it` and to `full_life`
+    must produce two distinct stored files, no overwrite - since both
+    profiles get distinct `MasterProfile.id`s, `_cv_file_path_for` (keyed off
+    `profile_id`) already guarantees this once the correct row is resolved."""
+    test_client, session_local = client
+    profile_dir = tmp_path / "profile"
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(profile_dir))
+    it_profile = _create_profile(session_local, profile_type="it")
+    full_life_profile = _create_profile(
+        session_local, profile_type="full_life", full_name="Erika Musterfrau", email="erika@example.com"
+    )
+
+    it_response = test_client.post(
+        "/api/profile/it/cv-file",
+        files={"file": ("it-lebenslauf.pdf", b"%PDF-1.4 it content", "application/pdf")},
+    )
+    full_life_response = test_client.post(
+        "/api/profile/full_life/cv-file",
+        files={"file": ("full-life-lebenslauf.pdf", b"%PDF-1.4 full-life content", "application/pdf")},
+    )
+
+    assert it_response.status_code == 200
+    assert full_life_response.status_code == 200
+
+    it_path = profile_dir / f"cv_{it_profile.id}.pdf"
+    full_life_path = profile_dir / f"cv_{full_life_profile.id}.pdf"
+    assert it_path != full_life_path
+    assert it_path.read_bytes() == b"%PDF-1.4 it content"
+    assert full_life_path.read_bytes() == b"%PDF-1.4 full-life content"
+
+    # Kein gegenseitiges Überschreiben: jedes Profil liefert weiterhin seine
+    # eigene Datei zurück.
+    assert test_client.get("/api/profile/it/cv-file").content == b"%PDF-1.4 it content"
+    assert test_client.get("/api/profile/full_life/cv-file").content == b"%PDF-1.4 full-life content"
+
+
+# --- POST/GET/DELETE /profile/{profile_type}/attachments -----------------
 #
 # Zusätzliche PDF-Anhänge (max. 3, siehe `MAX_PROFILE_ATTACHMENTS` in
 # `app.api.profile`) - unabhängig vom Lebenslauf-Anhang oben, werden beim
 # Versand zusätzlich zum Lebenslauf mitgeschickt, nicht anstelle davon.
 
 
-def _upload_attachment(test_client: TestClient, filename: str = "zeugnis.pdf"):
+def _upload_attachment(test_client: TestClient, filename: str = "zeugnis.pdf", profile_type: str = "it"):
     return test_client.post(
-        "/api/profile/attachments",
+        f"/api/profile/{profile_type}/attachments",
         files={"file": (filename, b"%PDF-1.4 fake content", "application/pdf")},
     )
 
@@ -445,7 +508,7 @@ def test_upload_attachment_rejects_non_pdf(client, tmp_path, monkeypatch):
     _create_profile(session_local)
 
     response = test_client.post(
-        "/api/profile/attachments",
+        "/api/profile/it/attachments",
         files={"file": ("zeugnis.docx", b"not a pdf", "application/octet-stream")},
     )
 
@@ -465,7 +528,7 @@ def test_upload_attachment_stores_file_and_lists_it(client, tmp_path, monkeypatc
     assert attachments[0]["filename"] == "zeugnis.pdf"
 
     attachment_id = attachments[0]["id"]
-    download_response = test_client.get(f"/api/profile/attachments/{attachment_id}")
+    download_response = test_client.get(f"/api/profile/it/attachments/{attachment_id}")
     assert download_response.status_code == 200
     assert download_response.content == b"%PDF-1.4 fake content"
     assert 'filename="zeugnis.pdf"' in download_response.headers["content-disposition"]
@@ -493,8 +556,8 @@ def test_delete_attachment_removes_it_and_frees_up_a_slot(client, tmp_path, monk
     for index in range(3):
         assert _upload_attachment(test_client, filename=f"anhang-{index}.pdf").status_code == 200
 
-    profile_attachments = test_client.get("/api/profile").json()["attachments"]
-    delete_response = test_client.delete(f"/api/profile/attachments/{profile_attachments[0]['id']}")
+    profile_attachments = test_client.get("/api/profile/it").json()["attachments"]
+    delete_response = test_client.delete(f"/api/profile/it/attachments/{profile_attachments[0]['id']}")
 
     assert delete_response.status_code == 200
     remaining = delete_response.json()["attachments"]
@@ -509,12 +572,53 @@ def test_download_attachment_returns_404_when_missing(client, tmp_path, monkeypa
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    response = test_client.get("/api/profile/attachments/999")
+    response = test_client.get("/api/profile/it/attachments/999")
 
     assert response.status_code == 404
 
 
-# --- POST/GET/DELETE /profile/photo -------------------------------------
+def test_attachment_uploaded_under_full_life_is_not_listed_under_it(client, tmp_path, monkeypatch):
+    """R1/R3: profiles are fully independent, including their attachments -
+    an attachment uploaded to `full_life` must not show up when listing
+    `it`'s profile."""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local, profile_type="it")
+    _create_profile(session_local, profile_type="full_life", full_name="Erika Musterfrau", email="erika@example.com")
+
+    upload_response = _upload_attachment(test_client, filename="zeugnis-full-life.pdf", profile_type="full_life")
+    assert upload_response.status_code == 200
+
+    it_attachments = test_client.get("/api/profile/it").json()["attachments"]
+    assert it_attachments == []
+
+
+def test_attachment_uploaded_under_full_life_cannot_be_downloaded_via_it_url(client, tmp_path, monkeypatch):
+    """Same guarantee as above, but against a direct `attachment_id` guess:
+    an `it`-scoped URL must not serve an attachment that actually belongs to
+    the `full_life` profile, even if its id is known."""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local, profile_type="it")
+    _create_profile(session_local, profile_type="full_life", full_name="Erika Musterfrau", email="erika@example.com")
+
+    upload_response = _upload_attachment(test_client, filename="zeugnis-full-life.pdf", profile_type="full_life")
+    attachment_id = upload_response.json()["attachments"][0]["id"]
+
+    download_via_it = test_client.get(f"/api/profile/it/attachments/{attachment_id}")
+    assert download_via_it.status_code == 404
+
+    delete_via_it = test_client.delete(f"/api/profile/it/attachments/{attachment_id}")
+    assert delete_via_it.status_code == 404
+
+    # Über die korrekte, `full_life`-Route bleibt der Anhang unverändert
+    # abrufbar - der 404 oben kam also von der Typ-Prüfung, nicht davon, dass
+    # der Anhang insgesamt verloren gegangen wäre.
+    download_via_full_life = test_client.get(f"/api/profile/full_life/attachments/{attachment_id}")
+    assert download_via_full_life.status_code == 200
+
+
+# --- POST/GET/DELETE /profile/{profile_type}/photo -----------------------
 #
 # Profilfoto für den CV-Builder (R3, KTD4) - mirrors `cv-file` oben, nur mit
 # Bild- statt PDF-Validierung inkl. Magic-Byte-Prüfung.
@@ -530,7 +634,7 @@ def test_upload_photo_valid_jpeg_stores_file(client, tmp_path, monkeypatch):
     profile = _create_profile(session_local)
 
     response = test_client.post(
-        "/api/profile/photo",
+        "/api/profile/it/photo",
         files={"file": ("foto.jpg", _JPEG_BYTES, "image/jpeg")},
     )
 
@@ -550,7 +654,7 @@ def test_upload_photo_valid_png_stores_file(client, tmp_path, monkeypatch):
     profile = _create_profile(session_local)
 
     response = test_client.post(
-        "/api/profile/photo",
+        "/api/profile/it/photo",
         files={"file": ("foto.png", _PNG_BYTES, "image/png")},
     )
 
@@ -565,7 +669,7 @@ def test_upload_photo_requires_existing_profile(client, tmp_path, monkeypatch):
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
 
     response = test_client.post(
-        "/api/profile/photo",
+        "/api/profile/it/photo",
         files={"file": ("foto.jpg", _JPEG_BYTES, "image/jpeg")},
     )
 
@@ -579,7 +683,7 @@ def test_upload_photo_rejects_non_image_content_type(client, tmp_path, monkeypat
     profile = _create_profile(session_local)
 
     response = test_client.post(
-        "/api/profile/photo",
+        "/api/profile/it/photo",
         files={"file": ("foto.pdf", b"%PDF-1.4 fake", "application/pdf")},
     )
 
@@ -597,13 +701,13 @@ def test_upload_photo_rejects_content_mismatching_declared_type(client, tmp_path
     profile = _create_profile(session_local)
 
     response = test_client.post(
-        "/api/profile/photo",
+        "/api/profile/it/photo",
         files={"file": ("foto.jpg", b"this is not actually a jpeg", "image/jpeg")},
     )
 
     assert response.status_code == 422
     assert not (profile_dir / f"photo_{profile.id}.jpg").exists()
-    assert test_client.get("/api/profile").json()["photo_filename"] is None
+    assert test_client.get("/api/profile/it").json()["photo_filename"] is None
 
 
 def test_upload_photo_rejects_oversized_file(client, tmp_path, monkeypatch):
@@ -615,7 +719,7 @@ def test_upload_photo_rejects_oversized_file(client, tmp_path, monkeypatch):
     oversized = _JPEG_BYTES + b"\x00" * (5 * 1024 * 1024)  # > 5 MB
 
     response = test_client.post(
-        "/api/profile/photo",
+        "/api/profile/it/photo",
         files={"file": ("foto.jpg", oversized, "image/jpeg")},
     )
 
@@ -629,7 +733,7 @@ def test_upload_photo_reupload_in_different_format_removes_old_file(client, tmp_
     profile = _create_profile(session_local)
 
     first = test_client.post(
-        "/api/profile/photo",
+        "/api/profile/it/photo",
         files={"file": ("foto.jpg", _JPEG_BYTES, "image/jpeg")},
     )
     assert first.status_code == 200
@@ -637,7 +741,7 @@ def test_upload_photo_reupload_in_different_format_removes_old_file(client, tmp_
     assert jpg_path.exists()
 
     second = test_client.post(
-        "/api/profile/photo",
+        "/api/profile/it/photo",
         files={"file": ("foto.png", _PNG_BYTES, "image/png")},
     )
     assert second.status_code == 200
@@ -652,7 +756,7 @@ def test_download_photo_returns_404_when_none_uploaded(client, tmp_path, monkeyp
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    response = test_client.get("/api/profile/photo")
+    response = test_client.get("/api/profile/it/photo")
 
     assert response.status_code == 404
 
@@ -662,11 +766,11 @@ def test_download_photo_returns_stored_file(client, tmp_path, monkeypatch):
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
     test_client.post(
-        "/api/profile/photo",
+        "/api/profile/it/photo",
         files={"file": ("foto.jpg", _JPEG_BYTES, "image/jpeg")},
     )
 
-    response = test_client.get("/api/profile/photo")
+    response = test_client.get("/api/profile/it/photo")
 
     assert response.status_code == 200
     assert response.content == _JPEG_BYTES
@@ -680,16 +784,16 @@ def test_delete_photo_clears_it(client, tmp_path, monkeypatch):
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(profile_dir))
     profile = _create_profile(session_local)
     test_client.post(
-        "/api/profile/photo",
+        "/api/profile/it/photo",
         files={"file": ("foto.jpg", _JPEG_BYTES, "image/jpeg")},
     )
 
-    response = test_client.delete("/api/profile/photo")
+    response = test_client.delete("/api/profile/it/photo")
 
     assert response.status_code == 200
     assert response.json()["photo_filename"] is None
     assert not (profile_dir / f"photo_{profile.id}.jpg").exists()
-    assert test_client.get("/api/profile/photo").status_code == 404
+    assert test_client.get("/api/profile/it/photo").status_code == 404
 
 
 def test_delete_photo_twice_matches_cv_file_delete_behavior(client, tmp_path, monkeypatch):
@@ -700,12 +804,104 @@ def test_delete_photo_twice_matches_cv_file_delete_behavior(client, tmp_path, mo
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
     test_client.post(
-        "/api/profile/photo",
+        "/api/profile/it/photo",
         files={"file": ("foto.jpg", _JPEG_BYTES, "image/jpeg")},
     )
 
-    first_delete = test_client.delete("/api/profile/photo")
-    second_delete = test_client.delete("/api/profile/photo")
+    first_delete = test_client.delete("/api/profile/it/photo")
+    second_delete = test_client.delete("/api/profile/it/photo")
 
     assert first_delete.status_code == 200
     assert second_delete.status_code == 404
+
+
+# --- profile_type-Trennung (R1/R2/R3, KTD1) -------------------------------
+#
+# Die eigentliche Zusicherung dieser Unit: jedes der zwei Profile ist ein
+# vollständig unabhängiger Datensatz, `PUT` legt bei Bedarf eine neue Zeile
+# an statt immer "die eine" Zeile zu überschreiben, und ein untypisiertes
+# Alt-Profil (`profile_type IS NULL`, Vor-Migrations-Daten) kollidiert dabei
+# nicht mit einem neu angelegten typisierten Profil.
+
+
+def test_put_profile_it_creates_row_and_full_life_still_404s(client, tmp_path, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+
+    put_response = test_client.put(
+        "/api/profile/it",
+        json={"full_name": "Max Mustermann", "email": "max@example.com"},
+    )
+    assert put_response.status_code == 200
+    assert put_response.json()["id"] is not None
+
+    get_it = test_client.get("/api/profile/it")
+    assert get_it.status_code == 200
+    assert get_it.json()["full_name"] == "Max Mustermann"
+
+    get_full_life = test_client.get("/api/profile/full_life")
+    assert get_full_life.status_code == 404
+
+
+def test_get_profile_it_before_any_row_exists_names_it_in_404(client, tmp_path, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+
+    response = test_client.get("/api/profile/it")
+
+    assert response.status_code == 404
+    assert "IT" in response.json()["detail"]
+
+
+def test_get_profile_full_life_before_any_row_exists_names_full_life_in_404(client, tmp_path, monkeypatch):
+    test_client, _ = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+
+    response = test_client.get("/api/profile/full_life")
+
+    assert response.status_code == 404
+    assert "Full-life" in response.json()["detail"]
+
+
+def test_put_profile_full_life_does_not_collide_with_untyped_legacy_row(client, tmp_path, monkeypatch):
+    """Simulates pre-migration data: an existing row with `profile_type IS
+    NULL` must not be picked up (or overwritten) by
+    `PUT /profile/full_life` - it must create a distinct new row instead."""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    legacy_profile = _create_profile(session_local, profile_type=None)
+
+    response = test_client.put(
+        "/api/profile/full_life",
+        json={"full_name": "Erika Musterfrau", "email": "erika@example.com"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] != legacy_profile.id
+    assert body["full_name"] == "Erika Musterfrau"
+
+    # Die untypisierte Alt-Zeile existiert unverändert weiter.
+    db = session_local()
+    still_there = db.get(MasterProfile, legacy_profile.id)
+    assert still_there is not None
+    assert still_there.profile_type is None
+    assert still_there.full_name == "Max Mustermann"
+    db.close()
+
+
+def test_editing_it_profile_does_not_change_full_life_profile(client, tmp_path, monkeypatch):
+    """R3: editing one profile never changes the other profile's data."""
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local, profile_type="it", full_name="Max Mustermann", email="max@example.com")
+    _create_profile(
+        session_local, profile_type="full_life", full_name="Erika Musterfrau", email="erika@example.com"
+    )
+
+    patch_response = test_client.patch("/api/profile/it", json={"summary": "IT-Zusammenfassung"})
+    assert patch_response.status_code == 200
+
+    full_life_body = test_client.get("/api/profile/full_life").json()
+    assert full_life_body["summary"] is None
+    assert full_life_body["full_name"] == "Erika Musterfrau"
