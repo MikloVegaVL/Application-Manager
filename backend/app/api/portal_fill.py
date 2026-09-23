@@ -113,6 +113,29 @@ def create_fill_request(
     return PortalFillRequestResponse(job_url=fill_request.job_url)
 
 
+def _get_locked_profile_or_404(db: Session, application: Application) -> MasterProfile:
+    """Löst das an die Bewerbung GESPERRTE Profil auf (U3/U5, R6) - statt
+    eines beliebigen `MasterProfile`-Datensatzes (`.first()`), damit
+    Autofill/Antworten niemals Daten des jeweils ANDEREN Profils
+    verwenden. `application.profile_id` ist erst nach der ersten
+    erfolgreichen Generierung gesetzt (U3)."""
+    if application.profile_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "Dieser Bewerbung ist noch kein Profil zugeordnet - bitte zunächst ein "
+                "Anschreiben generieren (this application has no profile assigned yet - "
+                "generate a cover letter first)."
+            ),
+        )
+
+    profile = db.get(MasterProfile, application.profile_id)
+    if profile is None:  # pragma: no cover - FK ist ON DELETE SET NULL, sollte nicht vorkommen
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profil wurde nicht gefunden.")
+
+    return profile
+
+
 @router.get(
     "/portal-fill/context",
     response_model=PortalFillContext,
@@ -149,12 +172,7 @@ def get_portal_fill_context(
             detail="Stellenangebot wurde nicht gefunden.",
         )
 
-    profile = db.query(MasterProfile).first()
-    if profile is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
-        )
+    profile = _get_locked_profile_or_404(db, application)
 
     portal_fill_requests.consume(fill_request)
 
@@ -312,12 +330,7 @@ def answer_portal_fill_question(
             detail="Stellenangebot wurde nicht gefunden.",
         )
 
-    profile = db.query(MasterProfile).first()
-    if profile is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
-        )
+    profile = _get_locked_profile_or_404(db, application)
 
     messages = [
         {"role": "system", "content": _ANSWER_SYSTEM_PROMPT},

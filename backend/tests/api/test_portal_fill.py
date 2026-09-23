@@ -69,7 +69,20 @@ def client(db_session_local, monkeypatch):
         portal_fill_requests.clear()
 
 
-def _seed(db_session_local, *, source_platform: str = "linkedin") -> int:
+def _seed(
+    db_session_local,
+    *,
+    source_platform: str = "linkedin",
+    lock_profile: bool = True,
+    profile_type: str = "it",
+    full_name: str = "Max Mustermann",
+    email: str = "max@example.com",
+) -> int:
+    """Legt JobOffer + Application + ein `MasterProfile` an. Mit
+    `lock_profile=True` (Default) wird `application.profile_id` sofort auf
+    das neu angelegte Profil gesetzt (simuliert U3: "nach der ersten
+    erfolgreichen Generierung gesperrt") - `lock_profile=False` bildet eine
+    Bewerbung ab, für die noch nie generiert wurde (R6-Edge-Case, U5)."""
     db = db_session_local()
     try:
         job_offer = JobOffer(
@@ -84,7 +97,13 @@ def _seed(db_session_local, *, source_platform: str = "linkedin") -> int:
         db.flush()
         application = Application(job_offer_id=job_offer.id, cover_letter_text="Sehr geehrte Damen und Herren,")
         db.add(application)
-        db.add(MasterProfile(full_name="Max Mustermann", email="max@example.com", phone="+49 30 1234"))
+        profile = MasterProfile(
+            profile_type=profile_type, full_name=full_name, email=email, phone="+49 30 1234"
+        )
+        db.add(profile)
+        db.flush()
+        if lock_profile:
+            application.profile_id = profile.id
         db.commit()
         db.refresh(application)
         return application.id
@@ -145,27 +164,24 @@ def test_context_without_matching_request_returns_404(client, db_session_local):
 
 
 def test_context_validation_error_does_not_consume_the_request(client, db_session_local):
-    # P3: ein Validierungsfehler (hier: kein Profil) darf den einmaligen
-    # Request nicht verbrauchen - sonst müsste der Nutzer den Fill neu starten,
-    # nur um denselben Fehler erneut zu sehen.
-    application_id = _seed(db_session_local)
+    # P3: ein Validierungsfehler (hier: der Bewerbung ist noch kein Profil
+    # zugeordnet, U5) darf den einmaligen Request nicht verbrauchen - sonst
+    # müsste der Nutzer den Fill neu starten, nur um denselben Fehler erneut
+    # zu sehen.
+    application_id = _seed(db_session_local, lock_profile=False)
     _create_fill_request(client, application_id)
-
-    db = db_session_local()
-    try:
-        db.query(MasterProfile).delete()
-        db.commit()
-    finally:
-        db.close()
 
     first = client.get(
         "/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER
     )
-    assert first.status_code == 422
+    assert first.status_code == 404
+    assert "Profil" in first.json()["detail"]
 
     db = db_session_local()
     try:
-        db.add(MasterProfile(full_name="Max Mustermann", email="max@example.com", phone="+49 30 1234"))
+        application = db.get(Application, application_id)
+        profile = db.query(MasterProfile).filter_by(profile_type="it").first()
+        application.profile_id = profile.id
         db.commit()
     finally:
         db.close()
@@ -175,6 +191,66 @@ def test_context_validation_error_does_not_consume_the_request(client, db_sessio
         "/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER
     )
     assert second.status_code == 200
+
+
+# --- U5 (docs/plans/2026-09-23-001-feat-profile-types-plan.md): profile
+# purity ----------------------------------------------------------------
+#
+# R6: Autofill nutzt ausschließlich das an die Bewerbung GESPERRTE Profil
+# (`application.profile_id`), nie ein beliebiges (`.first()`).
+
+
+def test_context_uses_the_locked_profile_not_an_arbitrary_one(client, db_session_local):
+    # Zwei unabhängige Profile mit unterscheidbaren Daten - die Bewerbung ist
+    # an "full_life" gesperrt, "it" existiert nur, um zu belegen, dass ein
+    # `.first()`-Fallback hier NICHT mehr greift.
+    db = db_session_local()
+    try:
+        db.add(
+            MasterProfile(profile_type="it", full_name="IT Person", email="it@example.com")
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    application_id = _seed(
+        db_session_local, profile_type="full_life", full_name="Full Life Person", email="fl@example.com"
+    )
+    _create_fill_request(client, application_id)
+
+    context = client.get(
+        "/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER
+    )
+
+    assert context.status_code == 200
+    profile = context.json()["profile"]
+    assert profile["full_name"] == "Full Life Person"
+    assert profile["email"] == "fl@example.com"
+
+
+def test_context_without_locked_profile_returns_a_clear_404(client, db_session_local):
+    application_id = _seed(db_session_local, lock_profile=False)
+    _create_fill_request(client, application_id)
+
+    response = client.get(
+        "/api/portal-fill/context", params={"url": LINKEDIN_JOB_URL}, headers=SECRET_HEADER
+    )
+
+    assert response.status_code == 404
+    assert "Profil" in response.json()["detail"]
+
+
+def test_answer_without_locked_profile_returns_a_clear_error(client, db_session_local):
+    application_id = _seed(db_session_local, lock_profile=False)
+
+    response = client.post(
+        "/api/portal-fill/answer",
+        json={"application_id": application_id, "question": "Warum?"},
+        headers=SECRET_HEADER,
+    )
+
+    assert response.status_code == 404
+    assert "Profil" in response.json()["detail"]
 
 
 def test_fill_request_unknown_application_returns_404(client, db_session_local):
