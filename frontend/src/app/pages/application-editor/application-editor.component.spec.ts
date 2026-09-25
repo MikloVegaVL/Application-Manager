@@ -30,7 +30,10 @@ const defaultJobOffer: JobOfferRead = {
   is_processed: false,
 };
 
-function buildApplication(coverLetterText: string | null): Application {
+function buildApplication(
+  coverLetterText: string | null,
+  profileType: Application['profile_type'] = null,
+): Application {
   return {
     id: 1,
     job_offer_id: 1,
@@ -38,21 +41,39 @@ function buildApplication(coverLetterText: string | null): Application {
     status: 'draft',
     sent_at: null,
     sent_to_email: null,
+    submission: null,
     created_at: '2026-08-11T00:00:00',
+    profile_type: profileType,
     job_offer: defaultJobOffer,
   };
 }
 
-/** Flusht Job- und Bewerbungs-Requests, damit `application()`/`jobOffer()` befüllt sind. */
+/** Flusht Job- und Bewerbungs-Requests, damit `application()`/`jobOffer()` befüllt sind.
+ *
+ * `profileType` ist standardmäßig bereits `'it'` (nicht `null`), obwohl
+ * `coverLetterText` standardmäßig leer ist - simuliert damit den "bereits
+ * gesperrtes Profil, Erstversuch aber gescheitert/unterbrochen"-Fall statt
+ * des "noch gar kein Profil gewählt"-Falls (R4, U8). Die meisten Aufrufer
+ * dieser Helper-Funktion testen Verhalten NACH dem Profilwahl-Dialog (Tab-
+ * Titel, 409-Polling, Destroy-Handling) und sollen den Dialog nicht extra
+ * mocken müssen; Tests, die den Dialog selbst prüfen wollen, übergeben
+ * explizit `profileType: null` und mocken `dialog.open` wie im "can take
+ * minutes"-Test oben. */
 function loadApplication(
   httpMock: HttpTestingController,
   options: {
     coverLetterText?: string | null;
+    profileType?: Application['profile_type'];
     withJobOffer?: boolean;
     jobOffer?: JobOfferRead;
   } = {},
 ): void {
-  const { coverLetterText = null, withJobOffer = true, jobOffer = defaultJobOffer } = options;
+  const {
+    coverLetterText = null,
+    profileType = 'it',
+    withJobOffer = true,
+    jobOffer = defaultJobOffer,
+  } = options;
 
   const jobReq = httpMock.expectOne((req) => req.url.endsWith('/jobs/1'));
   if (withJobOffer) {
@@ -62,7 +83,7 @@ function loadApplication(
   }
 
   const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-  appReq.flush(buildApplication(coverLetterText));
+  appReq.flush(buildApplication(coverLetterText, profileType));
 }
 
 /** Ersetzt `MatDialog.open()` durch einen Fake, der sofort mit `result` schließt. */
@@ -121,6 +142,15 @@ describe('ApplicationEditorComponent', () => {
     // (ce-debug-Untersuchung, 2026-08-18: "Generate Application" auf einem
     // neuen Job-Angebot lief messbar 4+ Minuten - ohne Hinweis wirkte das wie
     // hängengeblieben statt nur langsam.)
+    //
+    // Seit U8 (docs/plans/2026-09-23-001-feat-profile-types-plan.md) blockiert
+    // vor der allerersten Generierung erst der Profilwahl-Dialog (R4) - der
+    // Dialog wird hier per Spy sofort mit einer Wahl geschlossen, damit dieser
+    // Test weiterhin nur den Generierungs-Hinweis selbst prüft.
+    const dialogOpenSpy = spyOn(component['dialog'], 'open').and.returnValue({
+      afterClosed: () => of('it'),
+    } as unknown as MatDialogRef<unknown, unknown>);
+
     const jobReq = httpMock.expectOne((req) => req.url.endsWith('/jobs/1'));
     jobReq.flush(defaultJobOffer);
 
@@ -128,15 +158,64 @@ describe('ApplicationEditorComponent', () => {
     appReq.flush({ detail: 'not found' }, { status: 404, statusText: 'Not Found' });
     fixture.detectChanges();
 
+    expect(dialogOpenSpy).toHaveBeenCalled();
+
     // Generierung läuft noch (generateReq absichtlich nicht geflusht) - der
     // Hinweis muss jetzt sichtbar sein.
     expect(component['isFirstGeneration']()).toBeTrue();
     expect(fixture.nativeElement.textContent as string).toContain('can take several minutes');
 
     const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
+    expect(generateReq.request.body.profile_type).toBe('it');
     generateReq.flush(buildApplication('Sehr geehrte Damen und Herren,'));
 
     expect(component['isFirstGeneration']()).toBeFalse();
+  });
+
+  it('U8: an application with an already-locked profile skips the profile-choice dialog', () => {
+    const dialogOpenSpy = spyOn(component['dialog'], 'open');
+
+    // `profileType: 'it'` (via loadApplication's default) simulates an
+    // application whose profile is already locked but whose first
+    // generation attempt was interrupted - generation should proceed
+    // directly, exactly as it did before U8 (R4/R5).
+    loadApplication(httpMock, { coverLetterText: null, profileType: 'it' });
+    fixture.detectChanges();
+
+    expect(dialogOpenSpy).not.toHaveBeenCalled();
+    expect(component['isFirstGeneration']()).toBeTrue();
+
+    const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
+    // Already locked - no `profile_type` needs to be (re-)sent; the backend
+    // ignores it anyway once `Application.profile_id` is set (KTD3).
+    expect(generateReq.request.body.profile_type).toBeUndefined();
+    generateReq.flush(buildApplication('Sehr geehrte Damen und Herren,', 'it'));
+
+    expect(component['isFirstGeneration']()).toBeFalse();
+  });
+
+  it('U8: a 404 for the chosen profile type shows a message naming that profile with a link to /profile', () => {
+    spyOn(component['dialog'], 'open').and.returnValue({
+      afterClosed: () => of('it'),
+    } as unknown as MatDialogRef<unknown, unknown>);
+
+    const jobReq = httpMock.expectOne((req) => req.url.endsWith('/jobs/1'));
+    jobReq.flush(defaultJobOffer);
+    const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
+    appReq.flush({ detail: 'not found' }, { status: 404, statusText: 'Not Found' });
+    fixture.detectChanges();
+
+    const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
+    generateReq.flush(
+      { detail: 'Es wurde noch kein IT-Profil angelegt.' },
+      { status: 404, statusText: 'Not Found' },
+    );
+    fixture.detectChanges();
+
+    expect(component['missingProfileType']()).toBe('it');
+    expect(component['errorMessage']()).toContain('IT profile has no data yet');
+    const profileLink = fixture.nativeElement.querySelector('a[routerLink="/profile"]');
+    expect(profileLink).withContext('expected a link to /profile in the error state').not.toBeNull();
   });
 
   it('does not show the generation hint when an already-generated application loads instantly', () => {
@@ -398,6 +477,10 @@ describe('ApplicationEditorComponent', () => {
       expect(startSpy).toHaveBeenCalled();
 
       const req = httpMock.expectOne((r) => r.url.endsWith('/applications/generate'));
+      // U8: Regenerate bleibt unverändert - kein `profile_type` im Body, das
+      // Backend nutzt weiterhin ausschließlich das bereits gesperrte Profil
+      // (KTD3).
+      expect(req.request.body.profile_type).toBeUndefined();
       req.flush(buildApplication('Neuer Text'));
 
       expect(component['application']()?.cover_letter_text).toBe('Neuer Text');

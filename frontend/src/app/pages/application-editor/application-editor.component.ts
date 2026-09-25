@@ -3,6 +3,8 @@ import {
   Component,
   DestroyRef,
   OnInit,
+  TemplateRef,
+  ViewChild,
   computed,
   inject,
   input,
@@ -10,12 +12,13 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { catchError, filter, of, switchMap, take, takeUntil, timer } from 'rxjs';
 
 import { TextFieldModule } from '@angular/cdk/text-field';
 import { MatButtonModule } from '@angular/material/button';
-import { MatDialog } from '@angular/material/dialog';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -26,7 +29,7 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { HttpErrorResponse } from '@angular/common/http';
-import { Application } from '../../core/models/application.model';
+import { Application, ProfileType } from '../../core/models/application.model';
 import { JobOfferRead, toApplicationEmailLookupRequest } from '../../core/models/job-offer.model';
 import { ApplicationService } from '../../core/services/application.service';
 import { JobSearchStateService } from '../../core/services/job-search-state.service';
@@ -46,7 +49,10 @@ import {
   standalone: true,
   imports: [
     ReactiveFormsModule,
+    RouterLink,
     MatButtonModule,
+    MatButtonToggleModule,
+    MatDialogModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
@@ -113,6 +119,16 @@ export class ApplicationEditorComponent implements OnInit {
   protected readonly application = signal<Application | null>(null);
   protected readonly jobOffer = signal<JobOfferRead | null>(null);
 
+  /** Aktuell im Profilwahl-Dialog markierte Option (R4) - `null`, solange
+   * noch nichts ausgewählt wurde (sperrt den "Continue"-Button). */
+  protected readonly selectedProfileType = signal<ProfileType | null>(null);
+  /** Gesetzt, wenn die letzte Generierung an einem fehlenden Profil
+   * scheiterte (404 von `POST /applications/generate`, U3) - steuert den
+   * "Go to profile"-Link im Fehlerblock (statt der generischen Meldung). */
+  protected readonly missingProfileType = signal<ProfileType | null>(null);
+
+  @ViewChild('profileTypeDialog') private readonly profileTypeDialogTemplate!: TemplateRef<unknown>;
+
   protected readonly coverLetterForm = this.formBuilder.nonNullable.group({
     cover_letter_text: ['', Validators.required],
   });
@@ -134,6 +150,7 @@ export class ApplicationEditorComponent implements OnInit {
 
     this.loading.set(true);
     this.errorMessage.set(null);
+    this.missingProfileType.set(null);
 
     this.jobService.getJob(jobOfferId).subscribe({
       next: (job) => this.jobOffer.set(job),
@@ -150,6 +167,16 @@ export class ApplicationEditorComponent implements OnInit {
         // `cover_letter_text`) muss die Erstgenerierung genauso anstoßen wie
         // ein bislang fehlendes (404) Anschreiben.
         if (!application.cover_letter_text) {
+          // Noch kein Profil gesperrt (U3/R4) - der Nutzer muss es erst
+          // wählen, bevor überhaupt generiert werden darf. Ist bereits ein
+          // Profil gesperrt (z. B. ein vorheriger Versuch scheiterte nach dem
+          // Sperren - kommt praktisch nicht vor, siehe Backend, aber zur
+          // Sicherheit abgedeckt), läuft die bisherige Auto-Generierung
+          // unverändert.
+          if (application.profile_type === null) {
+            this.promptForProfileType(jobOfferId);
+            return;
+          }
           this.generateForFirstTime(jobOfferId);
           return;
         }
@@ -157,7 +184,9 @@ export class ApplicationEditorComponent implements OnInit {
       },
       error: (error: HttpErrorResponse) => {
         if (error.status === 404) {
-          this.generateForFirstTime(jobOfferId);
+          // Für dieses Stellenangebot existiert noch gar keine Bewerbung -
+          // damit ist zwangsläufig noch kein Profil gesperrt (R4).
+          this.promptForProfileType(jobOfferId);
           return;
         }
         this.handleLoadError(error);
@@ -165,10 +194,34 @@ export class ApplicationEditorComponent implements OnInit {
     });
   }
 
-  private generateForFirstTime(jobOfferId: number): void {
+  /** Zeigt den blockierenden Profilwahl-Dialog (IT/Full-life, R4) vor der
+   * ERSTEN Generierung für dieses Stellenangebot - `disableClose`, damit der
+   * Nutzer die Wahl nicht per Escape/Backdrop umgehen kann, ohne eine Option
+   * gewählt zu haben. Schließt der Dialog mit einer Wahl, wird direkt wie
+   * bisher generiert (KTD4: kein weiterer Guard nötig, da die HTTP-Anfrage
+   * erst NACH dem Schließen des Dialogs startet - ein erneutes Öffnen
+   * während einer laufenden Anfrage ist aus diesem Ablauf heraus nicht
+   * erreichbar). */
+  private promptForProfileType(jobOfferId: number): void {
+    this.selectedProfileType.set(null);
+    this.dialog
+      .open<unknown, unknown, ProfileType>(this.profileTypeDialogTemplate, {
+        disableClose: true,
+        width: '480px',
+      })
+      .afterClosed()
+      .subscribe((profileType) => {
+        if (!profileType) {
+          return;
+        }
+        this.generateForFirstTime(jobOfferId, profileType);
+      });
+  }
+
+  private generateForFirstTime(jobOfferId: number, profileType?: ProfileType): void {
     this.isFirstGeneration.set(true);
     this.tabTitleService.markGenerationStarted();
-    this.applicationService.generate(jobOfferId).subscribe({
+    this.applicationService.generate(jobOfferId, profileType).subscribe({
       next: (application) => {
         this.isFirstGeneration.set(false);
         this.tabTitleService.markGenerationSettled();
@@ -189,6 +242,13 @@ export class ApplicationEditorComponent implements OnInit {
           // überschrieben und den Editor endlos ohne Ergebnis hätte wirken
           // lassen -, wird stattdessen auf deren Ergebnis gewartet.
           this.pollForRunningGeneration(jobOfferId);
+          return;
+        }
+        if (error.status === 404 && profileType) {
+          // Das gewählte Profil hat noch keine Daten (`_get_profile_or_404`,
+          // U2/U3) - benennt das konkrete Profil statt einer generischen
+          // Fehlermeldung und bietet einen Link zur Profilseite an (U8).
+          this.handleMissingProfileError(profileType);
           return;
         }
         this.handleGenerationError(error);
@@ -271,10 +331,28 @@ export class ApplicationEditorComponent implements OnInit {
     );
   }
 
+  /** Zeigt statt der generischen Fehlermeldung eine, die das konkret
+   * gewählte Profil benennt (`profileTypeLabel`) plus Link zur Profilseite
+   * (`missingProfileType`, siehe Template) - das gewählte Profil hat noch
+   * keine Daten (404 von `POST /applications/generate`, U2/U3). */
+  private handleMissingProfileError(profileType: ProfileType): void {
+    this.isFirstGeneration.set(false);
+    this.tabTitleService.markGenerationSettled();
+    this.loading.set(false);
+    this.missingProfileType.set(profileType);
+    this.errorMessage.set(`The ${this.profileTypeLabel(profileType)} profile has no data yet.`);
+  }
+
+  /** Deckt sich mit `_PROFILE_TYPE_LABELS` in `backend/app/api/profile.py`. */
+  protected profileTypeLabel(profileType: ProfileType): string {
+    return profileType === 'it' ? 'IT' : 'Full-life/Non-IT';
+  }
+
   private applyApplication(application: Application): void {
     this.application.set(application);
     this.coverLetterForm.patchValue({ cover_letter_text: application.cover_letter_text ?? '' });
     this.loading.set(false);
+    this.missingProfileType.set(null);
   }
 
   // --- Toolbar-Aktionen -----------------------------------------------

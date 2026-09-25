@@ -8,6 +8,7 @@ import {
   ApplicationSendPayload,
   ApplicationUpdatePayload,
   FillRequestResponse,
+  ProfileType,
 } from '../models/application.model';
 
 /**
@@ -24,9 +25,20 @@ export class ApplicationService {
     return this.http.get<Application[]>(this.baseUrl);
   }
 
-  /** Stößt die KI-gestützte Erstgenerierung des Anschreibens an. */
-  generate(jobOfferId: number): Observable<Application> {
-    return this.http.post<Application>(`${this.baseUrl}/generate`, { job_offer_id: jobOfferId });
+  /** Stößt die KI-gestützte Generierung des Anschreibens an.
+   *
+   * `profileType` ist nur für die ERSTE Generierung eines Stellenangebots
+   * Pflicht (R4, `ApplicationGenerateRequest.profile_type`) - ist für die
+   * Bewerbung bereits ein Profil gesperrt (R5), reicht der Aufruf ohne
+   * `profileType` (Regenerate, unverändert): das Backend ignoriert einen
+   * dann trotzdem mitgeschickten Wert ohnehin (KTD3, U3). Wird hier daher
+   * bewusst nur bei Angabe in den Body aufgenommen, statt immer `null`/
+   * `undefined` mitzuschicken. */
+  generate(jobOfferId: number, profileType?: ProfileType): Observable<Application> {
+    return this.http.post<Application>(`${this.baseUrl}/generate`, {
+      job_offer_id: jobOfferId,
+      ...(profileType ? { profile_type: profileType } : {}),
+    });
   }
 
   /** Lädt die zu einem Stellenangebot gehörende Bewerbung (404, falls noch keine generiert wurde). */

@@ -5,6 +5,17 @@
       @if (jobOffer(); as job) {
         <span class="editor-toolbar__subtitle">- {{ job.title }} at {{ job.company }}</span>
       }
+      @if (application()?.profile_type; as profileType) {
+        <!-- Read-only, sobald ein Profil gesperrt ist (R5) - die Wahl lässt
+             sich für diese Bewerbung nicht mehr ändern (U9 fügt später eine
+             separate Bewerbung als Ausweg hinzu). -->
+        <span
+          class="editor-toolbar__subtitle"
+          matTooltip="The profile is locked for this application once generated"
+        >
+          &middot; {{ profileTypeLabel(profileType) }} profile
+        </span>
+      }
     </span>
 
     <span class="editor-toolbar__spacer"></span>
@@ -85,6 +96,9 @@
     <div class="editor-page__error">
       <mat-icon>error_outline</mat-icon>
       <p>{{ errorMessage() }}</p>
+      @if (missingProfileType()) {
+        <a mat-flat-button color="primary" routerLink="/profile">Go to profile</a>
+      }
     </div>
   } @else {
     <section class="editor-content">
@@ -110,3 +124,38 @@
     </section>
   }
 </div>
+
+<!-- Profilwahl vor der ERSTEN Generierung (R4) - über `dialog.open(TemplateRef)`
+     statt eines eigenen Komponenten (kein hand-gerolltes Dialog-Markup: Fokus-
+     Falle, `role="dialog"`/`aria-modal` und Tastaturbedienung kommen von
+     MatDialog). Der Kontext stellt `dialogRef` bereit (siehe MatDialog-
+     Quelle, `_openFromTemplate`) - "Continue" schließt ihn mit der Auswahl,
+     eine Auswahl allein schließt NICHT (nur `MatButtonToggleGroup`-Wert). -->
+<ng-template #profileTypeDialog let-dialogRef="dialogRef">
+  <h2 mat-dialog-title>Which profile should be used?</h2>
+  <mat-dialog-content>
+    <p>
+      Choose the profile this cover letter should be generated from. Once generated, the profile
+      is locked for this application (R5).
+    </p>
+    <mat-button-toggle-group
+      name="profileType"
+      [value]="selectedProfileType()"
+      (change)="selectedProfileType.set($event.value)"
+    >
+      <mat-button-toggle value="it" cdkFocusInitial>IT</mat-button-toggle>
+      <mat-button-toggle value="full_life">Full-life/Non-IT</mat-button-toggle>
+    </mat-button-toggle-group>
+  </mat-dialog-content>
+  <mat-dialog-actions align="end">
+    <button
+      mat-raised-button
+      color="primary"
+      type="button"
+      [disabled]="!selectedProfileType()"
+      (click)="dialogRef.close(selectedProfileType())"
+    >
+      Continue
+    </button>
+  </mat-dialog-actions>
+</ng-template>
