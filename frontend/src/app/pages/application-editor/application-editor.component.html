@@ -79,6 +79,26 @@
       }
       Send application by email now
     </button>
+
+    @if (otherProfileType(); as otherProfileType) {
+      <!-- R5's Ausweg (U9, KTD12): nur sichtbar, wenn für DIESE Bewerbung
+           bereits ein Profil gesperrt ist - legt eine separate Bewerbung mit
+           dem jeweils ANDEREN Profil an, statt die Sperre zu umgehen. -->
+      <button
+        mat-button
+        type="button"
+        matTooltip="Creates a separate application for this job using the other profile"
+        [disabled]="busy()"
+        (click)="onStartNewApplicationWithOtherProfile()"
+      >
+        @if (startingNewApplication()) {
+          <mat-progress-spinner mode="indeterminate" diameter="18" />
+        } @else {
+          <mat-icon>person_add</mat-icon>
+        }
+        Start a new application with the {{ profileTypeLabel(otherProfileType) }} profile
+      </button>
+    }
   </mat-toolbar>
 
   @if (loading()) {

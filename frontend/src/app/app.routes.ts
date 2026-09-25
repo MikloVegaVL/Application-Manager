@@ -52,6 +52,18 @@ export const routes: Routes = [
     title: 'Editor',
   },
   {
+    // U9/R5 (KTD12): eine konkrete Bewerbung ansteuern, wenn ein
+    // Stellenangebot mehrere hat (je eine pro Profil) - ohne `applicationId`
+    // (Route oben) löst der Editor auf die erste zurückgegebene Bewerbung
+    // auf, was für den weiterhin häufigsten Fall (nur eine Bewerbung) genügt.
+    path: 'editor/:jobOfferId/:applicationId',
+    loadComponent: () =>
+      import('./pages/application-editor/application-editor.component').then(
+        (m) => m.ApplicationEditorComponent,
+      ),
+    title: 'Editor',
+  },
+  {
     path: 'sent-emails',
     loadComponent: () =>
       import('./pages/sent-emails/sent-emails.component').then((m) => m.SentEmailsComponent),

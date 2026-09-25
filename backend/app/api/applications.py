@@ -83,15 +83,24 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
     Stellenangebot per KI und speichert das Ergebnis als `Application`.
 
     Existiert für dieses Stellenangebot bereits eine Bewerbung, wird sie
-    neu generiert (Upsert) statt eine doppelte anzulegen.
+    neu generiert (Upsert) statt eine doppelte anzulegen - AUSSER
+    `payload.for_new_application` ist gesetzt (R5/KTD12, U9): dann wird die
+    gefundene Zeile bewusst NICHT wiederverwendet, sondern eine zusätzliche,
+    unabhängige `Application` für dasselbe Stellenangebot angelegt (Ausweg
+    aus der Profil-Sperre - siehe unten). Existiert für dieses
+    Stellenangebot noch gar keine Bewerbung, hat `for_new_application` keinen
+    Effekt (es gibt nichts, wovon "separat" zu unterscheiden wäre) - dieser
+    Aufruf verhält sich dann wie eine gewöhnliche Erstgenerierung.
 
     Das verwendete Profil (IT oder Full-life/Non-IT, R4) wird bei der ERSTEN
-    Generierung über `payload.profile_type` festgelegt und danach gesperrt
-    (R5): ist für diese Bewerbung bereits ein Profil zugeordnet
-    (`Application.profile_id`), gewinnt dieses gegenüber jedem im Body
-    mitgeschickten `profile_type` - das hält den bestehenden "Regenerate"-
-    Button (schickt gar kein `profile_type`) unverändert funktionsfähig
-    (KTD3, U3).
+    Generierung EINER `Application`-Zeile über `payload.profile_type`
+    festgelegt und danach gesperrt (R5): ist für diese Zeile bereits ein
+    Profil zugeordnet (`Application.profile_id`), gewinnt dieses gegenüber
+    jedem im Body mitgeschickten `profile_type` - das hält den bestehenden
+    "Regenerate"-Button (schickt gar kein `profile_type`) unverändert
+    funktionsfähig (KTD3, U3). Eine per `for_new_application` neu angelegte
+    Zeile hat naturgemäß noch kein gesperrtes Profil, `profile_type` ist für
+    sie also wie bei jeder Erstgenerierung Pflicht.
 
     Läuft für dieses Stellenangebot bereits eine Generierung (siehe
     `_generating_job_offer_ids`), wird sofort mit 409 abgebrochen statt eine
@@ -110,8 +119,21 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
     # statt ein zweites Mal abgefragt zu werden. Wird jetzt außerdem VOR der
     # Profilauflösung gebraucht, um ein bereits gesperrtes Profil zu erkennen
     # (R5, U3, siehe unten).
-    application = db.query(Application).filter(Application.job_offer_id == job_offer.id).first()
-    previous_cover_letter_text = application.cover_letter_text if application else None
+    existing_application = db.query(Application).filter(Application.job_offer_id == job_offer.id).first()
+
+    # R5/KTD12 (U9): `for_new_application` greift nur, wenn tatsächlich schon
+    # eine Bewerbung existiert - sonst bleibt `application` unverändert
+    # `existing_application` (i. d. R. `None`) und der Aufruf läuft als ganz
+    # normale Erstgenerierung durch (keine überflüssige zweite Zeile ins
+    # Leere hinein). Existiert bereits eine, wird sie HIER bewusst NICHT als
+    # `application` übernommen - der `else`-Zweig unten legt dadurch eine
+    # neue, unabhängige Zeile an statt die gefundene zu überschreiben.
+    if payload.for_new_application and existing_application is not None:
+        application = None
+        previous_cover_letter_text = None
+    else:
+        application = existing_application
+        previous_cover_letter_text = application.cover_letter_text if application else None
 
     # Profil auflösen (R4/R5/R6, U3): ist bereits ein Profil gesperrt, wird
     # AUSSCHLIESSLICH dieses wiederverwendet - ein im Body mitgeschicktes
@@ -171,22 +193,26 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
             _generating_job_offer_ids.discard(job_offer.id)
 
 
-@router.get("/by-job-offer/{job_offer_id}", response_model=ApplicationRead)
-def get_application_by_job_offer(job_offer_id: int, db: Session = Depends(get_db)) -> Application:
-    """Liefert die zu einem Stellenangebot gehörende Bewerbung (sofern
-    bereits generiert), ohne eine neue KI-Generierung anzustoßen.
+@router.get("/by-job-offer/{job_offer_id}", response_model=list[ApplicationRead])
+def get_applications_by_job_offer(job_offer_id: int, db: Session = Depends(get_db)) -> list[Application]:
+    """Liefert ALLE zu einem Stellenangebot gehörenden Bewerbungen (neueste
+    zuerst), ohne eine neue KI-Generierung anzustoßen.
+
+    Ein Stellenangebot kann seit U9/R5 (KTD12) mehr als eine Bewerbung haben
+    - je eine pro genutztem Profil, angelegt über `for_new_application`. Eine
+    leere Liste (statt 404) bedeutet: für dieses Stellenangebot wurde noch
+    keine Bewerbung generiert.
 
     Wird vom Editor genutzt, um bei erneutem Aufruf einer bereits
     bearbeiteten Bewerbung keine manuellen Änderungen durch eine erneute
     KI-Generierung zu überschreiben.
     """
-    application = db.query(Application).filter(Application.job_offer_id == job_offer_id).first()
-    if application is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Für dieses Stellenangebot wurde noch keine Bewerbung generiert.",
-        )
-    return application
+    return (
+        db.query(Application)
+        .filter(Application.job_offer_id == job_offer_id)
+        .order_by(Application.created_at.desc(), Application.id.desc())
+        .all()
+    )
 
 
 @router.get("/{application_id}", response_model=ApplicationRead)

@@ -719,6 +719,133 @@ def test_regenerate_keeps_the_locked_profile_even_with_a_different_profile_type_
     assert second_response.json()["profile_type"] == "it"
 
 
+# --- Separate application for the other profile (U9, R5/KTD12) -----------
+
+
+def test_for_new_application_creates_a_second_row_locked_to_the_other_profile(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    # Happy path: a job with an IT-locked application gets a SECOND,
+    # independent application when `for_new_application: true` is sent with
+    # `profile_type: "full_life"` - the first (IT-locked) row must stay
+    # untouched (R5's escape hatch, KTD12).
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/separate"
+        )
+        job_offer_id = job_offer.id
+        _create_profile(session, profile_type="it")
+        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life"))
+        session.commit()
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer, previous_cover_letter_text=None: "IT-Version",
+    )
+    first_response = client.post(
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+    )
+    assert first_response.status_code == 200
+    first_application_id = first_response.json()["id"]
+    assert first_response.json()["profile_type"] == "it"
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Full-life-Version",
+    )
+    second_response = client.post(
+        "/api/applications/generate",
+        json={"job_offer_id": job_offer_id, "profile_type": "full_life", "for_new_application": True},
+    )
+    assert second_response.status_code == 200
+    second_application_id = second_response.json()["id"]
+    assert second_application_id != first_application_id
+    assert second_response.json()["profile_type"] == "full_life"
+    assert second_response.json()["cover_letter_text"] == "Full-life-Version"
+
+    session = db_session_local()
+    try:
+        rows = session.query(Application).filter_by(job_offer_id=job_offer_id).all()
+        assert len(rows) == 2
+        first_row = session.get(Application, first_application_id)
+        assert first_row.cover_letter_text == "IT-Version"
+        assert first_row.profile_type == "it"
+    finally:
+        session.close()
+
+
+def test_by_job_offer_returns_a_list_with_both_applications(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/separate-list"
+        )
+        job_offer_id = job_offer.id
+        _create_profile(session, profile_type="it")
+        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life"))
+        session.commit()
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Version",
+    )
+    client.post("/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"})
+    client.post(
+        "/api/applications/generate",
+        json={"job_offer_id": job_offer_id, "profile_type": "full_life", "for_new_application": True},
+    )
+
+    response = client.get(f"/api/applications/by-job-offer/{job_offer_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 2
+    assert {item["profile_type"] for item in body} == {"it", "full_life"}
+
+
+def test_for_new_application_with_no_existing_application_behaves_like_a_normal_first_generation(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    # Edge case (KTD12): `for_new_application: true` with no prior
+    # Application row for this job offer must not create a spurious second
+    # row - exactly one Application exists afterward.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/separate-first"
+        )
+        job_offer_id = job_offer.id
+        _create_profile(session, profile_type="it")
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Erste Version",
+    )
+    response = client.post(
+        "/api/applications/generate",
+        json={"job_offer_id": job_offer_id, "profile_type": "it", "for_new_application": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["profile_type"] == "it"
+
+    session = db_session_local()
+    try:
+        rows = session.query(Application).filter_by(job_offer_id=job_offer_id).all()
+        assert len(rows) == 1
+    finally:
+        session.close()
+
+
 def test_generate_application_requires_profile_type_on_first_generation(
     client: TestClient, db_session_local
 ) -> None:

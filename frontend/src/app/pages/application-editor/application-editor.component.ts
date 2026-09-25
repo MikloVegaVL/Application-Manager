@@ -69,6 +69,11 @@ import {
 export class ApplicationEditorComponent implements OnInit {
   /** Wird über den Routenparameter `:jobOfferId` per Component-Input-Binding befüllt. */
   readonly jobOfferId = input<string>();
+  /** Wird über den optionalen Routenparameter `:applicationId` befüllt (U9,
+   * R5/KTD12) - wählt bei mehreren Bewerbungen für dasselbe Stellenangebot
+   * die konkret gemeinte aus; ohne Angabe wird die erste zurückgegebene
+   * verwendet (weiterhin der häufigste Fall: nur eine Bewerbung). */
+  readonly applicationId = input<string>();
 
   private readonly applicationService = inject(ApplicationService);
   private readonly jobService = inject(JobService);
@@ -103,12 +108,17 @@ export class ApplicationEditorComponent implements OnInit {
   /** True während eine Regenerate-Anfrage läuft (R8) - sperrt Regenerate,
    * Save und Send bis die Anfrage abgeschlossen ist (KTD4). */
   protected readonly regenerating = signal(false);
-  /** Fasst alle drei "gerade läuft etwas"-Signale zusammen (ce-simplify-code-
+  /** True während "Start a new application with the other profile" läuft
+   * (U9, R5/KTD12). */
+  protected readonly startingNewApplication = signal(false);
+  /** Fasst alle "gerade läuft etwas"-Signale zusammen (ce-simplify-code-
    * Fund: einzeln kopierte Kombinationen in den drei Button-Bindings waren
    * auseinandergedriftet - Regenerate erlaubte einen Klick während Send
-   * bereits lief). Einzige Quelle für die drei `[disabled]`-Bindings im
-   * Template, damit sie nicht wieder auseinanderlaufen können. */
-  protected readonly busy = computed(() => this.saving() || this.sending() || this.regenerating());
+   * bereits lief). Einzige Quelle für die `[disabled]`-Bindings im Template,
+   * damit sie nicht wieder auseinanderlaufen können. */
+  protected readonly busy = computed(
+    () => this.saving() || this.sending() || this.regenerating() || this.startingNewApplication(),
+  );
   protected readonly errorMessage = signal<string | null>(null);
   /** True während der erstmaligen KI-Generierung (siehe `generateForFirstTime`) -
    * steuert den Hinweis, dass das ohne GPU-Beschleunigung mehrere Minuten
@@ -118,6 +128,21 @@ export class ApplicationEditorComponent implements OnInit {
 
   protected readonly application = signal<Application | null>(null);
   protected readonly jobOffer = signal<JobOfferRead | null>(null);
+
+  /** Das jeweils ANDERE Profil zum aktuell gesperrten (U9, R5/KTD12) -
+   * `null`, solange kein Profil gesperrt ist (Sperre erst nach der ersten
+   * Generierung, R5) - steuert Sichtbarkeit/Ziel von "Start a new
+   * application with the other profile". */
+  protected readonly otherProfileType = computed<ProfileType | null>(() => {
+    const current = this.application()?.profile_type;
+    if (current === 'it') {
+      return 'full_life';
+    }
+    if (current === 'full_life') {
+      return 'it';
+    }
+    return null;
+  });
 
   /** Aktuell im Profilwahl-Dialog markierte Option (R4) - `null`, solange
    * noch nichts ausgewählt wurde (sperrt den "Continue"-Button). */
@@ -147,6 +172,8 @@ export class ApplicationEditorComponent implements OnInit {
       return;
     }
     const jobOfferId = Number(jobOfferIdParam);
+    const applicationIdParam = this.applicationId();
+    const applicationId = applicationIdParam ? Number(applicationIdParam) : undefined;
 
     this.loading.set(true);
     this.errorMessage.set(null);
@@ -159,13 +186,19 @@ export class ApplicationEditorComponent implements OnInit {
       },
     });
 
-    this.applicationService.getByJobOffer(jobOfferId).subscribe({
+    this.applicationService.getByJobOffer(jobOfferId, applicationId).subscribe({
       next: (application) => {
+        if (!application) {
+          // Für dieses Stellenangebot existiert noch gar keine Bewerbung -
+          // damit ist zwangsläufig noch kein Profil gesperrt (R4).
+          this.promptForProfileType(jobOfferId);
+          return;
+        }
         // `POST /jobs/save` legt seit ce-debug (2026-08-20) sofort eine
         // Application ohne Anschreiben an, damit gespeicherte Jobs auf der
-        // Bewerbungsübersicht sichtbar sind - dieser Fall (200 mit leerem
+        // Bewerbungsübersicht sichtbar sind - dieser Fall (leeres
         // `cover_letter_text`) muss die Erstgenerierung genauso anstoßen wie
-        // ein bislang fehlendes (404) Anschreiben.
+        // eine noch gar nicht existierende Bewerbung.
         if (!application.cover_letter_text) {
           // Noch kein Profil gesperrt (U3/R4) - der Nutzer muss es erst
           // wählen, bevor überhaupt generiert werden darf. Ist bereits ein
@@ -182,15 +215,7 @@ export class ApplicationEditorComponent implements OnInit {
         }
         this.applyApplication(application);
       },
-      error: (error: HttpErrorResponse) => {
-        if (error.status === 404) {
-          // Für dieses Stellenangebot existiert noch gar keine Bewerbung -
-          // damit ist zwangsläufig noch kein Profil gesperrt (R4).
-          this.promptForProfileType(jobOfferId);
-          return;
-        }
-        this.handleLoadError(error);
-      },
+      error: (error: HttpErrorResponse) => this.handleLoadError(error),
     });
   }
 
@@ -459,6 +484,35 @@ export class ApplicationEditorComponent implements OnInit {
         const message =
           (error.error?.detail as string | undefined) ??
           'The cover letter could not be regenerated.';
+        this.snackBar.open(message, 'OK', { duration: 4000 });
+      },
+    });
+  }
+
+  /** R5's Ausweg (U9, KTD12): startet eine ZUSÄTZLICHE, unabhängige
+   * Bewerbung für dasselbe Stellenangebot mit dem jeweils ANDEREN Profil,
+   * statt das hier bereits gesperrte zu überschreiben - navigiert nach
+   * erfolgreicher Generierung zum Editor der neuen Bewerbung (eigene
+   * `applicationId`). Nur erreichbar, wenn ein Profil gesperrt ist
+   * (`otherProfileType()` sonst `null`, siehe Template). */
+  onStartNewApplicationWithOtherProfile(): void {
+    const application = this.application();
+    const otherProfileType = this.otherProfileType();
+    if (!application || !otherProfileType || this.busy()) {
+      return;
+    }
+
+    this.startingNewApplication.set(true);
+    this.applicationService.generate(application.job_offer_id, otherProfileType, true).subscribe({
+      next: (newApplication) => {
+        this.startingNewApplication.set(false);
+        void this.router.navigate(['/editor', application.job_offer_id, newApplication.id]);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.startingNewApplication.set(false);
+        const message =
+          (error.error?.detail as string | undefined) ??
+          'A new application for the other profile could not be started.';
         this.snackBar.open(message, 'OK', { duration: 4000 });
       },
     });

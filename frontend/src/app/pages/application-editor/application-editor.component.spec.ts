@@ -83,7 +83,7 @@ function loadApplication(
   }
 
   const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-  appReq.flush(buildApplication(coverLetterText, profileType));
+  appReq.flush([buildApplication(coverLetterText, profileType)]);
 }
 
 /** Ersetzt `MatDialog.open()` durch einen Fake, der sofort mit `result` schließt. */
@@ -130,7 +130,7 @@ describe('ApplicationEditorComponent', () => {
     jobReq.flush(defaultJobOffer);
 
     const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-    appReq.flush(buildApplication('Sehr geehrte Damen und Herren,'));
+    appReq.flush([buildApplication('Sehr geehrte Damen und Herren,')]);
 
     expect(component['application']()?.id).toBe(1);
     expect(component['coverLetterForm'].getRawValue().cover_letter_text).toBe(
@@ -155,7 +155,9 @@ describe('ApplicationEditorComponent', () => {
     jobReq.flush(defaultJobOffer);
 
     const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-    appReq.flush({ detail: 'not found' }, { status: 404, statusText: 'Not Found' });
+    // Seit U9 liefert der Endpunkt eine Liste statt 404 - ein leeres Array
+    // bedeutet "noch keine Bewerbung generiert" (KTD12).
+    appReq.flush([]);
     fixture.detectChanges();
 
     expect(dialogOpenSpy).toHaveBeenCalled();
@@ -202,7 +204,9 @@ describe('ApplicationEditorComponent', () => {
     const jobReq = httpMock.expectOne((req) => req.url.endsWith('/jobs/1'));
     jobReq.flush(defaultJobOffer);
     const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-    appReq.flush({ detail: 'not found' }, { status: 404, statusText: 'Not Found' });
+    // Seit U9 liefert der Endpunkt eine Liste statt 404 - ein leeres Array
+    // bedeutet "noch keine Bewerbung generiert" (KTD12).
+    appReq.flush([]);
     fixture.detectChanges();
 
     const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
@@ -223,7 +227,7 @@ describe('ApplicationEditorComponent', () => {
     jobReq.flush({ ...defaultJobOffer, is_processed: true });
 
     const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-    appReq.flush(buildApplication('Sehr geehrte Damen und Herren,'));
+    appReq.flush([buildApplication('Sehr geehrte Damen und Herren,')]);
 
     expect(component['isFirstGeneration']()).toBeFalse();
   });
@@ -272,7 +276,7 @@ describe('ApplicationEditorComponent', () => {
       // Erste Status-Abfrage: die laufende Generierung ist noch nicht fertig.
       tick(5000);
       const firstPoll = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-      firstPoll.flush(buildApplication(null));
+      firstPoll.flush([buildApplication(null)]);
 
       expect(component['isFirstGeneration']()).toBeTrue();
       httpMock.expectNone((req) => req.url.endsWith('/applications/generate'));
@@ -280,7 +284,7 @@ describe('ApplicationEditorComponent', () => {
       // Zweite Status-Abfrage: jetzt liegt das Ergebnis vor.
       tick(5000);
       const secondPoll = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-      secondPoll.flush(buildApplication('Sehr geehrte Damen und Herren,'));
+      secondPoll.flush([buildApplication('Sehr geehrte Damen und Herren,')]);
 
       expect(component['isFirstGeneration']()).toBeFalse();
       expect(component['application']()?.cover_letter_text).toBe('Sehr geehrte Damen und Herren,');
@@ -317,7 +321,7 @@ describe('ApplicationEditorComponent', () => {
       // Zweiter Tick: diesmal liegt das Ergebnis vor.
       tick(5000);
       const secondPoll = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-      secondPoll.flush(buildApplication('Sehr geehrte Damen und Herren,'));
+      secondPoll.flush([buildApplication('Sehr geehrte Damen und Herren,')]);
 
       expect(component['isFirstGeneration']()).toBeFalse();
       expect(component['application']()?.cover_letter_text).toBe('Sehr geehrte Damen und Herren,');
@@ -344,7 +348,7 @@ describe('ApplicationEditorComponent', () => {
       tick(30 * 60 * 1000 + 5000);
       httpMock.match(() => true).forEach((req) => {
         if (!req.cancelled) {
-          req.flush(buildApplication(null));
+          req.flush([buildApplication(null)]);
         }
       });
       flush();
@@ -560,6 +564,85 @@ describe('ApplicationEditorComponent', () => {
       expect(byText('Regenerate')?.disabled).toBeTrue();
       expect(byText('Save cover letter')?.disabled).toBeTrue();
       expect(byText('Send application by email now')?.disabled).toBeTrue();
+    });
+  });
+
+  describe('onStartNewApplicationWithOtherProfile() - R5 escape hatch (U9, KTD12)', () => {
+    it('otherProfileType() is null (no action) while no profile is locked yet', () => {
+      loadApplication(httpMock, { coverLetterText: 'Text', profileType: null });
+
+      expect(component['otherProfileType']()).toBeNull();
+    });
+
+    it('offers "full_life" when the current application is locked to "it", and vice versa', () => {
+      loadApplication(httpMock, { coverLetterText: 'Text', profileType: 'it' });
+      expect(component['otherProfileType']()).toBe('full_life');
+
+      component['application'].set(buildApplication('Text', 'full_life'));
+      expect(component['otherProfileType']()).toBe('it');
+    });
+
+    it('the action button is only rendered once the application is locked, and names the OTHER profile', () => {
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,', profileType: null });
+      fixture.detectChanges();
+      // Noch kein Profil gesperrt - der Button darf noch nicht erscheinen.
+      let buttons: HTMLButtonElement[] = fixture.nativeElement.querySelectorAll('button');
+      expect(Array.from(buttons).some((b) => b.textContent?.includes('Start a new application'))).toBeFalse();
+
+      component['application'].set(buildApplication('Sehr geehrte Damen und Herren,', 'it'));
+      fixture.detectChanges();
+
+      buttons = fixture.nativeElement.querySelectorAll('button');
+      const otherProfileButton = Array.from(buttons).find((b) =>
+        b.textContent?.includes('Start a new application'),
+      );
+      expect(otherProfileButton).withContext('expected the action button once locked').not.toBeUndefined();
+      // Locked to "it" -> offers the OTHER profile ("full_life"), not "it" again.
+      expect(otherProfileButton?.textContent).toContain('Full-life/Non-IT profile');
+    });
+
+    it('calls generate with for_new_application:true and the OTHER profile type, then navigates to the new application', () => {
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,', profileType: 'it' });
+      const router = TestBed.inject(Router);
+      const navigateSpy = spyOn(router, 'navigate');
+
+      component.onStartNewApplicationWithOtherProfile();
+
+      expect(component['startingNewApplication']()).toBeTrue();
+
+      const req = httpMock.expectOne((r) => r.url.endsWith('/applications/generate'));
+      expect(req.request.body).toEqual({
+        job_offer_id: 1,
+        profile_type: 'full_life',
+        for_new_application: true,
+      });
+
+      req.flush(buildApplication('Neue Version', 'full_life'));
+
+      expect(component['startingNewApplication']()).toBeFalse();
+      expect(navigateSpy).toHaveBeenCalledWith(['/editor', 1, 1]);
+    });
+
+    it('shows a snackbar and resets the flag when starting the new application fails', () => {
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,', profileType: 'it' });
+      const snackBarSpy = spyOn(component['snackBar'], 'open');
+
+      component.onStartNewApplicationWithOtherProfile();
+
+      const req = httpMock.expectOne((r) => r.url.endsWith('/applications/generate'));
+      req.flush({ detail: 'boom' }, { status: 500, statusText: 'Internal Server Error' });
+
+      expect(component['startingNewApplication']()).toBeFalse();
+      expect(snackBarSpy).toHaveBeenCalledWith('boom', 'OK', { duration: 4000 });
+    });
+
+    it('is a no-op without a loaded application', () => {
+      loadApplication(httpMock, { coverLetterText: 'Text', profileType: 'it' });
+      component['application'].set(null);
+
+      component.onStartNewApplicationWithOtherProfile();
+
+      httpMock.expectNone((r) => r.url.endsWith('/applications/generate'));
     });
   });
 
