@@ -12,7 +12,6 @@ Endpunkt zusätzlich einen `profile_type`-Pfadparameter (`it`/`full_life`,
 KTD1): die Anwendung unterhält jetzt zwei vollständig unabhängige Profile
 (R1/R2/R3) statt eines einzigen `MasterProfile`-Datensatzes."""
 from pathlib import Path
-from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -23,16 +22,10 @@ from app.core.config import settings
 from app.db.database import get_db
 from app.models.master_profile import MasterProfile
 from app.models.profile_attachment import ProfileAttachment
-from app.schemas.master_profile import MasterProfileCreate, MasterProfileRead, MasterProfileUpdate
+from app.schemas.master_profile import MasterProfileCreate, MasterProfileRead, MasterProfileUpdate, ProfileType
 from app.services.file_validation import _iter_file, _require_pdf
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
-
-# Die zwei unabhängigen Profile (R1/KTD1) - identisch zu den Werten des
-# `profile_type`-Enums auf `MasterProfile`. FastAPI validiert einen
-# `Literal`-Pfadparameter automatisch (422 bei ungültigem Wert), ein
-# eigenes Enum ist dafür nicht nötig.
-ProfileType = Literal["it", "full_life"]
 
 # Anzeigename je Profiltyp fürs 404-Detail (`_get_profile_or_404` unten) -
 # damit die Fehlermeldung das konkrete Profil benennt statt generisch zu

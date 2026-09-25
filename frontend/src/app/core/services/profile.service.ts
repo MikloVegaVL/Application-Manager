@@ -11,12 +11,12 @@ import {
   MasterProfileRead,
   ProfileContentUpdate,
 } from '../models/master-profile.model';
-
-/**
- * U7: mirrors the backend's `ProfileType` literal (`app.api.profile`) - the
- * app supports exactly two fully independent profiles (R1).
- */
-export type ProfileType = 'it' | 'full_life';
+// ce-simplify-code-Fund: `ProfileType` lebte identisch nochmal hier - jetzt
+// eine einzige Quelle (`application.model.ts`, wo es zuerst für
+// `ApplicationGenerateRequest.profile_type` gebraucht wurde). Re-exportiert,
+// damit bestehende Importe von dieser Datei unverändert bleiben.
+import { ProfileType } from '../models/application.model';
+export type { ProfileType };
 
 /** Antwort von `GET /profile/migration-status` (U6, R8). */
 export interface MigrationStatusResponse {

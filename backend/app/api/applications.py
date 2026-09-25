@@ -33,6 +33,19 @@ from app.services.pdf_service import PdfRenderError, render_cover_letter_pdf
 
 router = APIRouter(prefix="/applications", tags=["Applications"])
 
+
+def _get_locked_profile_or_422(db: Session, application: Application) -> MasterProfile:
+    """Löst das GESPERRTE Profil einer Bewerbung auf (R5/R6, U3) - 422, falls
+    noch keins zugeordnet ist (vor der ersten Generierung gibt es nichts zu
+    rendern/versenden). Gemeinsame Implementierung für PDF-Download und
+    Mailversand, analog `app.api.portal_fill._get_locked_profile_or_404`."""
+    if application.profile_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Für diese Bewerbung wurde noch kein Profil zugeordnet - bitte zuerst ein Anschreiben generieren.",
+        )
+    return db.get(MasterProfile, application.profile_id)
+
 # Verhindert überlappende KI-Generierungen für dasselbe Stellenangebot
 # (ce-debug-Untersuchung, 2026-08-28): `ApplicationEditorComponent` stößt bei
 # jedem Mounten mit noch leerem `cover_letter_text` erneut eine Generierung
@@ -209,6 +222,14 @@ def get_applications_by_job_offer(job_offer_id: int, db: Session = Depends(get_d
     """
     return (
         db.query(Application)
+        # `job_offer`/`submission`/`profile` mit-eager-laden - dieselbe
+        # N+1-Vermeidung wie bei `list_applications` oben, jetzt auch hier
+        # nötig, seit dieser Endpunkt (U9) mehr als eine Zeile zurückgeben kann.
+        .options(
+            joinedload(Application.job_offer),
+            joinedload(Application.submission),
+            joinedload(Application.profile),
+        )
         .filter(Application.job_offer_id == job_offer_id)
         .order_by(Application.created_at.desc(), Application.id.desc())
         .all()
@@ -245,15 +266,7 @@ def download_cover_letter_pdf(application_id: int, db: Session = Depends(get_db)
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung wurde nicht gefunden.")
 
-    # Nutzt das GESPERRTE Profil dieser Bewerbung (R5/R6, U3) statt eines
-    # generischen `.first()` - ohne Generierung ist noch kein Profil
-    # zugeordnet, es gibt also nichts zu rendern.
-    if application.profile_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Für diese Bewerbung wurde noch kein Profil zugeordnet - bitte zuerst ein Anschreiben generieren.",
-        )
-    profile = db.get(MasterProfile, application.profile_id)
+    profile = _get_locked_profile_or_422(db, application)
 
     job_offer = db.get(JobOffer, application.job_offer_id)
 
@@ -333,15 +346,7 @@ def send_application(
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung wurde nicht gefunden.")
 
-    # Nutzt das GESPERRTE Profil dieser Bewerbung (R5/R6, U3) statt eines
-    # generischen `.first()` - ohne Generierung ist noch kein Profil
-    # zugeordnet, es gibt also nichts zu versenden.
-    if application.profile_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Für diese Bewerbung wurde noch kein Profil zugeordnet - bitte zuerst ein Anschreiben generieren.",
-        )
-    profile = db.get(MasterProfile, application.profile_id)
+    profile = _get_locked_profile_or_422(db, application)
     if profile is None or not profile.cv_file_path or not Path(profile.cv_file_path).exists():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

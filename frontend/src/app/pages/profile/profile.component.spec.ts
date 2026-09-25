@@ -495,12 +495,13 @@ describe('ProfileComponent - U7: two independent profile types', () => {
     component['profileForm'].markAsDirty();
     expect(component['profileForm'].dirty).toBeTrue();
 
-    const dialog = fixture.debugElement.injector.get(MatDialog);
-    spyOn(dialog, 'open').and.returnValue({ afterClosed: () => of(false) } as never);
+    // ce-simplify-code-Fund: der Bestätigungsdialog nutzt `window.confirm`
+    // statt eines `MatDialog` (dieselbe Konvention wie `cv-builder.component.ts`).
+    const confirmSpy = spyOn(window, 'confirm').and.returnValue(false);
 
     component['onTopTabIndexChange'](1);
 
-    expect(dialog.open).toHaveBeenCalled();
+    expect(confirmSpy).toHaveBeenCalled();
     // Declined -> no reload of the other profile, current tab/edits intact.
     httpMock.expectNone((r) => r.url.endsWith('/profile/full_life'));
     expect(component['profileType']()).toBe('it');
@@ -518,8 +519,7 @@ describe('ProfileComponent - U7: two independent profile types', () => {
     component['profileForm'].patchValue({ full_name: 'Edited but unsaved' });
     component['profileForm'].markAsDirty();
 
-    const dialog = fixture.debugElement.injector.get(MatDialog);
-    spyOn(dialog, 'open').and.returnValue({ afterClosed: () => of(true) } as never);
+    spyOn(window, 'confirm').and.returnValue(true);
 
     component['onTopTabIndexChange'](1);
 

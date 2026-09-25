@@ -1,11 +1,11 @@
 """Pydantic-Schemas für Bewerbungen (`Application`)."""
 from datetime import datetime
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.application import ApplicationStatus
 from app.schemas.job_offer import JobOfferRead
+from app.schemas.master_profile import ProfileType
 
 # Enum aus dem ORM-Modell wiederverwendet, damit API und DB immer denselben
 # Satz gültiger Status-Werte kennen
@@ -99,7 +99,7 @@ class ApplicationGenerateRequest(BaseModel):
     Request stillschweigend weitere `Application`-Zeilen erzeugt."""
 
     job_offer_id: int
-    profile_type: Literal["it", "full_life"] | None = None
+    profile_type: ProfileType | None = None
     for_new_application: bool = False
 
 

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -61,35 +61,6 @@ export class ProfileMigrationDialogComponent {
 }
 
 /**
- * U7: Confirm/Discard-Dialog beim Wechsel des Profiltyp-Tabs mit
- * ungespeicherten Änderungen. Gleiche Begründung wie oben (kein eigenes
- * `.ts`/`.html`-Paar, da außerhalb des U7-Datei-Scopes).
- */
-@Component({
-  selector: 'app-discard-profile-changes-dialog',
-  standalone: true,
-  imports: [MatButtonModule, MatDialogModule],
-  template: `
-    <h2 mat-dialog-title>Discard unsaved changes?</h2>
-    <mat-dialog-content>
-      <p>You have unsaved changes on this profile. Switching profiles will discard them.</p>
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-stroked-button type="button" (click)="close(false)">Keep editing</button>
-      <button mat-flat-button color="warn" type="button" (click)="close(true)">Discard changes</button>
-    </mat-dialog-actions>
-  `,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-})
-export class DiscardProfileChangesDialogComponent {
-  private readonly dialogRef = inject(MatDialogRef<DiscardProfileChangesDialogComponent, boolean>);
-
-  close(discard: boolean): void {
-    this.dialogRef.close(discard);
-  }
-}
-
-/**
  * Profil-Seite: nur noch Identitätsfelder (Name, E-Mail, Telefon, Adresse)
  * plus die datei-basierten Tabs (Lebenslauf-Anhang, Weitere Anhänge). Die
  * inhaltliche CV-Pflege (Berufserfahrung, Ausbildung, Skills, Zusammen-
@@ -137,7 +108,11 @@ export class ProfileComponent implements OnInit {
   /** U7/R1: der aktuell gewählte Profiltyp - Reihenfolge entspricht den
    * Tab-Indizes im Template (`profileTypeOrder`). */
   protected readonly profileType = signal<ProfileType>('it');
-  protected readonly profileTypeIndex = signal(0);
+  /** ce-simplify-code-Fund: abgeleitet statt separat gepflegt - vorher
+   * mussten beide Signale an jeder Änderungsstelle synchron gesetzt werden,
+   * ein stiller Invarianten-Bruch bei einer künftigen Änderung war so nur
+   * eine Frage der Zeit. */
+  protected readonly profileTypeIndex = computed(() => this.profileTypeOrder.indexOf(this.profileType()));
   private readonly profileTypeOrder: readonly ProfileType[] = ['it', 'full_life'];
 
   protected readonly profileId = signal<number | null>(null);
@@ -216,7 +191,6 @@ export class ProfileComponent implements OnInit {
       this.profileService.migrateProfile(chosenType).subscribe({
         next: (profile) => {
           this.profileType.set(chosenType);
-          this.profileTypeIndex.set(this.profileTypeOrder.indexOf(chosenType));
           this.initializing.set(false);
           this.applyProfileToForm(profile);
           this.loading.set(false);
@@ -239,17 +213,17 @@ export class ProfileComponent implements OnInit {
     }
 
     if (this.profileForm.dirty) {
-      const dialogRef = this.dialog.open(DiscardProfileChangesDialogComponent);
-      dialogRef.afterClosed().subscribe((discard) => {
-        if (discard) {
-          this.switchProfileType(newIndex);
-        } else {
-          // Ablehnung: Tab-Index zurücksetzen - da `[selectedIndex]` an dieses
-          // Signal gebunden ist, synchronisiert Angular den `mat-tab-group`
-          // beim nächsten Change-Detection-Lauf wieder auf den bisherigen Tab.
-          this.profileTypeIndex.set(currentIndex);
-        }
-      });
+      // `window.confirm` statt eines `MatDialog` (ce-simplify-code-Fund:
+      // dieselbe Ja/Nein-Bestätigung nutzt `cv-builder.component.ts` bereits
+      // so, und `cv-builder.guard.ts` dokumentiert das als die bewusst
+      // einfachste ausreichende Lösung für genau diesen Fall).
+      const discard = window.confirm('You have unsaved changes on this profile. Switching profiles will discard them.');
+      if (discard) {
+        this.switchProfileType(newIndex);
+      }
+      // Ablehnung: `profileType`/`profileTypeIndex` bleiben unverändert -
+      // `[selectedIndex]` synchronisiert den `mat-tab-group` beim nächsten
+      // Change-Detection-Lauf von selbst zurück auf den bisherigen Tab.
       return;
     }
 
@@ -259,7 +233,6 @@ export class ProfileComponent implements OnInit {
   private switchProfileType(newIndex: number): void {
     const newType = this.profileTypeOrder[newIndex];
     this.profileType.set(newType);
-    this.profileTypeIndex.set(newIndex);
     this.loadProfile(newType);
   }
 
