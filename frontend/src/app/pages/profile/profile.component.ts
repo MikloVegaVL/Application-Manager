@@ -1,10 +1,12 @@
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -19,7 +21,73 @@ import {
   ProfileAttachment,
   SENDER_EMAIL_OPTIONS,
 } from '../../core/models/master-profile.model';
-import { ProfileService } from '../../core/services/profile.service';
+import { ProfileService, ProfileType } from '../../core/services/profile.service';
+
+/**
+ * U7: blockierender Erstlauf-Dialog (R8) - fragt, welchem der beiden
+ * Profiltypen die untypisierte Alt-Zeile zugeordnet werden soll. Als
+ * zusätzliche, im selben File definierte Standalone-Komponente statt eines
+ * eigenen `.ts`/`.html`-Paars, da U7's Datei-Scope nur `profile.component.ts`
+ * (nicht neue Dateien) umfasst. `disableClose` wird beim `MatDialog.open`-
+ * Aufruf gesetzt (siehe `ProfileComponent.promptMigration`), nicht hier.
+ */
+@Component({
+  selector: 'app-profile-migration-dialog',
+  standalone: true,
+  imports: [MatButtonModule, MatDialogModule],
+  template: `
+    <h2 mat-dialog-title>Choose a profile type</h2>
+    <mat-dialog-content>
+      <p>
+        Your existing profile needs to be assigned to one of the two profile types before you can
+        continue. The other profile will start empty.
+      </p>
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-stroked-button type="button" (click)="choose('it')">IT</button>
+      <button mat-flat-button color="primary" type="button" (click)="choose('full_life')">
+        Full-life/Non-IT
+      </button>
+    </mat-dialog-actions>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class ProfileMigrationDialogComponent {
+  private readonly dialogRef = inject(MatDialogRef<ProfileMigrationDialogComponent, ProfileType>);
+
+  choose(profileType: ProfileType): void {
+    this.dialogRef.close(profileType);
+  }
+}
+
+/**
+ * U7: Confirm/Discard-Dialog beim Wechsel des Profiltyp-Tabs mit
+ * ungespeicherten Änderungen. Gleiche Begründung wie oben (kein eigenes
+ * `.ts`/`.html`-Paar, da außerhalb des U7-Datei-Scopes).
+ */
+@Component({
+  selector: 'app-discard-profile-changes-dialog',
+  standalone: true,
+  imports: [MatButtonModule, MatDialogModule],
+  template: `
+    <h2 mat-dialog-title>Discard unsaved changes?</h2>
+    <mat-dialog-content>
+      <p>You have unsaved changes on this profile. Switching profiles will discard them.</p>
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-stroked-button type="button" (click)="close(false)">Keep editing</button>
+      <button mat-flat-button color="warn" type="button" (click)="close(true)">Discard changes</button>
+    </mat-dialog-actions>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class DiscardProfileChangesDialogComponent {
+  private readonly dialogRef = inject(MatDialogRef<DiscardProfileChangesDialogComponent, boolean>);
+
+  close(discard: boolean): void {
+    this.dialogRef.close(discard);
+  }
+}
 
 /**
  * Profil-Seite: nur noch Identitätsfelder (Name, E-Mail, Telefon, Adresse)
@@ -27,15 +95,23 @@ import { ProfileService } from '../../core/services/profile.service';
  * inhaltliche CV-Pflege (Berufserfahrung, Ausbildung, Skills, Zusammen-
  * fassung) und der KI-gestützte CV-Import sind in den CV Builder
  * (`cv-builder.component.ts`) umgezogen - siehe R2/R3 in U7.
+ *
+ * U7: verwaltet zusätzlich zwei vollständig unabhängige Profile ("it"/
+ * "full_life", R1/R2/R3) über einen äußeren Tab-Umschalter, der die
+ * bestehenden drei Feld-Tabs umschließt. Beim ersten Laden wird geprüft, ob
+ * noch eine untypisierte Alt-Zeile existiert (R8) - falls ja, blockiert ein
+ * `MatDialog` jedes Rendern der Profil-Tabs, bis der Nutzer einen Typ wählt.
  */
 @Component({
   selector: 'app-profile',
   standalone: true,
   imports: [
+    NgTemplateOutlet,
     ReactiveFormsModule,
     RouterLink,
     MatButtonModule,
     MatCardModule,
+    MatDialogModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
@@ -51,6 +127,18 @@ export class ProfileComponent implements OnInit {
   private readonly formBuilder = inject(FormBuilder);
   private readonly profileService = inject(ProfileService);
   private readonly snackBar = inject(MatSnackBar);
+  private readonly dialog = inject(MatDialog);
+
+  /** U7/R8: `true` solange die Migrationsprüfung (und ggf. der Migrations-
+   * Dialog) noch nicht abgeschlossen ist - so lange rendert das Template
+   * weder den Tab-Umschalter noch irgendeinen Profilinhalt. */
+  protected readonly initializing = signal(true);
+
+  /** U7/R1: der aktuell gewählte Profiltyp - Reihenfolge entspricht den
+   * Tab-Indizes im Template (`profileTypeOrder`). */
+  protected readonly profileType = signal<ProfileType>('it');
+  protected readonly profileTypeIndex = signal(0);
+  private readonly profileTypeOrder: readonly ProfileType[] = ['it', 'full_life'];
 
   protected readonly profileId = signal<number | null>(null);
   protected readonly loading = signal(true);
@@ -88,25 +176,129 @@ export class ProfileComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.loadProfile();
+    this.checkMigrationThenLoad();
+  }
+
+  // --- U7/R8: Erstlauf-Migrationsprüfung ----------------------------------
+
+  private checkMigrationThenLoad(): void {
+    this.profileService.getMigrationStatus().subscribe({
+      next: ({ has_untyped_profile }) => {
+        if (has_untyped_profile) {
+          this.promptMigration();
+        } else {
+          this.initializing.set(false);
+          this.loadProfile(this.profileType());
+        }
+      },
+      error: () => {
+        // Fail open: kann der Migrationsstatus nicht geladen werden, verhält
+        // sich die Seite wie zuvor (kein Prompt) statt den Nutzer dauerhaft
+        // auszusperren.
+        this.initializing.set(false);
+        this.loadProfile(this.profileType());
+      },
+    });
+  }
+
+  private promptMigration(): void {
+    const dialogRef = this.dialog.open(ProfileMigrationDialogComponent, { disableClose: true });
+    dialogRef.afterClosed().subscribe((chosenType) => {
+      if (!chosenType) {
+        // `disableClose: true` verhindert Esc/Backdrop-Schließen - dieser
+        // Fall sollte praktisch nicht auftreten, aber sicherheitshalber
+        // erneut fragen statt die Seite in einem halb-initialisierten
+        // Zustand zu belassen.
+        this.promptMigration();
+        return;
+      }
+
+      this.profileService.migrateProfile(chosenType).subscribe({
+        next: (profile) => {
+          this.profileType.set(chosenType);
+          this.profileTypeIndex.set(this.profileTypeOrder.indexOf(chosenType));
+          this.initializing.set(false);
+          this.applyProfileToForm(profile);
+          this.loading.set(false);
+          this.notify('Profile migrated.');
+        },
+        error: () => {
+          this.notify('Migration failed. Please try again.', 4000);
+          this.promptMigration();
+        },
+      });
+    });
+  }
+
+  // --- U7/R1-R3: Wechsel des Profiltyp-Tabs -------------------------------
+
+  protected onTopTabIndexChange(newIndex: number): void {
+    const currentIndex = this.profileTypeOrder.indexOf(this.profileType());
+    if (newIndex === currentIndex) {
+      return;
+    }
+
+    if (this.profileForm.dirty) {
+      const dialogRef = this.dialog.open(DiscardProfileChangesDialogComponent);
+      dialogRef.afterClosed().subscribe((discard) => {
+        if (discard) {
+          this.switchProfileType(newIndex);
+        } else {
+          // Ablehnung: Tab-Index zurücksetzen - da `[selectedIndex]` an dieses
+          // Signal gebunden ist, synchronisiert Angular den `mat-tab-group`
+          // beim nächsten Change-Detection-Lauf wieder auf den bisherigen Tab.
+          this.profileTypeIndex.set(currentIndex);
+        }
+      });
+      return;
+    }
+
+    this.switchProfileType(newIndex);
+  }
+
+  private switchProfileType(newIndex: number): void {
+    const newType = this.profileTypeOrder[newIndex];
+    this.profileType.set(newType);
+    this.profileTypeIndex.set(newIndex);
+    this.loadProfile(newType);
   }
 
   // --- Tab 1: Laden & Speichern -------------------------------------------
 
-  private loadProfile(): void {
+  private loadProfile(profileType: ProfileType): void {
     this.loading.set(true);
-    this.profileService.getProfile().subscribe({
+    this.profileService.getProfile(profileType).subscribe({
       next: (profile) => {
         this.applyProfileToForm(profile);
         this.loading.set(false);
       },
       error: (error: HttpErrorResponse) => {
         this.loading.set(false);
+        // R1/R3: kein Rest des zuvor angezeigten Profils darf stehen bleiben,
+        // wenn dieser Typ noch gar nicht existiert (404 = es existiert noch
+        // kein Profil dieses Typs -> leeres Formular für die Neuanlage).
+        this.resetProfileState();
         if (error.status !== 404) {
           this.notify('The profile could not be loaded.', 4000);
         }
-        // 404 = es existiert noch kein Profil -> leeres Formular für die Neuanlage.
       },
+    });
+  }
+
+  private resetProfileState(): void {
+    this.profileId.set(null);
+    this.cvFilename.set(null);
+    this.attachments.set([]);
+    this.selectedCvFile.set(null);
+    this.selectedAttachmentFile.set(null);
+    this.profileForm.reset({
+      full_name: '',
+      email: '',
+      phone: '',
+      address: '',
+      linkedin: '',
+      website: '',
+      sender_email: SENDER_EMAIL_OPTIONS[0],
     });
   }
 
@@ -118,11 +310,13 @@ export class ProfileComponent implements OnInit {
     }
 
     const raw = this.profileForm.getRawValue();
+    const profileType = this.profileType();
     this.saving.set(true);
 
     // KTD14: NUR die Identitätsfelder überschreiben, alle Builder-eigenen
     // Felder (experiences_json, education_json, skills_json, ...) unverändert
-    // zurückschicken, weil `PUT /profile` alle Felder feldweise überschreibt.
+    // zurückschicken, weil `PUT /profile/{profile_type}` alle Felder
+    // feldweise überschreibt.
     // Review-Fund (fix(review)): der Payload wird bewusst NICHT mehr aus
     // `this.lastLoadedProfile` gebaut, einer beim Seitenaufruf einmalig
     // geladenen Momentaufnahme, die von keiner anderen Quelle (z. B. einem
@@ -132,13 +326,13 @@ export class ProfileComponent implements OnInit {
     // zurücksetzen. Stattdessen wird das Profil unmittelbar vor dem PUT frisch
     // geladen, damit der Payload garantiert den aktuellen Stand aller
     // Builder-Felder enthält.
-    this.profileService.getProfile().subscribe({
-      next: (base) => this.submitWithBase(raw, base),
+    this.profileService.getProfile(profileType).subscribe({
+      next: (base) => this.submitWithBase(raw, base, profileType),
       error: (error: HttpErrorResponse) => {
-        // 404 = es existiert noch kein Profil -> Neuanlage, kein Builder-
-        // Inhalt zu bewahren.
+        // 404 = es existiert noch kein Profil dieses Typs -> Neuanlage, kein
+        // Builder-Inhalt zu bewahren.
         if (error.status === 404) {
-          this.submitWithBase(raw, null);
+          this.submitWithBase(raw, null, profileType);
           return;
         }
         this.saving.set(false);
@@ -158,6 +352,7 @@ export class ProfileComponent implements OnInit {
       sender_email: string;
     },
     base: MasterProfileRead | null,
+    profileType: ProfileType,
   ): void {
     const payload: MasterProfile = {
       full_name: raw.full_name,
@@ -178,7 +373,7 @@ export class ProfileComponent implements OnInit {
       template_id: base?.template_id ?? null,
     };
 
-    this.profileService.saveProfile(payload).subscribe({
+    this.profileService.saveProfile(profileType, payload).subscribe({
       next: (profile) => {
         this.saving.set(false);
         this.applyProfileToForm(profile);
@@ -195,6 +390,8 @@ export class ProfileComponent implements OnInit {
     this.profileId.set(profile.id);
     this.cvFilename.set(profile.cv_filename);
     this.attachments.set(profile.attachments ?? []);
+    this.selectedCvFile.set(null);
+    this.selectedAttachmentFile.set(null);
     this.profileForm.patchValue({
       full_name: profile.full_name,
       email: profile.email,
@@ -204,6 +401,9 @@ export class ProfileComponent implements OnInit {
       website: profile.website ?? '',
       sender_email: profile.sender_email ?? SENDER_EMAIL_OPTIONS[0],
     });
+    // U7: Baseline für den Dirty-Check beim Tab-Wechsel (`onTopTabIndexChange`)
+    // - ein frisch geladenes/gespeichertes Profil gilt nie als "unsaved".
+    this.profileForm.markAsPristine();
   }
 
   // --- Tab 2: Lebenslauf-Anhang (Dropzone) --------------------------------
@@ -256,7 +456,7 @@ export class ProfileComponent implements OnInit {
     }
 
     this.uploadingCvFile.set(true);
-    this.profileService.uploadCvFile(file).subscribe({
+    this.profileService.uploadCvFile(this.profileType(), file).subscribe({
       next: (profile) => {
         this.uploadingCvFile.set(false);
         this.selectedCvFile.set(null);
@@ -278,7 +478,7 @@ export class ProfileComponent implements OnInit {
     }
 
     this.deletingCvFile.set(true);
-    this.profileService.deleteCvFile().subscribe({
+    this.profileService.deleteCvFile(this.profileType()).subscribe({
       next: (profile) => {
         this.deletingCvFile.set(false);
         this.cvFilename.set(profile.cv_filename);
@@ -348,7 +548,7 @@ export class ProfileComponent implements OnInit {
     }
 
     this.uploadingAttachment.set(true);
-    this.profileService.uploadAttachment(file).subscribe({
+    this.profileService.uploadAttachment(this.profileType(), file).subscribe({
       next: (profile) => {
         this.uploadingAttachment.set(false);
         this.selectedAttachmentFile.set(null);
@@ -370,7 +570,7 @@ export class ProfileComponent implements OnInit {
     }
 
     this.deletingAttachmentId.set(attachmentId);
-    this.profileService.deleteAttachment(attachmentId).subscribe({
+    this.profileService.deleteAttachment(this.profileType(), attachmentId).subscribe({
       next: (profile) => {
         this.deletingAttachmentId.set(null);
         this.attachments.set(profile.attachments);

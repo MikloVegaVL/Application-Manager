@@ -3,7 +3,9 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { FormBuilder } from '@angular/forms';
 import { provideRouter } from '@angular/router';
+import { By } from '@angular/platform-browser';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
+import { MatTabGroup } from '@angular/material/tabs';
 
 import { CvBuilderComponent } from './cv-builder.component';
 
@@ -38,8 +40,12 @@ describe('CvBuilderComponent', () => {
   let fixture: ComponentFixture<CvBuilderComponent>;
   let httpMock: HttpTestingController;
 
-  const flushProfileRequest = (status: number, body: object = { detail: 'error' }): void => {
-    const req = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'GET');
+  const flushProfileRequest = (
+    status: number,
+    body: object = { detail: 'error' },
+    profileType: 'it' | 'full_life' = 'it',
+  ): void => {
+    const req = httpMock.expectOne((r) => r.url.endsWith(`/profile/${profileType}`) && r.method === 'GET');
     if (status >= 200 && status < 300) {
       req.flush(body);
     } else {
@@ -69,13 +75,21 @@ describe('CvBuilderComponent', () => {
    * Elternkomponente. `responseType: 'blob'` verlangt einen Blob-Body auch
    * für den Error-Flush, TestRequest.flush konvertiert Objekte nicht
    * automatisch. */
-  const flushDependentRequests = (): void => {
+  const flushDependentRequests = (
+    profileType: 'it' | 'full_life' = 'it',
+    { includeTemplates = true }: { includeTemplates?: boolean } = {},
+  ): void => {
+    // `PhotoSectionComponent` re-fetches per profile type switch (`profile_type`
+    // scoped, R3); `CvPreviewExportComponent`'s templates are global and load
+    // only once in `ngOnInit` - a profile-type switch must not re-expect them.
     httpMock
-      .expectOne((r) => r.url.endsWith('/profile/photo') && r.method === 'GET')
+      .expectOne((r) => r.url.endsWith(`/profile/${profileType}/photo`) && r.method === 'GET')
       .flush(new Blob(), { status: 404, statusText: 'Not Found' });
-    httpMock
-      .expectOne((r) => r.url.endsWith('/cv-builder/templates') && r.method === 'GET')
-      .flush(templatesFixture);
+    if (includeTemplates) {
+      httpMock
+        .expectOne((r) => r.url.endsWith('/cv-builder/templates') && r.method === 'GET')
+        .flush(templatesFixture);
+    }
   };
 
   /** Bringt die Komponente in den `ready`-Zustand mit dem gegebenen Profil
@@ -207,7 +221,7 @@ describe('CvBuilderComponent', () => {
     expect(saveButton).toBeTruthy();
     saveButton.click();
 
-    const req = httpMock.expectOne((r) => r.url.endsWith('/profile') && r.method === 'PATCH');
+    const req = httpMock.expectOne((r) => r.url.endsWith('/profile/it') && r.method === 'PATCH');
     expect(req.request.body).toEqual({
       summary: 'New summary',
       berufsbezeichnung: '',
@@ -304,5 +318,89 @@ describe('CvBuilderComponent', () => {
     component.onBeforeUnload(event);
 
     expect(event.preventDefault).not.toHaveBeenCalled();
+  });
+
+  // U7/R1/R3: two independent profiles, switched via the button-toggle above
+  // the tab group.
+  describe('profile-type switching (U7)', () => {
+    it('renders the IT/Full-life toggle and defaults to "it"', () => {
+      fixture.detectChanges();
+      flushProfileRequest(404);
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const toggles = compiled.querySelectorAll('mat-button-toggle-group[aria-label="Choose profile type"] mat-button-toggle');
+      expect(toggles.length).toBe(2);
+      expect(component['profileType']()).toBe('it');
+    });
+
+    it('switching profile type with no unsaved changes reloads with the other profile\'s own data', () => {
+      goToReady({ template_id: 'classic', summary: 'IT summary' });
+      expect(component['summaryControl'].value).toBe('IT summary');
+
+      component['onProfileTypeChange']('full_life');
+
+      const req = httpMock.expectOne((r) => r.url.endsWith('/profile/full_life') && r.method === 'GET');
+      req.flush({ ...baseProfileResponse, summary: 'Full-life summary', template_id: 'classic' });
+      fixture.detectChanges();
+      flushDependentRequests('full_life', { includeTemplates: false });
+      fixture.detectChanges();
+
+      expect(component['profileType']()).toBe('full_life');
+      expect(component['summaryControl'].value).toBe('Full-life summary');
+    });
+
+    it('switching profile type with unsaved changes prompts a confirm dialog; declining keeps the current type', () => {
+      goToReady({ template_id: 'classic' });
+      component['summaryControl'].setValue('Unsaved edit');
+      expect(component.hasUnsavedChanges()).toBeTrue();
+
+      spyOn(window, 'confirm').and.returnValue(false);
+
+      component['onProfileTypeChange']('full_life');
+
+      expect(window.confirm).toHaveBeenCalled();
+      httpMock.expectNone((r) => r.url.endsWith('/profile/full_life'));
+      expect(component['profileType']()).toBe('it');
+      expect(component['summaryControl'].value).toBe('Unsaved edit');
+    });
+
+    it('switching profile type with unsaved changes, then confirming, discards the edits and loads the other profile', () => {
+      goToReady({ template_id: 'classic' });
+      component['summaryControl'].setValue('Unsaved edit');
+
+      spyOn(window, 'confirm').and.returnValue(true);
+
+      component['onProfileTypeChange']('full_life');
+
+      expect(window.confirm).toHaveBeenCalled();
+      const req = httpMock.expectOne((r) => r.url.endsWith('/profile/full_life') && r.method === 'GET');
+      req.flush({ ...baseProfileResponse, summary: 'Full-life summary', template_id: 'classic' });
+      fixture.detectChanges();
+      flushDependentRequests('full_life', { includeTemplates: false });
+      fixture.detectChanges();
+
+      expect(component['profileType']()).toBe('full_life');
+      expect(component['summaryControl'].value).toBe('Full-life summary');
+    });
+
+    it('passes the selected profileType through to app-cv-preview-export', async () => {
+      goToReady({ template_id: 'classic' });
+
+      // Preview & export is the last tab (index 8: Summary, Work experience,
+      // Education, Skills, Languages, Projects, Photo, Import, Preview &
+      // export). `mat-tab-group`'s body content attaches only after its
+      // (Noop, but still async) selection animation settles - awaiting
+      // `whenStable()` (NgZone stabilization) is more reliable here than
+      // `fakeAsync`'s timer-queue flush for the CDK animation callback.
+      const tabGroup = fixture.debugElement.query(By.directive(MatTabGroup)).componentInstance as MatTabGroup;
+      tabGroup.selectedIndex = 8;
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const preview = fixture.debugElement.query(By.css('app-cv-preview-export'));
+      expect(preview.componentInstance.profileType).toBe('it');
+    });
   });
 });

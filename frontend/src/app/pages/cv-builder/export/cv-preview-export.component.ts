@@ -17,7 +17,7 @@ import {
   ProjectEntry,
   SkillEntry,
 } from '../../../core/models/master-profile.model';
-import { ProfileService } from '../../../core/services/profile.service';
+import { ProfileService, ProfileType } from '../../../core/services/profile.service';
 import { downloadBlobResponse } from '../../../core/utils/download-blob-response.util';
 
 const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
@@ -196,6 +196,16 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
   private readonly profileService = inject(ProfileService);
   private readonly sanitizer = inject(DomSanitizer);
 
+  /**
+   * U7/R1/U5: welches der zwei unabhängigen Profile gerendert wird - als
+   * Query-Parameter an `POST /cv-builder/preview`/`.../export` angehängt
+   * (siehe `ProfileService`). Optional mit Default `'it'` statt `required`,
+   * damit diese Komponente (außerhalb des U7-Datei-Scopes) auch ohne diesen
+   * Input funktionsfähig bleibt - der einzige Aufrufer (`CvBuilderComponent`)
+   * setzt ihn immer explizit.
+   */
+  @Input() profileType: ProfileType = 'it';
+
   @Input({ required: true }) summaryControl!: FormControl<string>;
   @Input({ required: true }) berufsbezeichnungControl!: FormControl<string>;
   @Input({ required: true }) experiencesArray!: FormArray<FormGroup>;
@@ -265,7 +275,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
 
     this.previewLoading.set(true);
     this.previewError.set(null);
-    this.profileService.previewCv(payload).subscribe({
+    this.profileService.previewCv(this.profileType, payload).subscribe({
       next: (response) => {
         this.previewLoading.set(false);
         this.revokePreviewUrl();
@@ -296,7 +306,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
 
     this.exporting.set(true);
     this.exportError.set(null);
-    this.profileService.exportCv(payload).subscribe({
+    this.profileService.exportCv(this.profileType, payload).subscribe({
       next: (response) => {
         this.exporting.set(false);
         if (!downloadBlobResponse(response, DEFAULT_EXPORT_FILENAME)) {
