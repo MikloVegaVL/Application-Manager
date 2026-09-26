@@ -44,7 +44,13 @@ def _get_locked_profile_or_422(db: Session, application: Application) -> MasterP
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Für diese Bewerbung wurde noch kein Profil zugeordnet - bitte zuerst ein Anschreiben generieren.",
         )
-    return db.get(MasterProfile, application.profile_id)
+    profile = db.get(MasterProfile, application.profile_id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Das zugeordnete Profil wurde nicht gefunden.",
+        )
+    return profile
 
 # Verhindert überlappende KI-Generierungen für dasselbe Stellenangebot
 # (ce-debug-Untersuchung, 2026-08-28): `ApplicationEditorComponent` stößt bei
@@ -135,13 +141,14 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
     existing_application = db.query(Application).filter(Application.job_offer_id == job_offer.id).first()
 
     # R5/KTD12 (U9): `for_new_application` greift nur, wenn tatsächlich schon
-    # eine Bewerbung existiert - sonst bleibt `application` unverändert
-    # `existing_application` (i. d. R. `None`) und der Aufruf läuft als ganz
-    # normale Erstgenerierung durch (keine überflüssige zweite Zeile ins
-    # Leere hinein). Existiert bereits eine, wird sie HIER bewusst NICHT als
-    # `application` übernommen - der `else`-Zweig unten legt dadurch eine
+    # eine Bewerbung existiert UND diese bereits ein gesperrtes Profil hat -
+    # sonst bleibt `application` unverändert `existing_application` und der
+    # Aufruf läuft als ganz normale Erstgenerierung durch (füllt die noch
+    # leere, ungesperrte Zeile statt eine zusätzliche Dublette anzulegen).
+    # Existiert bereits eine GESPERRTE Bewerbung, wird sie HIER bewusst NICHT
+    # als `application` übernommen - der `else`-Zweig unten legt dadurch eine
     # neue, unabhängige Zeile an statt die gefundene zu überschreiben.
-    if payload.for_new_application and existing_application is not None:
+    if payload.for_new_application and existing_application is not None and existing_application.profile_id is not None:
         application = None
         previous_cover_letter_text = None
     else:

@@ -220,7 +220,7 @@ def _build_document_packets(request: Request, profile: MasterProfile) -> list[Po
                 kind="cv",
                 id=None,
                 filename=profile.cv_filename or "lebenslauf.pdf",
-                download_url=f"{base_url}/api/profile/cv-file",
+                download_url=f"{base_url}/api/profile/{profile.profile_type}/cv-file",
             )
         )
 
@@ -230,7 +230,7 @@ def _build_document_packets(request: Request, profile: MasterProfile) -> list[Po
                 kind="attachment",
                 id=attachment.id,
                 filename=attachment.filename,
-                download_url=f"{base_url}/api/profile/attachments/{attachment.id}",
+                download_url=f"{base_url}/api/profile/{profile.profile_type}/attachments/{attachment.id}",
             )
         )
 

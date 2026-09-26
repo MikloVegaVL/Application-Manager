@@ -16,6 +16,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -38,13 +39,6 @@ _PROFILE_TYPE_LABELS: dict[str, str] = {"it": "IT", "full_life": "Full-life/Non-
 _NO_PROFILE_DETAIL_TEMPLATE = (
     "Es wurde noch kein {label}-Profil angelegt. Bitte zunächst über PUT /api/profile/{profile_type} anlegen."
 )
-
-# Alter, generischer 404-Text - wird hier nur noch für `app.api.cv_builder`
-# vorgehalten (das per U2-Scope in dieser Unit unverändert bleibt und noch
-# den einzigen, untypisierten `MasterProfile`-Datensatz erwartet; siehe U5).
-# Eigene Endpunkte in dieser Datei nutzen ab jetzt ausschließlich
-# `_NO_PROFILE_DETAIL_TEMPLATE` über `_get_profile_or_404`.
-_NO_PROFILE_DETAIL = "Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen."
 
 # Maximale Anzahl zusätzlicher PDF-Anhänge (siehe `ProfileAttachment`) - über
 # den Lebenslauf hinaus, der weiterhin separat über `cv-file` verwaltet wird.
@@ -196,7 +190,14 @@ def migrate_profile(payload: ProfileMigrationRequest, db: Session = Depends(get_
         )
 
     profile.profile_type = payload.profile_type
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Es existiert bereits ein {_PROFILE_TYPE_LABELS[payload.profile_type]}-Profil - Migration nicht möglich.",
+        ) from None
     db.refresh(profile)
     return profile
 
@@ -226,7 +227,14 @@ def upsert_profile(profile_type: ProfileType, payload: MasterProfileCreate, db: 
         for field, value in data.items():
             setattr(profile, field, value)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Es existiert bereits ein {_PROFILE_TYPE_LABELS[profile_type]}-Profil - bitte erneut versuchen.",
+        ) from None
     db.refresh(profile)
     return profile
 
