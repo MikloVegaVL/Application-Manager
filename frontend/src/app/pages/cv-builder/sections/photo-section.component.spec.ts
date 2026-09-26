@@ -39,13 +39,15 @@ describe('PhotoSectionComponent', () => {
     fixture = TestBed.createComponent(PhotoSectionComponent);
     component = fixture.componentInstance;
     httpMock = TestBed.inject(HttpTestingController);
+    fixture.componentRef.setInput('profileType', 'it');
     fixture.detectChanges();
 
-    // Initialer GET /profile/photo-Aufruf aus ngOnInit abfangen (404 = noch kein Foto).
-    // `responseType: 'blob'` verlangt einen Blob-Body auch für den Error-Flush -
-    // TestRequest.flush konvertiert Objekte nicht automatisch in einen Blob.
+    // Initialer GET /profile/it/photo-Aufruf aus dem Konstruktor-`effect()`
+    // abfangen (404 = noch kein Foto). `responseType: 'blob'` verlangt einen
+    // Blob-Body auch für den Error-Flush - TestRequest.flush konvertiert
+    // Objekte nicht automatisch in einen Blob.
     httpMock
-      .expectOne((r) => r.url.endsWith('/profile/photo') && r.method === 'GET')
+      .expectOne((r) => r.url.endsWith('/profile/it/photo') && r.method === 'GET')
       .flush(new Blob(), { status: 404, statusText: 'Not Found' });
     fixture.detectChanges();
   });
@@ -72,14 +74,14 @@ describe('PhotoSectionComponent', () => {
 
     component.onFileSelected({ target: input } as unknown as Event);
 
-    const uploadReq = httpMock.expectOne((r) => r.url.endsWith('/profile/photo') && r.method === 'POST');
+    const uploadReq = httpMock.expectOne((r) => r.url.endsWith('/profile/it/photo') && r.method === 'POST');
     expect(uploadReq.request.body instanceof FormData).toBeTrue();
     uploadReq.flush(baseProfileResponse);
     fixture.detectChanges();
 
     // Kein erneuter GET /profile/photo nach erfolgreichem Upload - die
     // Vorschau wird direkt aus der lokalen `File` gebaut.
-    httpMock.expectNone((r) => r.url.endsWith('/profile/photo') && r.method === 'GET');
+    httpMock.expectNone((r) => r.url.endsWith('/profile/it/photo') && r.method === 'GET');
 
     expect(component['photoUrl']()).toMatch(/^blob:/);
     const img = (fixture.nativeElement as HTMLElement).querySelector('img');
@@ -95,12 +97,12 @@ describe('PhotoSectionComponent', () => {
 
     component.onDrop(dropEvent);
 
-    const uploadReq = httpMock.expectOne((r) => r.url.endsWith('/profile/photo') && r.method === 'POST');
+    const uploadReq = httpMock.expectOne((r) => r.url.endsWith('/profile/it/photo') && r.method === 'POST');
     uploadReq.flush(baseProfileResponse);
 
     // Kein erneuter GET /profile/photo nach erfolgreichem Upload - die
     // Vorschau wird direkt aus der lokalen `File` gebaut.
-    httpMock.expectNone((r) => r.url.endsWith('/profile/photo') && r.method === 'GET');
+    httpMock.expectNone((r) => r.url.endsWith('/profile/it/photo') && r.method === 'GET');
 
     expect(component['photoUrl']()).toMatch(/^blob:/);
     expect(component['isDragOver']()).toBeFalse();
@@ -113,7 +115,7 @@ describe('PhotoSectionComponent', () => {
     component.onFileSelected({ target: input } as unknown as Event);
     fixture.detectChanges();
 
-    httpMock.expectNone((r) => r.url.endsWith('/profile/photo') && r.method === 'POST');
+    httpMock.expectNone((r) => r.url.endsWith('/profile/it/photo') && r.method === 'POST');
     expect(component['errorMessage']()).toBe('Please select an image file.');
     expect(component['photoUrl']()).toBeNull();
   });
@@ -125,7 +127,7 @@ describe('PhotoSectionComponent', () => {
 
     component.remove();
 
-    const req = httpMock.expectOne((r) => r.url.endsWith('/profile/photo') && r.method === 'DELETE');
+    const req = httpMock.expectOne((r) => r.url.endsWith('/profile/it/photo') && r.method === 'DELETE');
     req.flush({ ...baseProfileResponse, photo_filename: null });
     fixture.detectChanges();
 

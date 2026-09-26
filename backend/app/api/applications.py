@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
+from app.api.profile import _get_profile_or_404
 from app.db.database import get_db
 from app.models.application import Application, ApplicationStatus
 from app.models.job_offer import JobOffer
@@ -31,6 +32,25 @@ from app.services.mail_service import MailSendError, send_application_email
 from app.services.pdf_service import PdfRenderError, render_cover_letter_pdf
 
 router = APIRouter(prefix="/applications", tags=["Applications"])
+
+
+def _get_locked_profile_or_422(db: Session, application: Application) -> MasterProfile:
+    """Löst das GESPERRTE Profil einer Bewerbung auf (R5/R6, U3) - 422, falls
+    noch keins zugeordnet ist (vor der ersten Generierung gibt es nichts zu
+    rendern/versenden). Gemeinsame Implementierung für PDF-Download und
+    Mailversand, analog `app.api.portal_fill._get_locked_profile_or_404`."""
+    if application.profile_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Für diese Bewerbung wurde noch kein Profil zugeordnet - bitte zuerst ein Anschreiben generieren.",
+        )
+    profile = db.get(MasterProfile, application.profile_id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Das zugeordnete Profil wurde nicht gefunden.",
+        )
+    return profile
 
 # Verhindert überlappende KI-Generierungen für dasselbe Stellenangebot
 # (ce-debug-Untersuchung, 2026-08-28): `ApplicationEditorComponent` stößt bei
@@ -63,9 +83,14 @@ def list_applications(db: Session = Depends(get_db)) -> list[Application]:
     # sonst nicht stabil sortiert.
     return (
         db.query(Application)
-        # `submission` mit-eager-laden (KTD3/U4): `ApplicationRead.submission`
-        # würde sonst pro Zeile einen eigenen Query auslösen (N+1).
-        .options(joinedload(Application.job_offer), joinedload(Application.submission))
+        # `submission`/`profile` mit-eager-laden (KTD3/U4, U3): `ApplicationRead.
+        # submission`/`.profile_type` würden sonst pro Zeile einen eigenen Query
+        # auslösen (N+1).
+        .options(
+            joinedload(Application.job_offer),
+            joinedload(Application.submission),
+            joinedload(Application.profile),
+        )
         .order_by(Application.created_at.desc(), Application.id.desc())
         .all()
     )
@@ -77,7 +102,24 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
     Stellenangebot per KI und speichert das Ergebnis als `Application`.
 
     Existiert für dieses Stellenangebot bereits eine Bewerbung, wird sie
-    neu generiert (Upsert) statt eine doppelte anzulegen.
+    neu generiert (Upsert) statt eine doppelte anzulegen - AUSSER
+    `payload.for_new_application` ist gesetzt (R5/KTD12, U9): dann wird die
+    gefundene Zeile bewusst NICHT wiederverwendet, sondern eine zusätzliche,
+    unabhängige `Application` für dasselbe Stellenangebot angelegt (Ausweg
+    aus der Profil-Sperre - siehe unten). Existiert für dieses
+    Stellenangebot noch gar keine Bewerbung, hat `for_new_application` keinen
+    Effekt (es gibt nichts, wovon "separat" zu unterscheiden wäre) - dieser
+    Aufruf verhält sich dann wie eine gewöhnliche Erstgenerierung.
+
+    Das verwendete Profil (IT oder Full-life/Non-IT, R4) wird bei der ERSTEN
+    Generierung EINER `Application`-Zeile über `payload.profile_type`
+    festgelegt und danach gesperrt (R5): ist für diese Zeile bereits ein
+    Profil zugeordnet (`Application.profile_id`), gewinnt dieses gegenüber
+    jedem im Body mitgeschickten `profile_type` - das hält den bestehenden
+    "Regenerate"-Button (schickt gar kein `profile_type`) unverändert
+    funktionsfähig (KTD3, U3). Eine per `for_new_application` neu angelegte
+    Zeile hat naturgemäß noch kein gesperrtes Profil, `profile_type` ist für
+    sie also wie bei jeder Erstgenerierung Pflicht.
 
     Läuft für dieses Stellenangebot bereits eine Generierung (siehe
     `_generating_job_offer_ids`), wird sofort mit 409 abgebrochen statt eine
@@ -89,12 +131,45 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
     if job_offer is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stellenangebot wurde nicht gefunden.")
 
-    profile = db.query(MasterProfile).first()
-    if profile is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
-        )
+    # Vorab geladen (statt erst nach der Generierung wie zuvor), damit ein
+    # bereits gespeichertes Anschreiben als `previous_cover_letter_text` an
+    # die KI-Generierung weitergereicht werden kann (KTD3, Regenerate-
+    # Feature) - dieselbe Zeile wird unten für den Upsert wiederverwendet
+    # statt ein zweites Mal abgefragt zu werden. Wird jetzt außerdem VOR der
+    # Profilauflösung gebraucht, um ein bereits gesperrtes Profil zu erkennen
+    # (R5, U3, siehe unten).
+    existing_application = db.query(Application).filter(Application.job_offer_id == job_offer.id).first()
+
+    # R5/KTD12 (U9): `for_new_application` greift nur, wenn tatsächlich schon
+    # eine Bewerbung existiert UND diese bereits ein gesperrtes Profil hat -
+    # sonst bleibt `application` unverändert `existing_application` und der
+    # Aufruf läuft als ganz normale Erstgenerierung durch (füllt die noch
+    # leere, ungesperrte Zeile statt eine zusätzliche Dublette anzulegen).
+    # Existiert bereits eine GESPERRTE Bewerbung, wird sie HIER bewusst NICHT
+    # als `application` übernommen - der `else`-Zweig unten legt dadurch eine
+    # neue, unabhängige Zeile an statt die gefundene zu überschreiben.
+    if payload.for_new_application and existing_application is not None and existing_application.profile_id is not None:
+        application = None
+        previous_cover_letter_text = None
+    else:
+        application = existing_application
+        previous_cover_letter_text = application.cover_letter_text if application else None
+
+    # Profil auflösen (R4/R5/R6, U3): ist bereits ein Profil gesperrt, wird
+    # AUSSCHLIESSLICH dieses wiederverwendet - ein im Body mitgeschicktes
+    # `profile_type` wird dann ignoriert (KTD3). Ohne Sperre ist
+    # `profile_type` Pflicht (422) und wird über die U2-Hilfsfunktion
+    # `_get_profile_or_404` aufgelöst (404, falls für diesen Typ noch kein
+    # `MasterProfile` existiert).
+    if application is not None and application.profile_id is not None:
+        profile = db.get(MasterProfile, application.profile_id)
+    else:
+        if payload.profile_type is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="profile_type ist erforderlich (erste Generierung für dieses Stellenangebot).",
+            )
+        profile = _get_profile_or_404(db, payload.profile_type)
 
     with _generating_lock:
         if job_offer.id in _generating_job_offer_ids:
@@ -103,14 +178,6 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
                 detail="Für dieses Stellenangebot läuft bereits eine Generierung. Bitte warten.",
             )
         _generating_job_offer_ids.add(job_offer.id)
-
-    # Vorab geladen (statt erst nach der Generierung wie zuvor), damit ein
-    # bereits gespeichertes Anschreiben als `previous_cover_letter_text` an
-    # die KI-Generierung weitergereicht werden kann (KTD3, Regenerate-
-    # Feature) - dieselbe Zeile wird unten für den Upsert wiederverwendet
-    # statt ein zweites Mal abgefragt zu werden.
-    application = db.query(Application).filter(Application.job_offer_id == job_offer.id).first()
-    previous_cover_letter_text = application.cover_letter_text if application else None
 
     # `else` statt einem zweiten verschachtelten try/except (ce-code-review-
     # Fund, 2026-08-28): läuft nur, wenn `generate_application_content` NICHT
@@ -130,6 +197,12 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
             db.add(application)
 
         application.cover_letter_text = cover_letter_text
+        # Sperrt das genutzte Profil erst NACH erfolgreicher Generierung
+        # (R5) - ein fehlgeschlagener Versuch (siehe `except` oben) darf
+        # keine Sperre setzen. Bei einer Regenerierung ist dies derselbe
+        # Wert wie zuvor (siehe Profilauflösung oben), das Feld ändert sich
+        # also effektiv nur bei der ersten Generierung.
+        application.profile_id = profile.id
         job_offer.is_processed = True
         db.commit()
         db.refresh(application)
@@ -140,22 +213,34 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
             _generating_job_offer_ids.discard(job_offer.id)
 
 
-@router.get("/by-job-offer/{job_offer_id}", response_model=ApplicationRead)
-def get_application_by_job_offer(job_offer_id: int, db: Session = Depends(get_db)) -> Application:
-    """Liefert die zu einem Stellenangebot gehörende Bewerbung (sofern
-    bereits generiert), ohne eine neue KI-Generierung anzustoßen.
+@router.get("/by-job-offer/{job_offer_id}", response_model=list[ApplicationRead])
+def get_applications_by_job_offer(job_offer_id: int, db: Session = Depends(get_db)) -> list[Application]:
+    """Liefert ALLE zu einem Stellenangebot gehörenden Bewerbungen (neueste
+    zuerst), ohne eine neue KI-Generierung anzustoßen.
+
+    Ein Stellenangebot kann seit U9/R5 (KTD12) mehr als eine Bewerbung haben
+    - je eine pro genutztem Profil, angelegt über `for_new_application`. Eine
+    leere Liste (statt 404) bedeutet: für dieses Stellenangebot wurde noch
+    keine Bewerbung generiert.
 
     Wird vom Editor genutzt, um bei erneutem Aufruf einer bereits
     bearbeiteten Bewerbung keine manuellen Änderungen durch eine erneute
     KI-Generierung zu überschreiben.
     """
-    application = db.query(Application).filter(Application.job_offer_id == job_offer_id).first()
-    if application is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Für dieses Stellenangebot wurde noch keine Bewerbung generiert.",
+    return (
+        db.query(Application)
+        # `job_offer`/`submission`/`profile` mit-eager-laden - dieselbe
+        # N+1-Vermeidung wie bei `list_applications` oben, jetzt auch hier
+        # nötig, seit dieser Endpunkt (U9) mehr als eine Zeile zurückgeben kann.
+        .options(
+            joinedload(Application.job_offer),
+            joinedload(Application.submission),
+            joinedload(Application.profile),
         )
-    return application
+        .filter(Application.job_offer_id == job_offer_id)
+        .order_by(Application.created_at.desc(), Application.id.desc())
+        .all()
+    )
 
 
 @router.get("/{application_id}", response_model=ApplicationRead)
@@ -188,12 +273,7 @@ def download_cover_letter_pdf(application_id: int, db: Session = Depends(get_db)
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung wurde nicht gefunden.")
 
-    profile = db.query(MasterProfile).first()
-    if profile is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Es wurde noch kein Profil angelegt. Bitte zunächst über PUT /api/profile anlegen.",
-        )
+    profile = _get_locked_profile_or_422(db, application)
 
     job_offer = db.get(JobOffer, application.job_offer_id)
 
@@ -273,7 +353,7 @@ def send_application(
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung wurde nicht gefunden.")
 
-    profile = db.query(MasterProfile).first()
+    profile = _get_locked_profile_or_422(db, application)
     if profile is None or not profile.cv_file_path or not Path(profile.cv_file_path).exists():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

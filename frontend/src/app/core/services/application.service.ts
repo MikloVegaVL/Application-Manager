@@ -1,6 +1,6 @@
 import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import {
@@ -8,6 +8,7 @@ import {
   ApplicationSendPayload,
   ApplicationUpdatePayload,
   FillRequestResponse,
+  ProfileType,
 } from '../models/application.model';
 
 /**
@@ -24,14 +25,57 @@ export class ApplicationService {
     return this.http.get<Application[]>(this.baseUrl);
   }
 
-  /** Stößt die KI-gestützte Erstgenerierung des Anschreibens an. */
-  generate(jobOfferId: number): Observable<Application> {
-    return this.http.post<Application>(`${this.baseUrl}/generate`, { job_offer_id: jobOfferId });
+  /** Stößt die KI-gestützte Generierung des Anschreibens an.
+   *
+   * `profileType` ist nur für die ERSTE Generierung eines Stellenangebots
+   * Pflicht (R4, `ApplicationGenerateRequest.profile_type`) - ist für die
+   * Bewerbung bereits ein Profil gesperrt (R5), reicht der Aufruf ohne
+   * `profileType` (Regenerate, unverändert): das Backend ignoriert einen
+   * dann trotzdem mitgeschickten Wert ohnehin (KTD3, U3). Wird hier daher
+   * bewusst nur bei Angabe in den Body aufgenommen, statt immer `null`/
+   * `undefined` mitzuschicken.
+   *
+   * `forNewApplication` ist R5's Ausweg (U9, KTD12): legt statt eines
+   * Upserts eine zusätzliche, unabhängige Bewerbung für dasselbe
+   * Stellenangebot an, gesperrt auf `profileType`. Standardmäßig `false`
+   * und dann ebenfalls NICHT mitgeschickt - hält `onRegenerate()`s
+   * Request-Body unverändert (kein `for_new_application`-Feld). */
+  generate(
+    jobOfferId: number,
+    profileType?: ProfileType,
+    forNewApplication = false,
+  ): Observable<Application> {
+    return this.http.post<Application>(`${this.baseUrl}/generate`, {
+      job_offer_id: jobOfferId,
+      ...(profileType ? { profile_type: profileType } : {}),
+      ...(forNewApplication ? { for_new_application: true } : {}),
+    });
   }
 
-  /** Lädt die zu einem Stellenangebot gehörende Bewerbung (404, falls noch keine generiert wurde). */
-  getByJobOffer(jobOfferId: number): Observable<Application> {
-    return this.http.get<Application>(`${this.baseUrl}/by-job-offer/${jobOfferId}`);
+  /** Lädt ALLE zu einem Stellenangebot gehörenden Bewerbungen (neueste
+   * zuerst) - seit U9/R5 (KTD12) kann ein Stellenangebot mehr als eine
+   * Bewerbung haben (je eine pro genutztem Profil). Leeres Array, solange
+   * noch keine generiert wurde. */
+  getAllByJobOffer(jobOfferId: number): Observable<Application[]> {
+    return this.http.get<Application[]>(`${this.baseUrl}/by-job-offer/${jobOfferId}`);
+  }
+
+  /** Lädt GENAU EINE Bewerbung zu einem Stellenangebot - mit `applicationId`
+   * genau diese (sofern in der Liste vorhanden), sonst die erste (häufigster
+   * Fall: nur eine Bewerbung existiert). `null`, solange noch keine
+   * Bewerbung generiert wurde. */
+  getByJobOffer(jobOfferId: number, applicationId?: number): Observable<Application | null> {
+    return this.getAllByJobOffer(jobOfferId).pipe(
+      map((applications) => {
+        if (applications.length === 0) {
+          return null;
+        }
+        if (applicationId !== undefined) {
+          return applications.find((application) => application.id === applicationId) ?? applications[0];
+        }
+        return applications[0];
+      }),
+    );
   }
 
   /** Lädt eine einzelne Bewerbung. */

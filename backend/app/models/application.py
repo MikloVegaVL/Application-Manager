@@ -10,6 +10,7 @@ from app.db.database import Base
 
 if TYPE_CHECKING:
     from app.models.job_offer import JobOffer
+    from app.models.master_profile import MasterProfile
     from app.models.portal_submission import PortalSubmission
 
 
@@ -35,6 +36,16 @@ class Application(Base):
 
     cover_letter_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Welches der zwei unabhängigen Profile diese Bewerbung nutzt (U1,
+    # docs/plans/2026-09-23-001-feat-profile-types-plan.md) - manuell
+    # zugeordnet und nach der ersten Generierung gesperrt (R5). `SET NULL`
+    # statt `CASCADE` (siehe `ProfileAttachment.profile_id` für die
+    # gegenteilige, bewusste `CASCADE`-Wahl dort): ein gelöschtes Profil
+    # darf die Bewerbungshistorie nicht mitreißen (KTD10).
+    profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("master_profiles.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     # `native_enum=False` legt den Wert als VARCHAR ab statt als nativen
     # DB-Enum-Typ. Das hält den Wechsel SQLite -> PostgreSQL unkompliziert,
     # da für PostgreSQL sonst zusätzlich ein CREATE TYPE nötig wäre.
@@ -57,6 +68,14 @@ class Application(Base):
 
     job_offer: Mapped["JobOffer"] = relationship(back_populates="applications")
 
+    # Zugeordnetes Profil (U3, R4/R5) - `None`, solange noch nicht generiert
+    # wurde, oder wenn das zugeordnete Profil zwischenzeitlich gelöscht wurde
+    # (`profile_id` ist `ON DELETE SET NULL`, siehe oben). Kein
+    # `back_populates`: `MasterProfile` hält bewusst keine Rückrelation auf
+    # seine Bewerbungen (wird aktuell nirgends gebraucht), analog `submission`
+    # unten, das ebenfalls einseitig bleibt.
+    profile: Mapped["MasterProfile | None"] = relationship("MasterProfile")
+
     # Jüngster Portal-Submit dieser Bewerbung (R11/KTD3). `viewonly` +
     # `uselist=False` + `order_by` liefert genau die neueste Zeile (SQLAlchemy
     # ergänzt ein LIMIT 1), damit `ApplicationRead` das "applied"-Indiz ohne
@@ -68,6 +87,13 @@ class Application(Base):
         uselist=False,
         order_by="desc(PortalSubmission.submitted_at)",
     )
+
+    @property
+    def profile_type(self) -> str | None:
+        """Für `ApplicationRead.profile_type` (U3) - abgeleitet aus der
+        verknüpften `MasterProfile.profile_type`, `None` solange kein Profil
+        zugeordnet ist (noch nicht generiert)."""
+        return self.profile.profile_type if self.profile else None
 
     def __repr__(self) -> str:  # pragma: no cover - Debug-Hilfe
         return f"<Application id={self.id} job_offer_id={self.job_offer_id} status={self.status}>"
