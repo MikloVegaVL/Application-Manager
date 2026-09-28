@@ -1110,3 +1110,82 @@ class TestRenderSentEmailsPdf:
         pdf_bytes = pdf_service.render_sent_emails_pdf([self._entry()], filtered=False)
 
         assert "filtered view" not in self._extract_text(pdf_bytes)
+
+
+# --- render_cover_letter_pdf (U: Anschreiben als PDF-Download) ---------------
+
+
+class TestRenderCoverLetterPdf:
+    def _render(self, **overrides):
+        defaults = dict(
+            full_name="Max Mustermann",
+            email="max@example.com",
+            phone="+49 176 12345678",
+            address="Musterstraße 1, 12345 Musterstadt",
+            company="Acme GmbH",
+            job_title="Backend Engineer",
+            cover_letter_text=(
+                "Betreff: Bewerbung als Backend Engineer\n\n"
+                "Sehr geehrte Damen und Herren,\n\n"
+                "hiermit bewerbe ich mich auf die ausgeschriebene Stelle.\n\n"
+                "Mit freundlichen Grüßen\nMax Mustermann"
+            ),
+        )
+        defaults.update(overrides)
+        return pdf_service.render_cover_letter_pdf(**defaults)
+
+    def _extract_text(self, pdf_bytes: bytes) -> str:
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        reader = PdfReader(BytesIO(pdf_bytes))
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
+
+    def test_renders_real_pdf_bytes_with_header_and_body(self):
+        pdf_bytes = self._render()
+
+        assert pdf_bytes.startswith(b"%PDF")
+        text = self._extract_text(pdf_bytes)
+        assert "Max Mustermann" in text
+        assert "max@example.com" in text
+        assert "Acme GmbH" in text
+        assert "Backend Engineer" in text
+        assert "Sehr geehrte Damen und Herren" in text
+
+    def test_optional_header_fields_are_omitted_when_absent(self):
+        pdf_bytes = self._render(phone=None, address=None, job_title=None)
+
+        text = self._extract_text(pdf_bytes)
+        assert "+49 176" not in text
+        assert "Musterstraße" not in text
+
+    def test_free_text_is_escaped_not_rendered_as_live_markup(self, mocker):
+        mock_html_cls = mocker.patch.object(pdf_service, "HTML")
+        mock_html_cls.return_value.write_pdf.return_value = b"%PDF-1.4 fake bytes"
+
+        pdf_service.render_cover_letter_pdf(
+            full_name="Max Mustermann",
+            email="max@example.com",
+            phone=None,
+            address=None,
+            company="Acme GmbH",
+            job_title="Backend Engineer",
+            cover_letter_text="<script>alert(1)</script>",
+        )
+
+        rendered_html = mock_html_cls.call_args.kwargs["string"]
+        assert "<script>alert(1)</script>" not in rendered_html
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in rendered_html
+
+    def test_empty_cover_letter_still_renders_a_valid_pdf(self):
+        pdf_bytes = self._render(cover_letter_text="")
+
+        assert pdf_bytes.startswith(b"%PDF")
+
+    def test_weasyprint_exception_surfaces_as_pdf_render_error(self, mocker):
+        mock_html_cls = mocker.patch.object(pdf_service, "HTML")
+        mock_html_cls.return_value.write_pdf.side_effect = RuntimeError("boom")
+
+        with pytest.raises(PdfRenderError):
+            self._render()

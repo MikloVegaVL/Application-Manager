@@ -15,6 +15,7 @@ import {
 import { Application } from '../../core/models/application.model';
 import { JobOfferRead } from '../../core/models/job-offer.model';
 import { JobSearchStateService } from '../../core/services/job-search-state.service';
+import { TabTitleService } from '../../core/services/tab-title.service';
 import { environment } from '../../../environments/environment';
 
 const defaultJobOffer: JobOfferRead = {
@@ -29,7 +30,10 @@ const defaultJobOffer: JobOfferRead = {
   is_processed: false,
 };
 
-function buildApplication(coverLetterText: string | null): Application {
+function buildApplication(
+  coverLetterText: string | null,
+  profileType: Application['profile_type'] = null,
+): Application {
   return {
     id: 1,
     job_offer_id: 1,
@@ -37,21 +41,39 @@ function buildApplication(coverLetterText: string | null): Application {
     status: 'draft',
     sent_at: null,
     sent_to_email: null,
+    submission: null,
     created_at: '2026-08-11T00:00:00',
+    profile_type: profileType,
     job_offer: defaultJobOffer,
   };
 }
 
-/** Flusht Job- und Bewerbungs-Requests, damit `application()`/`jobOffer()` befüllt sind. */
+/** Flusht Job- und Bewerbungs-Requests, damit `application()`/`jobOffer()` befüllt sind.
+ *
+ * `profileType` ist standardmäßig bereits `'it'` (nicht `null`), obwohl
+ * `coverLetterText` standardmäßig leer ist - simuliert damit den "bereits
+ * gesperrtes Profil, Erstversuch aber gescheitert/unterbrochen"-Fall statt
+ * des "noch gar kein Profil gewählt"-Falls (R4, U8). Die meisten Aufrufer
+ * dieser Helper-Funktion testen Verhalten NACH dem Profilwahl-Dialog (Tab-
+ * Titel, 409-Polling, Destroy-Handling) und sollen den Dialog nicht extra
+ * mocken müssen; Tests, die den Dialog selbst prüfen wollen, übergeben
+ * explizit `profileType: null` und mocken `dialog.open` wie im "can take
+ * minutes"-Test oben. */
 function loadApplication(
   httpMock: HttpTestingController,
   options: {
     coverLetterText?: string | null;
+    profileType?: Application['profile_type'];
     withJobOffer?: boolean;
     jobOffer?: JobOfferRead;
   } = {},
 ): void {
-  const { coverLetterText = null, withJobOffer = true, jobOffer = defaultJobOffer } = options;
+  const {
+    coverLetterText = null,
+    profileType = 'it',
+    withJobOffer = true,
+    jobOffer = defaultJobOffer,
+  } = options;
 
   const jobReq = httpMock.expectOne((req) => req.url.endsWith('/jobs/1'));
   if (withJobOffer) {
@@ -61,7 +83,7 @@ function loadApplication(
   }
 
   const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-  appReq.flush(buildApplication(coverLetterText));
+  appReq.flush([buildApplication(coverLetterText, profileType)]);
 }
 
 /** Ersetzt `MatDialog.open()` durch einen Fake, der sofort mit `result` schließt. */
@@ -108,7 +130,7 @@ describe('ApplicationEditorComponent', () => {
     jobReq.flush(defaultJobOffer);
 
     const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-    appReq.flush(buildApplication('Sehr geehrte Damen und Herren,'));
+    appReq.flush([buildApplication('Sehr geehrte Damen und Herren,')]);
 
     expect(component['application']()?.id).toBe(1);
     expect(component['coverLetterForm'].getRawValue().cover_letter_text).toBe(
@@ -120,12 +142,25 @@ describe('ApplicationEditorComponent', () => {
     // (ce-debug-Untersuchung, 2026-08-18: "Generate Application" auf einem
     // neuen Job-Angebot lief messbar 4+ Minuten - ohne Hinweis wirkte das wie
     // hängengeblieben statt nur langsam.)
+    //
+    // Seit U8 (docs/plans/2026-09-23-001-feat-profile-types-plan.md) blockiert
+    // vor der allerersten Generierung erst der Profilwahl-Dialog (R4) - der
+    // Dialog wird hier per Spy sofort mit einer Wahl geschlossen, damit dieser
+    // Test weiterhin nur den Generierungs-Hinweis selbst prüft.
+    const dialogOpenSpy = spyOn(component['dialog'], 'open').and.returnValue({
+      afterClosed: () => of('it'),
+    } as unknown as MatDialogRef<unknown, unknown>);
+
     const jobReq = httpMock.expectOne((req) => req.url.endsWith('/jobs/1'));
     jobReq.flush(defaultJobOffer);
 
     const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-    appReq.flush({ detail: 'not found' }, { status: 404, statusText: 'Not Found' });
+    // Seit U9 liefert der Endpunkt eine Liste statt 404 - ein leeres Array
+    // bedeutet "noch keine Bewerbung generiert" (KTD12).
+    appReq.flush([]);
     fixture.detectChanges();
+
+    expect(dialogOpenSpy).toHaveBeenCalled();
 
     // Generierung läuft noch (generateReq absichtlich nicht geflusht) - der
     // Hinweis muss jetzt sichtbar sein.
@@ -133,9 +168,58 @@ describe('ApplicationEditorComponent', () => {
     expect(fixture.nativeElement.textContent as string).toContain('can take several minutes');
 
     const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
+    expect(generateReq.request.body.profile_type).toBe('it');
     generateReq.flush(buildApplication('Sehr geehrte Damen und Herren,'));
 
     expect(component['isFirstGeneration']()).toBeFalse();
+  });
+
+  it('U8: an application with an already-locked profile skips the profile-choice dialog', () => {
+    const dialogOpenSpy = spyOn(component['dialog'], 'open');
+
+    // `profileType: 'it'` (via loadApplication's default) simulates an
+    // application whose profile is already locked but whose first
+    // generation attempt was interrupted - generation should proceed
+    // directly, exactly as it did before U8 (R4/R5).
+    loadApplication(httpMock, { coverLetterText: null, profileType: 'it' });
+    fixture.detectChanges();
+
+    expect(dialogOpenSpy).not.toHaveBeenCalled();
+    expect(component['isFirstGeneration']()).toBeTrue();
+
+    const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
+    // Already locked - no `profile_type` needs to be (re-)sent; the backend
+    // ignores it anyway once `Application.profile_id` is set (KTD3).
+    expect(generateReq.request.body.profile_type).toBeUndefined();
+    generateReq.flush(buildApplication('Sehr geehrte Damen und Herren,', 'it'));
+
+    expect(component['isFirstGeneration']()).toBeFalse();
+  });
+
+  it('U8: a 404 for the chosen profile type shows a message naming that profile with a link to /profile', () => {
+    spyOn(component['dialog'], 'open').and.returnValue({
+      afterClosed: () => of('it'),
+    } as unknown as MatDialogRef<unknown, unknown>);
+
+    const jobReq = httpMock.expectOne((req) => req.url.endsWith('/jobs/1'));
+    jobReq.flush(defaultJobOffer);
+    const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
+    // Seit U9 liefert der Endpunkt eine Liste statt 404 - ein leeres Array
+    // bedeutet "noch keine Bewerbung generiert" (KTD12).
+    appReq.flush([]);
+    fixture.detectChanges();
+
+    const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
+    generateReq.flush(
+      { detail: 'Es wurde noch kein IT-Profil angelegt.' },
+      { status: 404, statusText: 'Not Found' },
+    );
+    fixture.detectChanges();
+
+    expect(component['missingProfileType']()).toBe('it');
+    expect(component['errorMessage']()).toContain('IT profile has no data yet');
+    const profileLink = fixture.nativeElement.querySelector('a[routerLink="/profile"]');
+    expect(profileLink).withContext('expected a link to /profile in the error state').not.toBeNull();
   });
 
   it('does not show the generation hint when an already-generated application loads instantly', () => {
@@ -143,7 +227,7 @@ describe('ApplicationEditorComponent', () => {
     jobReq.flush({ ...defaultJobOffer, is_processed: true });
 
     const appReq = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-    appReq.flush(buildApplication('Sehr geehrte Damen und Herren,'));
+    appReq.flush([buildApplication('Sehr geehrte Damen und Herren,')]);
 
     expect(component['isFirstGeneration']()).toBeFalse();
   });
@@ -192,7 +276,7 @@ describe('ApplicationEditorComponent', () => {
       // Erste Status-Abfrage: die laufende Generierung ist noch nicht fertig.
       tick(5000);
       const firstPoll = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-      firstPoll.flush(buildApplication(null));
+      firstPoll.flush([buildApplication(null)]);
 
       expect(component['isFirstGeneration']()).toBeTrue();
       httpMock.expectNone((req) => req.url.endsWith('/applications/generate'));
@@ -200,7 +284,7 @@ describe('ApplicationEditorComponent', () => {
       // Zweite Status-Abfrage: jetzt liegt das Ergebnis vor.
       tick(5000);
       const secondPoll = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-      secondPoll.flush(buildApplication('Sehr geehrte Damen und Herren,'));
+      secondPoll.flush([buildApplication('Sehr geehrte Damen und Herren,')]);
 
       expect(component['isFirstGeneration']()).toBeFalse();
       expect(component['application']()?.cover_letter_text).toBe('Sehr geehrte Damen und Herren,');
@@ -237,7 +321,7 @@ describe('ApplicationEditorComponent', () => {
       // Zweiter Tick: diesmal liegt das Ergebnis vor.
       tick(5000);
       const secondPoll = httpMock.expectOne((req) => req.url.endsWith('/applications/by-job-offer/1'));
-      secondPoll.flush(buildApplication('Sehr geehrte Damen und Herren,'));
+      secondPoll.flush([buildApplication('Sehr geehrte Damen und Herren,')]);
 
       expect(component['isFirstGeneration']()).toBeFalse();
       expect(component['application']()?.cover_letter_text).toBe('Sehr geehrte Damen und Herren,');
@@ -264,7 +348,7 @@ describe('ApplicationEditorComponent', () => {
       tick(30 * 60 * 1000 + 5000);
       httpMock.match(() => true).forEach((req) => {
         if (!req.cancelled) {
-          req.flush(buildApplication(null));
+          req.flush([buildApplication(null)]);
         }
       });
       flush();
@@ -317,6 +401,280 @@ describe('ApplicationEditorComponent', () => {
 
       expect(component['saving']()).toBeFalse();
       httpMock.expectNone((r) => r.url.endsWith('/applications/1') && r.method === 'PUT');
+    });
+  });
+
+  describe('onDownloadCoverLetter()', () => {
+    const downloadUrl = `${environment.apiBaseUrl}/applications/1/cover-letter.pdf`;
+
+    it('downloads the saved cover letter as a PDF blob', () => {
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,' });
+
+      component.onDownloadCoverLetter();
+      expect(component['downloading']()).toBeTrue();
+
+      const req = httpMock.expectOne((r) => r.url === downloadUrl && r.method === 'GET');
+      req.flush(new Blob(['%PDF-1.4'], { type: 'application/pdf' }));
+
+      expect(component['downloading']()).toBeFalse();
+    });
+
+    it('makes no request when no application is loaded', () => {
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,' });
+      component['application'].set(null);
+
+      component.onDownloadCoverLetter();
+
+      expect(component['downloading']()).toBeFalse();
+      httpMock.expectNone((r) => r.url.includes('cover-letter.pdf'));
+    });
+
+    it('ignores a second click while a download is already in flight', () => {
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,' });
+
+      component.onDownloadCoverLetter();
+      component.onDownloadCoverLetter();
+
+      httpMock.expectOne((r) => r.url === downloadUrl && r.method === 'GET').flush(
+        new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+      );
+      expect(component['downloading']()).toBeFalse();
+    });
+
+    it('resets the downloading flag and shows an error when the download fails', () => {
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,' });
+
+      component.onDownloadCoverLetter();
+      const req = httpMock.expectOne((r) => r.url === downloadUrl);
+      // `responseType: 'blob'` requires a real Blob body - a string body throws
+      // before the error path can be exercised.
+      req.flush(new Blob(['server error'], { type: 'text/plain' }), {
+        status: 500,
+        statusText: 'Internal Server Error',
+      });
+
+      expect(component['downloading']()).toBeFalse();
+    });
+  });
+
+  describe('onRegenerate()', () => {
+    let tabTitleService: TabTitleService;
+    let confirmSpy: jasmine.Spy;
+
+    beforeEach(() => {
+      tabTitleService = TestBed.inject(TabTitleService);
+      confirmSpy = spyOn(window, 'confirm');
+    });
+
+    it('Covers AE3: confirm=true sends the generate request and applies the returned application on success', () => {
+      loadApplication(httpMock, { coverLetterText: 'Alter Text' });
+      confirmSpy.and.returnValue(true);
+      const startSpy = spyOn(tabTitleService, 'markGenerationStarted');
+      const settleSpy = spyOn(tabTitleService, 'markGenerationSettled');
+
+      component.onRegenerate();
+
+      expect(confirmSpy).toHaveBeenCalled();
+      // R5: the confirm message must name the concrete consequence, not a generic prompt.
+      expect(confirmSpy.calls.mostRecent().args[0]).toContain('replace');
+      expect(component['regenerating']()).toBeTrue();
+      expect(startSpy).toHaveBeenCalled();
+
+      const req = httpMock.expectOne((r) => r.url.endsWith('/applications/generate'));
+      // U8: Regenerate bleibt unverändert - kein `profile_type` im Body, das
+      // Backend nutzt weiterhin ausschließlich das bereits gesperrte Profil
+      // (KTD3).
+      expect(req.request.body.profile_type).toBeUndefined();
+      req.flush(buildApplication('Neuer Text'));
+
+      expect(component['application']()?.cover_letter_text).toBe('Neuer Text');
+      expect(component['regenerating']()).toBeFalse();
+      expect(settleSpy).toHaveBeenCalled();
+    });
+
+    it('Covers AE4: confirm=false sends no HTTP request and leaves the current form value unchanged', () => {
+      loadApplication(httpMock, { coverLetterText: 'Alter Text' });
+      confirmSpy.and.returnValue(false);
+
+      component.onRegenerate();
+
+      expect(component['regenerating']()).toBeFalse();
+      expect(component['coverLetterForm'].getRawValue().cover_letter_text).toBe('Alter Text');
+      httpMock.expectNone((r) => r.url.endsWith('/applications/generate'));
+    });
+
+    it('Covers AE8: already regenerating sends no HTTP request, independent of the confirm stub', () => {
+      loadApplication(httpMock, { coverLetterText: 'Alter Text' });
+      confirmSpy.and.returnValue(true);
+      component['regenerating'].set(true);
+
+      component.onRegenerate();
+
+      expect(confirmSpy).not.toHaveBeenCalled();
+      httpMock.expectNone((r) => r.url.endsWith('/applications/generate'));
+    });
+
+    it('a 409 from the regenerate call surfaces as a generic error and resets regenerating to false', () => {
+      loadApplication(httpMock, { coverLetterText: 'Alter Text' });
+      confirmSpy.and.returnValue(true);
+      const settleSpy = spyOn(tabTitleService, 'markGenerationSettled');
+
+      component.onRegenerate();
+
+      const req = httpMock.expectOne((r) => r.url.endsWith('/applications/generate'));
+      req.flush(
+        { detail: 'Für dieses Stellenangebot läuft bereits eine Generierung.' },
+        { status: 409, statusText: 'Conflict' },
+      );
+
+      // Not routed into pollForRunningGeneration - no follow-up poll request.
+      httpMock.expectNone((r) => r.url.endsWith('/applications/by-job-offer/1'));
+      expect(component['regenerating']()).toBeFalse();
+      expect(component['loading']()).toBeFalse();
+      expect(component['errorMessage']()).toBeNull();
+      // Stored letter must remain visible, not replaced by a page-level error state.
+      expect(component['coverLetterForm'].getRawValue().cover_letter_text).toBe('Alter Text');
+      expect(settleSpy).toHaveBeenCalled();
+    });
+
+    it('Covers AE5/AE6: a successful and a failed regenerate call each invoke markGenerationSettled exactly once', () => {
+      loadApplication(httpMock, { coverLetterText: 'Alter Text' });
+      confirmSpy.and.returnValue(true);
+      const settleSpy = spyOn(tabTitleService, 'markGenerationSettled');
+
+      component.onRegenerate();
+      const req = httpMock.expectOne((r) => r.url.endsWith('/applications/generate'));
+      req.flush('server error', { status: 500, statusText: 'Internal Server Error' });
+
+      expect(settleSpy).toHaveBeenCalledTimes(1);
+      expect(component['regenerating']()).toBeFalse();
+    });
+
+    it('disables Regenerate, Save and Send in the template while regenerating() is true', () => {
+      loadApplication(httpMock, { coverLetterText: 'Alter Text' });
+      fixture.detectChanges();
+
+      component['regenerating'].set(true);
+      fixture.detectChanges();
+
+      const buttons: HTMLButtonElement[] = fixture.nativeElement.querySelectorAll('button');
+      const byText = (text: string) =>
+        Array.from(buttons).find((b) => b.textContent?.includes(text));
+
+      expect(byText('Regenerate')?.disabled).toBeTrue();
+      expect(byText('Save cover letter')?.disabled).toBeTrue();
+      expect(byText('Send application by email now')?.disabled).toBeTrue();
+    });
+  });
+
+  describe('onStartNewApplicationWithOtherProfile() - R5 escape hatch (U9, KTD12)', () => {
+    it('otherProfileType() is null (no action) while no profile is locked yet', () => {
+      loadApplication(httpMock, { coverLetterText: 'Text', profileType: null });
+
+      expect(component['otherProfileType']()).toBeNull();
+    });
+
+    it('offers "full_life" when the current application is locked to "it", and vice versa', () => {
+      loadApplication(httpMock, { coverLetterText: 'Text', profileType: 'it' });
+      expect(component['otherProfileType']()).toBe('full_life');
+
+      component['application'].set(buildApplication('Text', 'full_life'));
+      expect(component['otherProfileType']()).toBe('it');
+    });
+
+    it('the action button is only rendered once the application is locked, and names the OTHER profile', () => {
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,', profileType: null });
+      fixture.detectChanges();
+      // Noch kein Profil gesperrt - der Button darf noch nicht erscheinen.
+      let buttons: HTMLButtonElement[] = fixture.nativeElement.querySelectorAll('button');
+      expect(Array.from(buttons).some((b) => b.textContent?.includes('Start a new application'))).toBeFalse();
+
+      component['application'].set(buildApplication('Sehr geehrte Damen und Herren,', 'it'));
+      fixture.detectChanges();
+
+      buttons = fixture.nativeElement.querySelectorAll('button');
+      const otherProfileButton = Array.from(buttons).find((b) =>
+        b.textContent?.includes('Start a new application'),
+      );
+      expect(otherProfileButton).withContext('expected the action button once locked').not.toBeUndefined();
+      // Locked to "it" -> offers the OTHER profile ("full_life"), not "it" again.
+      expect(otherProfileButton?.textContent).toContain('Full-life/Non-IT profile');
+    });
+
+    it('calls generate with for_new_application:true and the OTHER profile type, then navigates to the new application', () => {
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,', profileType: 'it' });
+      const router = TestBed.inject(Router);
+      const navigateSpy = spyOn(router, 'navigate');
+
+      component.onStartNewApplicationWithOtherProfile();
+
+      expect(component['startingNewApplication']()).toBeTrue();
+
+      const req = httpMock.expectOne((r) => r.url.endsWith('/applications/generate'));
+      expect(req.request.body).toEqual({
+        job_offer_id: 1,
+        profile_type: 'full_life',
+        for_new_application: true,
+      });
+
+      req.flush(buildApplication('Neue Version', 'full_life'));
+
+      expect(component['startingNewApplication']()).toBeFalse();
+      expect(navigateSpy).toHaveBeenCalledWith(['/editor', 1, 1]);
+    });
+
+    it('shows a snackbar and resets the flag when starting the new application fails', () => {
+      loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,', profileType: 'it' });
+      const snackBarSpy = spyOn(component['snackBar'], 'open');
+
+      component.onStartNewApplicationWithOtherProfile();
+
+      const req = httpMock.expectOne((r) => r.url.endsWith('/applications/generate'));
+      req.flush({ detail: 'boom' }, { status: 500, statusText: 'Internal Server Error' });
+
+      expect(component['startingNewApplication']()).toBeFalse();
+      expect(snackBarSpy).toHaveBeenCalledWith('boom', 'OK', { duration: 4000 });
+    });
+
+    it('is a no-op without a loaded application', () => {
+      loadApplication(httpMock, { coverLetterText: 'Text', profileType: 'it' });
+      component['application'].set(null);
+
+      component.onStartNewApplicationWithOtherProfile();
+
+      httpMock.expectNone((r) => r.url.endsWith('/applications/generate'));
+    });
+  });
+
+  describe('generateForFirstTime() tab-title wiring', () => {
+    it('marks the generation started and settled on the first-time success path', () => {
+      const tabTitleService = TestBed.inject(TabTitleService);
+      const startSpy = spyOn(tabTitleService, 'markGenerationStarted');
+      const settleSpy = spyOn(tabTitleService, 'markGenerationSettled');
+
+      loadApplication(httpMock); // coverLetterText null -> triggers generateForFirstTime
+      fixture.detectChanges();
+
+      expect(startSpy).toHaveBeenCalledTimes(1);
+
+      const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
+      generateReq.flush(buildApplication('Sehr geehrte Damen und Herren,'));
+
+      expect(settleSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('marks the generation settled on the first-time error path (not routed through polling)', () => {
+      const tabTitleService = TestBed.inject(TabTitleService);
+      const settleSpy = spyOn(tabTitleService, 'markGenerationSettled');
+
+      loadApplication(httpMock);
+      fixture.detectChanges();
+
+      const generateReq = httpMock.expectOne((req) => req.url.endsWith('/applications/generate'));
+      generateReq.flush({ detail: 'boom' }, { status: 500, statusText: 'Internal Server Error' });
+
+      expect(settleSpy).toHaveBeenCalledTimes(1);
+      expect(component['errorMessage']()).toBe('boom');
     });
   });
 

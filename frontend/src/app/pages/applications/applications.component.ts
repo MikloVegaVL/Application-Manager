@@ -1,13 +1,12 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Router, RouterLink } from '@angular/router';
+import { Router } from '@angular/router';
 
 import { MatButtonModule } from '@angular/material/button';
-import { MatButtonToggleModule } from '@angular/material/button-toggle';
-import { MatCardModule } from '@angular/material/card';
-import { MatChipsModule } from '@angular/material/chips';
 import { MatDialog } from '@angular/material/dialog';
+import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
+import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatRadioModule } from '@angular/material/radio';
 import { MatSnackBar } from '@angular/material/snack-bar';
@@ -17,6 +16,12 @@ import { JobOffer } from '../../core/models/job-offer.model';
 import { ApplicationService } from '../../core/services/application.service';
 import { JobService, jobSaveConflictId } from '../../core/services/job.service';
 import { sourceLabel as getSourceLabel } from '../../core/utils/source-label.util';
+import {
+  CompactCardComponent,
+  CompactCardDetailRowItem,
+  CompactCardMenuItem,
+  CompactCardViewModel,
+} from '../../shared/compact-card/compact-card.component';
 import {
   AddJobOfferDialogComponent,
   AddJobOfferDialogResult,
@@ -29,12 +34,11 @@ type ApplicationFilter = 'all' | ApplicationStatus;
   selector: 'app-applications',
   standalone: true,
   imports: [
-    RouterLink,
+    CompactCardComponent,
     MatButtonModule,
-    MatButtonToggleModule,
-    MatCardModule,
-    MatChipsModule,
+    MatFormFieldModule,
     MatIconModule,
+    MatInputModule,
     MatProgressSpinnerModule,
     MatRadioModule,
   ],
@@ -49,6 +53,11 @@ export class ApplicationsComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly snackBar = inject(MatSnackBar);
 
+  /** localStorage-Schlüssel des einmaligen Extension-Installationshinweises (R17/KTD9) - die App kann
+   * nicht erkennen, ob die Erweiterung installiert ist, daher wird der Hinweis einmalig gezeigt und
+   * nach dem Wegklicken dauerhaft unterdrückt. */
+  private static readonly INSTALL_HINT_STORAGE_KEY = 'applications.extension-install-hint-dismissed';
+
   protected readonly applications = signal<Application[]>([]);
   protected readonly loading = signal(true);
   protected readonly errorMessage = signal<string | null>(null);
@@ -58,17 +67,44 @@ export class ApplicationsComponent implements OnInit {
   protected readonly updatingStatusId = signal<number | null>(null);
   /** True während ein manuell erfasstes Stellenangebot gespeichert wird (Dialog bereits geschlossen). */
   protected readonly savingNewJobOffer = signal(false);
+  /** ID der Bewerbung, für die gerade ein Fill-Request läuft (busy-id-Muster wie `deletingId`). */
+  protected readonly fillRequestingId = signal<number | null>(null);
   /** Aktiver Status-Filter; `all` zeigt jede Bewerbung. */
   protected readonly filter = signal<ApplicationFilter>('all');
+  /** Freitextsuche über Jobtitel/Firma (rein clientseitig, kombiniert per AND mit `filter`). */
+  protected readonly searchTerm = signal('');
 
-  /** Nach dem gewählten Filter reduzierte Liste (rein clientseitig, `applications` bleibt vollständig). */
+  /** Ob der Installationshinweis bereits weggeklickt wurde (persistiert in localStorage). */
+  private readonly installHintDismissed = signal(this.readInstallHintDismissed());
+
+  /** Einmaliger Installationshinweis - nur solange er nicht weggeklickt wurde UND es mindestens eine
+   * LinkedIn-Bewerbung ohne gemeldete Submission gibt, für die der Trigger sichtbar wäre (R17/KTD9). */
+  protected readonly showInstallHint = computed(
+    () =>
+      !this.installHintDismissed() &&
+      this.applications().some((application) => this.canApplyViaLinkedIn(application)),
+  );
+
+  /** Nach Status und Suchbegriff reduzierte Liste (rein clientseitig, `applications` bleibt vollständig). */
   protected readonly filteredApplications = computed(() => {
     const filter = this.filter();
-    if (filter === 'all') {
-      return this.applications();
-    }
-    return this.applications().filter((application) => application.status === filter);
+    const term = this.searchTerm();
+    const byStatus =
+      filter === 'all' ? this.applications() : this.applications().filter((application) => application.status === filter);
+    return byStatus.filter((application) => this.matchesSearch(application, term));
   });
+
+  /** Case-insensitive Teilstring-Treffer auf Jobtitel oder Firma (R1); ein leerer Suchbegriff trifft immer. */
+  private matchesSearch(application: Application, term: string): boolean {
+    const needle = term.trim().toLowerCase();
+    if (!needle) {
+      return true;
+    }
+    return (
+      application.job_offer.title.toLowerCase().includes(needle) ||
+      application.job_offer.company.toLowerCase().includes(needle)
+    );
+  }
 
   private static readonly STATUS_LABELS: Record<ApplicationStatus, string> = {
     draft: 'Draft',
@@ -110,14 +146,6 @@ export class ApplicationsComponent implements OnInit {
 
   onFilterChange(filter: ApplicationFilter): void {
     this.filter.set(filter);
-  }
-
-  isDeleting(application: Application): boolean {
-    return this.deletingId() === application.id;
-  }
-
-  isUpdatingStatus(application: Application): boolean {
-    return this.updatingStatusId() === application.id;
   }
 
   /** Speichert eine per selektierbarem Label gewählte Zusage/Absage sofort im Backend. */
@@ -227,5 +255,182 @@ export class ApplicationsComponent implements OnInit {
         this.snackBar.open('The job offer could not be saved.', 'OK', { duration: 4000 });
       },
     });
+  }
+
+  // --- Apply via LinkedIn (U4) ------------------------------------------
+
+  /** Der Trigger ist nur für eine LinkedIn-Bewerbung ohne bereits gemeldete Submission sichtbar (R1/R2,
+   * R11) - sobald eine Submission vorliegt, wird stattdessen das "Applied"-Indiz gezeigt. */
+  protected canApplyViaLinkedIn(application: Application): boolean {
+    return application.job_offer.source_platform === 'linkedin' && !application.submission;
+  }
+
+  /** R1: startet den Fill in der Erweiterung, indem ein Fill-Request angelegt und die gelieferte Job-URL
+   * in einem neuen Tab geöffnet wird. `fillRequestingId` sperrt die Karte während des Requests
+   * (busy-id-Muster wie `deletingId`). */
+  protected onApplyViaLinkedIn(application: Application): void {
+    if (this.fillRequestingId() !== null) {
+      return;
+    }
+
+    // P2 (Popup-Blocker): `window.open` im asynchronen Subscribe-Callback ist
+    // kein User-Gesture mehr und wird geblockt. Deshalb synchron im Klick
+    // einen leeren Tab öffnen und dessen Location erst bei Erfolg auf die
+    // Job-URL setzen; bei einem Fehler den Tab wieder schließen.
+    const pendingTab = window.open('', '_blank');
+    if (pendingTab) {
+      pendingTab.opener = null;
+    }
+
+    this.fillRequestingId.set(application.id);
+    this.applicationService.requestFill(application.id).subscribe({
+      next: ({ job_url }) => {
+        this.fillRequestingId.set(null);
+        if (pendingTab) {
+          pendingTab.location.href = job_url;
+        } else {
+          window.open(job_url, '_blank', 'noopener,noreferrer');
+        }
+      },
+      error: (error: HttpErrorResponse) => {
+        this.fillRequestingId.set(null);
+        pendingTab?.close();
+        const message =
+          (error.error?.detail as string | undefined) ?? 'The application could not be started.';
+        this.snackBar.open(message, 'OK', { duration: 4000 });
+      },
+    });
+  }
+
+  protected onDismissInstallHint(): void {
+    this.installHintDismissed.set(true);
+    try {
+      localStorage.setItem(ApplicationsComponent.INSTALL_HINT_STORAGE_KEY, '1');
+    } catch {
+      // Private-Mode/blocked storage: the in-memory signal still hides the hint for this session.
+    }
+  }
+
+  private readInstallHintDismissed(): boolean {
+    try {
+      return localStorage.getItem(ApplicationsComponent.INSTALL_HINT_STORAGE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  /** KTD3/R11: menschenlesbares "Applied via <platform> on <date>"-Indiz aus `ApplicationRead.submission`,
+   * gespiegelt zum persistenten `sent_to_email`-Indiz in `buildCardViewModel`. */
+  protected appliedIndicatorLabel(application: Application): string | null {
+    const submission = application.submission;
+    if (!submission) {
+      return null;
+    }
+    const platform = submission.platform ? this.sourceLabel(submission.platform) : 'portal';
+    const date = new Date(submission.submitted_at).toLocaleDateString();
+    return `Applied via ${platform} on ${date}`;
+  }
+
+  // --- Compact card -----------------------------------------------------
+
+  /** Memoized per-application view-models for `<app-compact-card>` (R2/R6). A `computed()` keyed
+   * by application id - NOT a plain method invoked as `cardViewModel(application)` straight from the
+   * `@for` binding, which would build a fresh object every change-detection tick and defeat the
+   * child's `OnPush`. */
+  private readonly cardViewModelsById = computed(() => {
+    const applications = this.filteredApplications();
+
+    const map = new Map<number, CompactCardViewModel>();
+    for (const application of applications) {
+      map.set(application.id, this.buildCardViewModel(application));
+    }
+    return map;
+  });
+
+  protected cardViewModel(application: Application): CompactCardViewModel {
+    return this.cardViewModelsById().get(application.id) ?? this.buildCardViewModel(application);
+  }
+
+  /** True while a request this card's primary action or `⋮` menu can trigger is in flight (R12) -
+   * "Open application" and "Open ad" are plain navigation links with no async step, so they never
+   * contribute. */
+  protected isCardBusy(application: Application): boolean {
+    return (
+      this.deletingId() === application.id ||
+      this.updatingStatusId() === application.id ||
+      this.fillRequestingId() === application.id
+    );
+  }
+
+  /** Routes a `(menuItemClick)` id from `<app-compact-card>` to the existing handler - no behavior
+   * changes here (R8), only which UI element triggers it. */
+  protected onMenuAction(application: Application, itemId: string): void {
+    switch (itemId) {
+      case 'mark-accepted':
+        this.onStatusChange(application, 'accepted');
+        break;
+      case 'mark-rejected':
+        this.onStatusChange(application, 'rejected');
+        break;
+      case 'apply-via-linkedin':
+        this.onApplyViaLinkedIn(application);
+        break;
+      case 'delete':
+        this.onDelete(application);
+        break;
+    }
+  }
+
+  private buildCardViewModel(application: Application): CompactCardViewModel {
+    const menuItems: CompactCardMenuItem[] = [
+      {
+        id: 'open-ad',
+        label: 'Open ad',
+        icon: 'open_in_new',
+        link: { href: application.job_offer.source_url, target: '_blank', rel: 'noopener noreferrer' },
+      },
+      { id: 'mark-accepted', label: 'Mark accepted', icon: 'check' },
+      { id: 'mark-rejected', label: 'Mark rejected', icon: 'close' },
+    ];
+
+    if (application.cover_letter_text) {
+      menuItems.push({
+        id: 'download-cover-letter',
+        label: 'Download cover letter (PDF)',
+        icon: 'download',
+        link: { href: this.applicationService.coverLetterDownloadUrl(application.id) },
+      });
+    }
+
+    if (this.canApplyViaLinkedIn(application)) {
+      menuItems.push({ id: 'apply-via-linkedin', label: 'Apply via LinkedIn', icon: 'work' });
+    }
+
+    menuItems.push({ id: 'delete', label: 'Delete', icon: 'delete' });
+
+    const detailRowItems: CompactCardDetailRowItem[] = [];
+    const appliedIndicator = this.appliedIndicatorLabel(application);
+    if (appliedIndicator) {
+      detailRowItems.push({ label: appliedIndicator });
+    }
+    if (application.sent_to_email) {
+      detailRowItems.push({ label: `Sent to: ${application.sent_to_email}` });
+    }
+
+    return {
+      title: application.job_offer.title,
+      company: application.job_offer.company,
+      location: application.job_offer.location ?? '',
+      chips: [
+        { label: this.statusLabel(application.status) },
+        { label: this.sourceLabel(application.job_offer.source_platform) },
+      ],
+      primaryAction: {
+        label: 'Open application',
+        link: { routerLink: ['/editor', application.job_offer.id] },
+      },
+      menuItems,
+      detailRowItems,
+    };
   }
 }

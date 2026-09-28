@@ -11,6 +11,7 @@ import { FormArray, FormBuilder, FormControl, FormGroup } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 import { MatButtonModule } from '@angular/material/button';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTabsModule } from '@angular/material/tabs';
@@ -24,7 +25,7 @@ import {
   ProjectEntry,
   SkillEntry,
 } from '../../core/models/master-profile.model';
-import { ProfileService } from '../../core/services/profile.service';
+import { ProfileService, ProfileType } from '../../core/services/profile.service';
 import {
   createEducationGroup,
   createExperienceGroup,
@@ -79,6 +80,7 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
   imports: [
     RouterLink,
     MatButtonModule,
+    MatButtonToggleModule,
     MatIconModule,
     MatProgressSpinnerModule,
     MatTabsModule,
@@ -99,6 +101,20 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
         <h1>CV Builder</h1>
         <p>Maintain your CV content, import it with AI, and export it as a template.</p>
       </header>
+
+      <!-- U7/R1: welches der zwei unabhängigen Profile wird bearbeitet -
+           lightweight Toggle statt eines zweiten verschachtelten Tab-
+           Umschalters wie auf der Profil-Seite (siehe profile.component.html). -->
+      <div class="cv-builder-page__type-toggle">
+        <mat-button-toggle-group
+          [value]="profileType()"
+          (change)="onProfileTypeChange($event.value)"
+          aria-label="Choose profile type"
+        >
+          <mat-button-toggle value="it">IT</mat-button-toggle>
+          <mat-button-toggle value="full_life">Full-life/Non-IT</mat-button-toggle>
+        </mat-button-toggle-group>
+      </div>
 
       @switch (state()) {
         @case ('loading') {
@@ -184,7 +200,7 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
             </mat-tab>
             <mat-tab label="Photo">
               <div class="tab-content">
-                <app-photo-section />
+                <app-photo-section [profileType]="profileType()" />
               </div>
             </mat-tab>
             <mat-tab label="Import">
@@ -202,6 +218,7 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
             <mat-tab label="Preview & export">
               <div class="tab-content">
                 <app-cv-preview-export
+                  [profileType]="profileType()"
                   [summaryControl]="summaryControl"
                   [berufsbezeichnungControl]="berufsbezeichnungControl"
                   [experiencesArray]="experiencesArray"
@@ -247,6 +264,10 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
         text-align: center;
         color: rgba(0, 0, 0, 0.6);
       }
+
+      &__type-toggle {
+        margin-bottom: 16px;
+      }
     }
 
     .tab-content {
@@ -279,6 +300,9 @@ export class CvBuilderComponent implements OnInit {
   protected readonly saving = signal(false);
   protected readonly saveError = signal<string | null>(null);
 
+  /** U7/R1: welches der zwei unabhängigen Profile gerade bearbeitet wird. */
+  protected readonly profileType = signal<ProfileType>('it');
+
   /** R14/KTD13/R13: Vergleichsbasis für `hasUnsavedChanges()` und den
    * Re-Import-Konfliktcheck in `CvImportComponent` - der zuletzt vom Server
    * bestätigte Profilstand (nach initialem Laden bzw. nach einem
@@ -307,6 +331,29 @@ export class CvBuilderComponent implements OnInit {
     this.loadProfile();
   }
 
+  /** U7/R1/R3: wechselt das bearbeitete Profil. Bei ungespeicherten
+   * Änderungen (dieselbe `hasUnsavedChanges()`-Prüfung wie der
+   * `CanDeactivate`-Guard, siehe `cv-builder.guard.ts`) wird - konsistent zu
+   * dessen `window.confirm`-Muster - vorab bestätigt; bei Ablehnung bleibt
+   * das Toggle unverändert (der `[value]`-Input bindet weiterhin an das
+   * unveränderte `profileType`-Signal, das `mat-button-toggle-group`
+   * synchronisiert sich beim nächsten Change-Detection-Lauf zurück). */
+  protected onProfileTypeChange(newType: ProfileType): void {
+    if (newType === this.profileType()) {
+      return;
+    }
+
+    if (
+      this.hasUnsavedChanges() &&
+      !window.confirm('You have unsaved CV changes. Switch profile and discard them?')
+    ) {
+      return;
+    }
+
+    this.profileType.set(newType);
+    this.loadProfile();
+  }
+
   /** Speichert die aktuellen Inhaltsfelder per `PATCH /profile` (R2-R4, KTD2)
    * - bewusst nur die Felder, die dieses Formular besitzt: keine
    * Identitätsfelder, kein Foto (siehe `ProfileContentUpdate`). Aktualisiert
@@ -331,7 +378,7 @@ export class CvBuilderComponent implements OnInit {
       template_id: this.templateIdControl.value,
     };
 
-    this.profileService.patchProfile(payload).subscribe({
+    this.profileService.patchProfile(this.profileType(), payload).subscribe({
       next: (profile) => {
         this.saving.set(false);
         this.lastSavedProfile.set(normalizeProfileSections(profile));
@@ -380,7 +427,7 @@ export class CvBuilderComponent implements OnInit {
 
   private loadProfile(): void {
     this.state.set('loading');
-    this.profileService.getProfile().subscribe({
+    this.profileService.getProfile(this.profileType()).subscribe({
       next: (profile) => {
         this.applyProfileToArrays(profile);
         // fix(review): `lastSavedProfile` must carry the same []-defaulted

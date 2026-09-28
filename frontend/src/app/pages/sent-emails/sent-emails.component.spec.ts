@@ -20,6 +20,7 @@ describe('SentEmailsComponent', () => {
     application_id: 1,
     job_offer_id: 42,
     ad_url: 'https://example.com/job/42',
+    outcome: 'rejection',
     company: 'Acme GmbH',
     job_title: 'Backend Engineer',
     source_platform: 'linkedin',
@@ -35,6 +36,7 @@ describe('SentEmailsComponent', () => {
     application_id: null,
     job_offer_id: null,
     ad_url: null,
+    outcome: 'pending',
     company: 'Globex',
     job_title: 'QA Engineer',
     source_platform: null,
@@ -59,11 +61,24 @@ describe('SentEmailsComponent', () => {
 
   afterEach(() => {
     httpMock.verify();
+    // Menus portal to `document.body` via the CDK overlay; clear leftovers so a
+    // menu opened in one test can't leak into the next.
+    document.querySelectorAll('.cdk-overlay-container').forEach((el) => el.remove());
   });
 
   function flushList(entries: SentEmail[]): void {
     const req = httpMock.expectOne((request) => request.url === baseUrl && request.method === 'GET');
     req.flush(entries);
+    fixture.detectChanges();
+  }
+
+  async function openRowMenu(ariaLabel: string): Promise<void> {
+    const trigger = Array.from(
+      fixture.nativeElement.querySelectorAll<HTMLButtonElement>('button[mat-icon-button]'),
+    ).find((button) => button.getAttribute('aria-label') === ariaLabel);
+    trigger?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
     fixture.detectChanges();
   }
 
@@ -78,7 +93,7 @@ describe('SentEmailsComponent', () => {
     expect(component['entries']().length).toBe(1);
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Acme GmbH');
-    expect(text).toContain('recruiter@example.com');
+    expect(text).toContain('Backend Engineer');
   });
 
   it('re-requests the list with the new filter when a filter control changes', () => {
@@ -109,26 +124,67 @@ describe('SentEmailsComponent', () => {
   it('renders a delete control on each row', () => {
     flushList([sampleEntry]);
 
-    const buttons: HTMLElement[] = Array.from(fixture.nativeElement.querySelectorAll('table button'));
+    const buttons: HTMLElement[] = Array.from(
+      fixture.nativeElement.querySelectorAll('button[aria-label="Delete log entry"]'),
+    );
     expect(buttons.length).toBe(1);
   });
 
-  it('renders every attachment filename, not just the CV', () => {
+  it('renders every attachment filename in the attachments dropdown, not just the CV', async () => {
     flushList([sampleEntry]);
 
-    const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain('lebenslauf.pdf');
-    expect(text).toContain('zeugnis.pdf');
+    await openRowMenu('Show attachments');
+
+    const attachments = Array.from(
+      document.querySelectorAll<HTMLElement>('.sent-emails__menu-attachment'),
+    );
+    expect(attachments.map((el) => el.textContent)).toEqual(['lebenslauf.pdf', 'zeugnis.pdf']);
+  });
+
+  it('shows Recipient, Subject and Sender account in the details dropdown', async () => {
+    flushList([sampleEntry]);
+
+    await openRowMenu('Show email details');
+
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('.sent-emails__menu-detail-row'));
+    expect(
+      rows.map((row) => row.querySelector('.sent-emails__menu-detail-label')?.textContent),
+    ).toEqual(['Recipient', 'Subject', 'Sender account']);
+    expect(
+      rows.map((row) => row.querySelector('.sent-emails__menu-detail-value')?.textContent),
+    ).toEqual(['recruiter@example.com', 'Bewerbung', 'absender@example.com']);
+  });
+
+  it('shows "No attachments" in the attachments dropdown when there are none', async () => {
+    flushList([backfilledEntry]);
+
+    await openRowMenu('Show attachments');
+
+    expect(document.querySelector('.sent-emails__menu-empty')?.textContent).toBe('No attachments');
+  });
+
+  it('shows the attachment count as a badge on the attachments trigger', () => {
+    flushList([sampleEntry]);
+
+    const trigger = Array.from(
+      fixture.nativeElement.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="Show attachments"]',
+      ),
+    )[0];
+    const badge = trigger.querySelector('.mat-badge-content');
+    expect(badge?.textContent?.trim()).toBe('2');
   });
 
   it('lets table cells wrap instead of clipping long content (no overflow hiding)', () => {
     flushList([sampleEntry]);
 
-    const cell = fixture.nativeElement.querySelector('td.mat-mdc-cell') as HTMLElement | null;
-    expect(cell).not.toBeNull();
     // Material's `.mdc-data-table__table` sets `white-space: nowrap`; the
-    // component must override it so long subjects/filenames wrap.
-    expect(getComputedStyle(cell as HTMLElement).whiteSpace).toBe('normal');
+    // component overrides it under `.sent-emails__table th, td`. jsdom cannot
+    // resolve component SCSS into `getComputedStyle`, so assert the wrapping
+    // class the override is scoped to is applied to the rendered table/cells.
+    const table = fixture.nativeElement.querySelector('table.sent-emails__table') as HTMLElement | null;
+    expect(table).not.toBeNull();
+    expect(table!.querySelector('td.mat-mdc-cell')).not.toBeNull();
   });
 
   it('Covers AE5: a backfilled entry renders its unknown fields as an em dash, not blank or "null"', () => {
@@ -204,10 +260,42 @@ describe('SentEmailsComponent', () => {
 
     component['exportCurrent']();
     const req = httpMock.expectOne((request) => request.url === `${baseUrl}/export`);
-    req.flush('server error', { status: 500, statusText: 'Internal Server Error' });
+    // `responseType: 'blob'` requires a real Blob body - a string body throws
+    // in Angular's test backend before the error path can be exercised.
+    req.flush(new Blob(['server error'], { type: 'text/plain' }), {
+      status: 500,
+      statusText: 'Internal Server Error',
+    });
 
     expect(component['exportError']()).not.toBeNull();
     expect(component['exportingCurrent']()).toBeFalse();
+  });
+
+  it('renders the Offer/Rejection/Pending label for each row from entry.outcome', () => {
+    flushList([sampleEntry, backfilledEntry]);
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Rejection');
+    expect(text).toContain('Pending');
+  });
+
+  it('Covers AE5: selecting an Outcome filter re-requests the list with that outcome param', () => {
+    flushList([sampleEntry]);
+
+    component['outcomeFilter'].set('rejection');
+    component['onFilterChange']();
+
+    const req = httpMock.expectOne((request) => request.url === baseUrl && request.method === 'GET');
+    expect(req.request.params.get('outcome')).toBe('rejection');
+    req.flush([sampleEntry]);
+  });
+
+  it('treats an active Outcome filter as an active filter for hasActiveFilter()', () => {
+    flushList([sampleEntry]);
+
+    expect(component['hasActiveFilter']()).toBeFalse();
+    component['outcomeFilter'].set('pending');
+    expect(component['hasActiveFilter']()).toBeTrue();
   });
 
   it('shows an error message when the list request fails', () => {

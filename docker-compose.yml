@@ -75,7 +75,12 @@ services:
       # Persistiert generierte Bewerbungs-PDFs über Container-Neustarts hinweg.
       - ./backend/generated:/app/generated
     ports:
-      - "8000:8000"
+      # KTD13: die API ist unauthentifiziert und ein lokales Einzelnutzer-
+      # Werkzeug - deshalb NUR auf Loopback veröffentlichen, nicht auf allen
+      # Host-Interfaces. Die ungebundene Kurzsyntax ("8000:8000") würde den
+      # Port auf 0.0.0.0 exponieren und damit jedem im selben Netzwerk
+      # Zugriff auf Profildaten und die fill-Endpunkte geben.
+      - "127.0.0.1:8000:8000"
     restart: unless-stopped
 
   # --- Angular-Frontend (Nginx) ----------------------------------------------
@@ -86,7 +91,10 @@ services:
     depends_on:
       - backend
     ports:
-      - "8080:80"
+      # KTD13: auch das Frontend nur auf Loopback - sein nginx `/api/`-Proxy
+      # reicht sonst dieselben unauthentifizierten Endpunkte wie der
+      # Backend-Port an jedes Gerät im Netzwerk weiter.
+      - "127.0.0.1:8080:80"
     restart: unless-stopped
 
 volumes:

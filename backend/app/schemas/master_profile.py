@@ -13,6 +13,13 @@ SkillLevel = Literal["Grundkenntnisse", "Gut", "Sehr gut", "Experte"]
 # (A1-C2), kein bespoke-Design nötig.
 LanguageLevel = Literal["A1", "A2", "B1", "B2", "C1", "C2"]
 
+# U1/KTD1 (docs/plans/2026-09-23-001-feat-profile-types-plan.md): die zwei
+# unabhängigen Profile. Kanonisch hier definiert (Schemas sind die geteilte
+# Quelle für Domänen-Literale, siehe SkillLevel/LanguageLevel oben) - APIs,
+# die `profile_type` referenzieren, importieren von hier statt es erneut zu
+# deklarieren.
+ProfileType = Literal["it", "full_life"]
+
 
 class SkillEntry(BaseModel):
     """Ein Skill mit Kompetenzgrad (siehe KTD3).

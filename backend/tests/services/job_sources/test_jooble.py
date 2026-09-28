@@ -82,6 +82,18 @@ def test_request_posts_keywords_and_location_to_key_path(requests_mock):
     assert request.json() == {"keywords": "Angular", "location": "Berlin"}
 
 
+def test_endpoint_targets_the_german_regional_domain(requests_mock):
+    """Regression: Jooble-API-Keys sind regionsgebunden - ein auf
+    `jooble.org` erzeugter Key liefert ausschließlich US-Stellen. Der
+    deutsche Markt erfordert den Key UND den Endpunkt auf `de.jooble.org`
+    (Jooble REST-API-Doku, "Wichtige regionale Einschränkungen")."""
+    requests_mock.post(URL, json={"totalCount": 0, "jobs": []})
+
+    _client().search("Angular", "Berlin")
+
+    assert requests_mock.last_request.hostname == "de.jooble.org"
+
+
 def test_missing_location_defaults_to_germany(requests_mock):
     requests_mock.post(URL, json={"totalCount": 0, "jobs": []})
 
@@ -149,7 +161,7 @@ def test_large_numeric_id_is_preserved_as_a_string(requests_mock):
 
     offers = _client().search("Angular")
 
-    assert offers[0].source_url == f"https://jooble.org/desc/{large_id}"
+    assert offers[0].source_url == f"https://de.jooble.org/desc/{large_id}"
 
 
 @pytest.mark.parametrize(
@@ -293,7 +305,7 @@ def test_key_never_appears_in_debug_logs(requests_mock, caplog):
         if record.name == "app.services.job_sources.jooble"
     )
     assert API_KEY not in client_logs
-    assert "https://jooble.org/api/***" in client_logs
+    assert "https://de.jooble.org/api/***" in client_logs
 
 
 def test_registry_registers_jooble_from_settings(monkeypatch):

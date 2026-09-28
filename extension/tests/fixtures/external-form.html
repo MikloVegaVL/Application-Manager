@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Senior Backend Engineer - Acme Careers</title>
+</head>
+<body>
+  <!-- Recorded real-DOM capture of an employer ATS application form. A
+       two-page wizard: the submit control sits on the later page. Scripts are
+       stripped and page transitions are wired by the test. -->
+  <header class="careers-header">
+    <h1>Senior Backend Engineer</h1>
+    <p class="company">Acme GmbH</p>
+  </header>
+
+  <form id="application-form" action="/apply/submit" method="post">
+    <div class="form-page" data-page="1">
+      <div class="field">
+        <label for="first_name">First name</label>
+        <input id="first_name" name="first_name" type="text" autocomplete="given-name" />
+      </div>
+      <div class="field">
+        <label for="last_name">Last name</label>
+        <input id="last_name" name="last_name" type="text" autocomplete="family-name" />
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="email" />
+      </div>
+      <div class="field">
+        <label for="phone">Phone</label>
+        <input id="phone" name="phone" type="tel" autocomplete="tel" />
+      </div>
+      <div class="field">
+        <label for="resume">Resume</label>
+        <input id="resume" name="resume" type="file" accept=".pdf,.doc,.docx" />
+      </div>
+      <div class="field">
+        <label for="terms">
+          <input id="terms" name="terms" type="checkbox" />
+          I agree to the Terms of Service and Privacy Policy
+        </label>
+      </div>
+      <button type="button" id="next-btn">Next</button>
+    </div>
+
+    <div class="form-page" data-page="2" hidden>
+      <div class="field">
+        <label for="linkedin">LinkedIn profile</label>
+        <input id="linkedin" name="linkedin" type="url" />
+      </div>
+      <div class="field">
+        <label for="cover_letter">Cover letter</label>
+        <textarea id="cover_letter" name="cover_letter"></textarea>
+      </div>
+      <button type="submit" id="submit-btn">Submit application</button>
+    </div>
+  </form>
+</body>
+</html>

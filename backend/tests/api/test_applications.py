@@ -10,11 +10,12 @@ Repo anlegen (gleiches Muster wie `tests/api/test_jobs.py`).
 from __future__ import annotations
 
 import threading
+from datetime import datetime, timezone
 from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -24,6 +25,7 @@ from app.main import app
 from app.models.application import Application, ApplicationStatus
 from app.models.job_offer import JobOffer
 from app.models.master_profile import MasterProfile
+from app.models.portal_submission import PortalSubmission
 from app.models.profile_attachment import ProfileAttachment
 from app.models.sent_email import SentEmail
 from app.services.ai_generator import ApplicationGenerationError
@@ -40,6 +42,18 @@ def db_session_local():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
+    # SQLite ignoriert `ondelete=...` per Default (siehe `app.db.database`) -
+    # ohne dieses PRAGMA würde `test_deleting_application_sets_portal_
+    # submission_application_id_to_null_not_the_row` unten nie eine
+    # verwaiste `application_id` auf NULL gesetzt sehen, egal ob das FK im
+    # Modell korrekt `ondelete="SET NULL"` trägt oder nicht.
+    @event.listens_for(engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
     yield testing_session_local
@@ -56,7 +70,7 @@ def client(db_session_local):
 
     app.dependency_overrides[get_db] = _override_get_db
     try:
-        yield TestClient(app)
+        yield TestClient(app, base_url="http://localhost")
     finally:
         app.dependency_overrides.clear()
 
@@ -76,11 +90,20 @@ def _create_job_offer(session, *, title: str, company: str, source_url: str) -> 
     return job_offer
 
 
-def _create_application(session, *, job_offer_id: int, status: ApplicationStatus = ApplicationStatus.DRAFT) -> Application:
+def _create_application(
+    session,
+    *,
+    job_offer_id: int,
+    status: ApplicationStatus = ApplicationStatus.DRAFT,
+    profile_id: int | None = None,
+) -> Application:
     application = Application(
         job_offer_id=job_offer_id,
         cover_letter_text="Sehr geehrte Damen und Herren...",
         status=status,
+        # Optional, um ein bereits "gesperrtes" Profil zu simulieren (U3,
+        # R5) - `None` (Default) bildet eine noch nie generierte Bewerbung ab.
+        profile_id=profile_id,
     )
     session.add(application)
     session.commit()
@@ -88,15 +111,19 @@ def _create_application(session, *, job_offer_id: int, status: ApplicationStatus
     return application
 
 
-def _create_profile(session) -> MasterProfile:
-    profile = MasterProfile(full_name="Max Mustermann", email="max.mustermann@example.com")
+def _create_profile(session, *, profile_type: str | None = "it") -> MasterProfile:
+    profile = MasterProfile(
+        full_name="Max Mustermann", email="max.mustermann@example.com", profile_type=profile_type
+    )
     session.add(profile)
     session.commit()
     session.refresh(profile)
     return profile
 
 
-def _create_profile_with_cv_file(session, tmp_path, *, filename: str = "lebenslauf.pdf") -> MasterProfile:
+def _create_profile_with_cv_file(
+    session, tmp_path, *, filename: str = "lebenslauf.pdf", profile_type: str | None = "it"
+) -> MasterProfile:
     """Legt ein Profil MIT hochgeladener Lebenslauf-Anhang-Datei an - das ist
     seit dem Wegfall der KI-CV-Generierung Voraussetzung für `POST
     /{id}/send` (siehe `app.api.applications.send_application`)."""
@@ -107,6 +134,7 @@ def _create_profile_with_cv_file(session, tmp_path, *, filename: str = "lebensla
         email="max.mustermann@example.com",
         cv_file_path=str(cv_path),
         cv_filename=filename,
+        profile_type=profile_type,
     )
     session.add(profile)
     session.commit()
@@ -195,6 +223,62 @@ def test_list_applications_orders_most_recently_created_first(client: TestClient
     assert response.status_code == 200
     body = response.json()
     assert [item["id"] for item in body] == [second_id, first_id]
+
+
+def test_list_applications_eager_loads_submission_without_n_plus_1(
+    client: TestClient, db_session_local
+) -> None:
+    # P2: `ApplicationRead.submission` darf die Bewerbungsliste nicht pro Zeile
+    # nachladen. `joinedload(Application.submission)` erledigt das in EINEM
+    # Statement; ohne Eager-Loading käme hier je Bewerbung ein zusätzliches
+    # SELECT auf `portal_submissions`.
+    session = db_session_local()
+    try:
+        for index in range(3):
+            job_offer = _create_job_offer(
+                session,
+                title=f"Job {index}",
+                company="Acme GmbH",
+                source_url=f"https://example.com/job/eager-{index}",
+            )
+            application = _create_application(session, job_offer_id=job_offer.id)
+            session.add(
+                PortalSubmission(
+                    application_id=application.id,
+                    company="Acme GmbH",
+                    job_title=f"Job {index}",
+                    platform="linkedin",
+                    portal_url=f"https://www.linkedin.com/jobs/view/{index}",
+                    submitted_at=datetime(2026, 9, 22, 10, 0, tzinfo=timezone.utc),
+                )
+            )
+        session.commit()
+        engine = session.get_bind()
+    finally:
+        session.close()
+
+    statements: list[str] = []
+
+    def _record(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _record)
+    try:
+        response = client.get("/api/applications")
+    finally:
+        event.remove(engine, "before_cursor_execute", _record)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 3
+    assert all(item["submission"] is not None for item in body)
+
+    submission_selects = [
+        statement
+        for statement in statements
+        if "portal_submissions" in statement.lower() and statement.lstrip().lower().startswith("select")
+    ]
+    assert len(submission_selects) <= 1
 
 
 def test_delete_application_removes_it(client: TestClient, db_session_local) -> None:
@@ -321,7 +405,7 @@ def test_generate_application_returns_409_for_an_overlapping_request_on_the_same
     first_call_started = threading.Event()
     release_first_call = threading.Event()
 
-    def slow_generate(profile, job_offer):
+    def slow_generate(profile, job_offer, previous_cover_letter_text=None):
         first_call_started.set()
         assert release_first_call.wait(timeout=2), "Test-Deadlock"
         return "Betreff: Bewerbung als Backend Engineer\n\nSehr geehrte Damen und Herren,..."
@@ -332,14 +416,21 @@ def test_generate_application_returns_409_for_an_overlapping_request_on_the_same
 
     def call_generate() -> None:
         first_response["response"] = client.post(
-            "/api/applications/generate", json={"job_offer_id": job_offer_id}
+            "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
         )
 
     first_thread = threading.Thread(target=call_generate)
     first_thread.start()
     assert first_call_started.wait(timeout=2), "erste Generierung ist nicht gestartet"
 
-    duplicate_response = client.post("/api/applications/generate", json={"job_offer_id": job_offer_id})
+    # `profile_type` auch hier nötig (U3): zum Zeitpunkt dieses Aufrufs läuft
+    # die erste Generierung noch (Test-Deadlock via `release_first_call`),
+    # es existiert also noch keine `Application`-Zeile mit gesperrtem Profil -
+    # ohne `profile_type` würde die Profilauflösung mit 422 statt der hier
+    # erwarteten 409 (Sperre) abbrechen.
+    duplicate_response = client.post(
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+    )
 
     release_first_call.set()
     first_thread.join(timeout=2)
@@ -352,7 +443,7 @@ def test_generate_application_returns_409_for_an_overlapping_request_on_the_same
     # darf nicht dauerhaft mit 409 blockiert bleiben.
     monkeypatch.setattr(
         "app.api.applications.generate_application_content",
-        lambda profile, job_offer: "Zweite Generierung",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Zweite Generierung",
     )
     follow_up_response = client.post("/api/applications/generate", json={"job_offer_id": job_offer_id})
     assert follow_up_response.status_code == 200
@@ -383,7 +474,7 @@ def test_generate_application_guard_is_scoped_per_job_offer_not_global(
     first_call_started = threading.Event()
     release_first_call = threading.Event()
 
-    def slow_generate(profile, job_offer):
+    def slow_generate(profile, job_offer, previous_cover_letter_text=None):
         first_call_started.set()
         assert release_first_call.wait(timeout=2), "Test-Deadlock"
         return "Betreff: Bewerbung als Backend Engineer\n\nSehr geehrte Damen und Herren,..."
@@ -394,7 +485,7 @@ def test_generate_application_guard_is_scoped_per_job_offer_not_global(
 
     def call_generate_for_a() -> None:
         first_response["response"] = client.post(
-            "/api/applications/generate", json={"job_offer_id": job_offer_a_id}
+            "/api/applications/generate", json={"job_offer_id": job_offer_a_id, "profile_type": "it"}
         )
 
     first_thread = threading.Thread(target=call_generate_for_a)
@@ -405,9 +496,11 @@ def test_generate_application_guard_is_scoped_per_job_offer_not_global(
     # gleichzeitiger Aufruf für Job B muss trotzdem durchlaufen, nicht 409.
     monkeypatch.setattr(
         "app.api.applications.generate_application_content",
-        lambda profile, job_offer: "Betreff: Bewerbung als Frontend Engineer\n\nSehr geehrte Damen und Herren,...",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Betreff: Bewerbung als Frontend Engineer\n\nSehr geehrte Damen und Herren,...",
     )
-    other_job_response = client.post("/api/applications/generate", json={"job_offer_id": job_offer_b_id})
+    other_job_response = client.post(
+        "/api/applications/generate", json={"job_offer_id": job_offer_b_id, "profile_type": "it"}
+    )
 
     release_first_call.set()
     first_thread.join(timeout=2)
@@ -433,31 +526,494 @@ def test_generate_application_releases_the_lock_when_generation_fails(
     finally:
         session.close()
 
-    def failing_generate(profile, job_offer):
+    def failing_generate(profile, job_offer, previous_cover_letter_text=None):
         raise ApplicationGenerationError("Ollama ist nicht erreichbar")
 
     monkeypatch.setattr("app.api.applications.generate_application_content", failing_generate)
 
-    failed_response = client.post("/api/applications/generate", json={"job_offer_id": job_offer_id})
+    failed_response = client.post(
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+    )
     assert failed_response.status_code == 502
 
     monkeypatch.setattr(
         "app.api.applications.generate_application_content",
-        lambda profile, job_offer: "Erfolgreiche Generierung nach vorherigem Fehler",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Erfolgreiche Generierung nach vorherigem Fehler",
     )
-    retry_response = client.post("/api/applications/generate", json={"job_offer_id": job_offer_id})
+    # Der fehlgeschlagene Versuch oben hat keine `Application`-Zeile angelegt
+    # (das passiert erst im `else`-Zweig nach erfolgreicher Generierung) -
+    # dieser Retry ist also weiterhin eine "erste" Generierung und braucht
+    # `profile_type` erneut.
+    retry_response = client.post(
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+    )
     assert retry_response.status_code == 200
+
+
+def test_generate_application_passes_existing_cover_letter_as_previous_version(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    # KTD3 (siehe docs/plans/2026-09-19-001-feat-cover-letter-generation-
+    # quality-plan.md): ein erneuter Aufruf von POST /generate für ein
+    # Stellenangebot mit bereits gespeichertem Anschreiben (Regenerate) muss
+    # den bisherigen Text als `previous_cover_letter_text` an die KI-
+    # Generierung weiterreichen, damit das Prompt eine bewusst andere
+    # Version anfordern kann - ohne das würde jede Regenerierung blind
+    # denselben Kontext wie eine Erstgenerierung sehen.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/generate-previous"
+        )
+        job_offer_id = job_offer.id
+        # `_create_application` legt hier bewusst KEIN `profile_id` an (noch
+        # nicht generiert) - `profile_type` ist deshalb unten trotz
+        # "Regenerate"-Szenario weiterhin Pflicht (U3/R5: gesperrt wird erst
+        # NACH einer erfolgreichen Generierung, nicht schon durch die bloße
+        # Existenz einer `Application`-Zeile).
+        _create_application(session, job_offer_id=job_offer_id)
+        _create_profile(session)
+    finally:
+        session.close()
+
+    received: dict[str, object] = {}
+
+    def capturing_generate(profile, job_offer, previous_cover_letter_text=None):
+        received["previous_cover_letter_text"] = previous_cover_letter_text
+        return "Neue, andere Version des Anschreibens"
+
+    monkeypatch.setattr("app.api.applications.generate_application_content", capturing_generate)
+
+    response = client.post(
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+    )
+
+    assert response.status_code == 200
+    assert received["previous_cover_letter_text"] == "Sehr geehrte Damen und Herren..."
+    assert response.json()["cover_letter_text"] == "Neue, andere Version des Anschreibens"
+
+
+def test_generate_application_passes_no_previous_version_on_first_generation(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/generate-no-previous"
+        )
+        job_offer_id = job_offer.id
+        _create_profile(session)
+    finally:
+        session.close()
+
+    received: dict[str, object] = {}
+
+    def capturing_generate(profile, job_offer, previous_cover_letter_text=None):
+        received["previous_cover_letter_text"] = previous_cover_letter_text
+        return "Erste Version des Anschreibens"
+
+    monkeypatch.setattr("app.api.applications.generate_application_content", capturing_generate)
+
+    response = client.post(
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+    )
+
+    assert response.status_code == 200
+    assert received["previous_cover_letter_text"] is None
+
+
+# --- Profile assignment, lock and generation (U3, docs/plans/2026-09-23-
+# 001-feat-profile-types-plan.md) ------------------------------------------
+
+
+def test_generate_application_locks_the_selected_profile_and_generates_from_its_data(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    # R4/R5/R6: die erste Generierung wählt das Profil explizit über
+    # `profile_type` aus, sperrt es auf der Bewerbung (`profile_id`) und
+    # generiert AUSSCHLIESSLICH aus dessen Daten.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/lock-it"
+        )
+        job_offer_id = job_offer.id
+        it_profile = _create_profile(session, profile_type="it")
+        it_profile_id = it_profile.id
+        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life"))
+        session.commit()
+    finally:
+        session.close()
+
+    received: dict[str, object] = {}
+
+    def capturing_generate(profile, job_offer, previous_cover_letter_text=None):
+        received["profile_id"] = profile.id
+        received["profile_full_name"] = profile.full_name
+        return "Betreff: Bewerbung als Backend Engineer\n\nSehr geehrte Damen und Herren,..."
+
+    monkeypatch.setattr("app.api.applications.generate_application_content", capturing_generate)
+
+    response = client.post(
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+    )
+
+    assert response.status_code == 200
+    assert received["profile_id"] == it_profile_id
+    assert received["profile_full_name"] == "Max Mustermann"
+    assert response.json()["profile_type"] == "it"
+
+    session = db_session_local()
+    try:
+        application = session.query(Application).filter_by(job_offer_id=job_offer_id).one()
+        assert application.profile_id == it_profile_id
+    finally:
+        session.close()
+
+
+def test_regenerate_keeps_the_locked_profile_even_with_a_different_profile_type_in_the_body(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    # R5/KTD3: einmal gesperrt, gewinnt das gespeicherte Profil gegenüber
+    # jedem im Body mitgeschickten `profile_type` - auch einem ausdrücklich
+    # ANDEREN. Ein Profilwechsel für dieselbe Bewerbung ist bewusst NICHT
+    # möglich (R5 verlangt dafür eine separate Bewerbung, siehe U9 - nicht
+    # diese Unit).
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/lock-keep"
+        )
+        job_offer_id = job_offer.id
+        it_profile = _create_profile(session, profile_type="it")
+        it_profile_id = it_profile.id
+        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life"))
+        session.commit()
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Erste Version",
+    )
+    first_response = client.post(
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+    )
+    assert first_response.status_code == 200
+    assert first_response.json()["profile_type"] == "it"
+
+    received: dict[str, object] = {}
+
+    def capturing_generate(profile, job_offer, previous_cover_letter_text=None):
+        received["profile_id"] = profile.id
+        return "Zweite Version"
+
+    monkeypatch.setattr("app.api.applications.generate_application_content", capturing_generate)
+
+    second_response = client.post(
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "full_life"}
+    )
+
+    assert second_response.status_code == 200
+    assert received["profile_id"] == it_profile_id
+    assert second_response.json()["profile_type"] == "it"
+
+
+# --- Separate application for the other profile (U9, R5/KTD12) -----------
+
+
+def test_for_new_application_creates_a_second_row_locked_to_the_other_profile(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    # Happy path: a job with an IT-locked application gets a SECOND,
+    # independent application when `for_new_application: true` is sent with
+    # `profile_type: "full_life"` - the first (IT-locked) row must stay
+    # untouched (R5's escape hatch, KTD12).
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/separate"
+        )
+        job_offer_id = job_offer.id
+        _create_profile(session, profile_type="it")
+        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life"))
+        session.commit()
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer, previous_cover_letter_text=None: "IT-Version",
+    )
+    first_response = client.post(
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+    )
+    assert first_response.status_code == 200
+    first_application_id = first_response.json()["id"]
+    assert first_response.json()["profile_type"] == "it"
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Full-life-Version",
+    )
+    second_response = client.post(
+        "/api/applications/generate",
+        json={"job_offer_id": job_offer_id, "profile_type": "full_life", "for_new_application": True},
+    )
+    assert second_response.status_code == 200
+    second_application_id = second_response.json()["id"]
+    assert second_application_id != first_application_id
+    assert second_response.json()["profile_type"] == "full_life"
+    assert second_response.json()["cover_letter_text"] == "Full-life-Version"
+
+    session = db_session_local()
+    try:
+        rows = session.query(Application).filter_by(job_offer_id=job_offer_id).all()
+        assert len(rows) == 2
+        first_row = session.get(Application, first_application_id)
+        assert first_row.cover_letter_text == "IT-Version"
+        assert first_row.profile_type == "it"
+    finally:
+        session.close()
+
+
+def test_by_job_offer_returns_a_list_with_both_applications(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/separate-list"
+        )
+        job_offer_id = job_offer.id
+        _create_profile(session, profile_type="it")
+        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life"))
+        session.commit()
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Version",
+    )
+    client.post("/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"})
+    client.post(
+        "/api/applications/generate",
+        json={"job_offer_id": job_offer_id, "profile_type": "full_life", "for_new_application": True},
+    )
+
+    response = client.get(f"/api/applications/by-job-offer/{job_offer_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 2
+    assert {item["profile_type"] for item in body} == {"it", "full_life"}
+
+
+def test_for_new_application_with_no_existing_application_behaves_like_a_normal_first_generation(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    # Edge case (KTD12): `for_new_application: true` with no prior
+    # Application row for this job offer must not create a spurious second
+    # row - exactly one Application exists afterward.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/separate-first"
+        )
+        job_offer_id = job_offer.id
+        _create_profile(session, profile_type="it")
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Erste Version",
+    )
+    response = client.post(
+        "/api/applications/generate",
+        json={"job_offer_id": job_offer_id, "profile_type": "it", "for_new_application": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["profile_type"] == "it"
+
+    session = db_session_local()
+    try:
+        rows = session.query(Application).filter_by(job_offer_id=job_offer_id).all()
+        assert len(rows) == 1
+    finally:
+        session.close()
+
+
+def test_generate_application_requires_profile_type_on_first_generation(
+    client: TestClient, db_session_local
+) -> None:
+    # R4: ohne bereits gesperrtes Profil ist `profile_type` Pflicht.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session,
+            title="Backend Engineer",
+            company="Acme GmbH",
+            source_url="https://example.com/job/no-profile-type",
+        )
+        job_offer_id = job_offer.id
+        _create_profile(session, profile_type="it")
+    finally:
+        session.close()
+
+    response = client.post("/api/applications/generate", json={"job_offer_id": job_offer_id})
+
+    assert response.status_code == 422
+
+
+def test_generate_application_returns_404_for_a_profile_type_with_no_profile_row_yet(
+    client: TestClient, db_session_local
+) -> None:
+    # R4: `full_life` existiert (noch) nicht - `_get_profile_or_404` (U2)
+    # muss dafür 404 liefern statt versehentlich auf das IT-Profil
+    # auszuweichen.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session,
+            title="Backend Engineer",
+            company="Acme GmbH",
+            source_url="https://example.com/job/missing-full-life",
+        )
+        job_offer_id = job_offer.id
+        _create_profile(session, profile_type="it")
+    finally:
+        session.close()
+
+    response = client.post(
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "full_life"}
+    )
+
+    assert response.status_code == 404
+
+
+def test_application_read_profile_type_is_none_before_generation_and_set_after(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    session = db_session_local()
+    try:
+        _create_profile(session, profile_type="it")
+    finally:
+        session.close()
+
+    save_response = client.post(
+        "/api/jobs/save",
+        json={
+            "title": "Backend Engineer",
+            "company": "Acme GmbH",
+            "location": "Berlin",
+            "source_url": "https://example.com/job/profile-type-field",
+            "description_text": None,
+            "source_platform": "arbeitsagentur",
+        },
+    )
+    assert save_response.status_code == 201
+    job_offer_id = save_response.json()["id"]
+
+    before_response = client.get("/api/applications")
+    assert before_response.status_code == 200
+    before_body = before_response.json()
+    assert len(before_body) == 1
+    assert before_body[0]["profile_type"] is None
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Betreff: Bewerbung",
+    )
+    generate_response = client.post(
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+    )
+    assert generate_response.status_code == 200
+    assert generate_response.json()["profile_type"] == "it"
+
+    after_response = client.get("/api/applications")
+    after_body = after_response.json()
+    assert after_body[0]["profile_type"] == "it"
+
+
+def test_send_and_download_use_only_the_locked_profiles_data_not_the_other_profile(
+    client: TestClient, db_session_local, tmp_path, monkeypatch
+) -> None:
+    # R6: Generierung/Versand/Download dürfen NIEMALS Daten aus dem jeweils
+    # anderen Profil verwenden, selbst wenn beide Profile existieren.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/no-mixing"
+        )
+        job_offer_id = job_offer.id
+        _create_profile_with_cv_file(session, tmp_path, profile_type="it")
+
+        full_life_cv_path = tmp_path / "cv-full-life.pdf"
+        full_life_cv_path.write_bytes(b"%PDF-1.4 fake-cv-full-life")
+        session.add(
+            MasterProfile(
+                full_name="Erika Mustermann",
+                email="erika@example.com",
+                profile_type="full_life",
+                cv_file_path=str(full_life_cv_path),
+                cv_filename="erika-lebenslauf.pdf",
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer, previous_cover_letter_text=None: (
+            "Betreff: Bewerbung als Backend Engineer\n\nSehr geehrte Damen und Herren,..."
+        ),
+    )
+    generate_response = client.post(
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+    )
+    assert generate_response.status_code == 200
+    application_id = generate_response.json()["id"]
+
+    from io import BytesIO
+
+    from pypdf import PdfReader
+
+    pdf_response = client.get(f"/api/applications/{application_id}/cover-letter.pdf")
+    assert pdf_response.status_code == 200
+    reader = PdfReader(BytesIO(pdf_response.content))
+    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    assert "Max Mustermann" in text
+    assert "Erika Mustermann" not in text
+
+    mock_send_application_email = Mock(return_value="absender@example.com")
+    monkeypatch.setattr("app.api.applications.send_application_email", mock_send_application_email)
+
+    send_response = client.post(
+        f"/api/applications/{application_id}/send", json={"to_email": "recruiter@example.com"}
+    )
+    assert send_response.status_code == 200
+    _, call_kwargs = mock_send_application_email.call_args
+    assert call_kwargs["attachment_filename"] == "lebenslauf.pdf"
+    assert call_kwargs["attachment_filename"] != "erika-lebenslauf.pdf"
 
 
 def test_send_application_fails_when_no_cv_file_uploaded(client: TestClient, db_session_local) -> None:
     # Regression: seit Wegfall der KI-CV-Generierung braucht der Versand die
     # im Profil hochgeladene Lebenslauf-Datei statt eines gerenderten PDFs.
+    # Das Profil MUSS hier trotzdem der Bewerbung zugeordnet sein (U3/R5) -
+    # sonst würde die neue "kein Profil zugeordnet"-Prüfung (siehe Test
+    # unten) statt der hier erwarteten Lebenslauf-Fehlermeldung greifen.
     session = db_session_local()
     try:
         job_offer = _create_job_offer(
             session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/1"
         )
-        application_id = _create_application(session, job_offer_id=job_offer.id).id
+        profile = _create_profile(session)
+        application_id = _create_application(session, job_offer_id=job_offer.id, profile_id=profile.id).id
     finally:
         session.close()
 
@@ -470,6 +1026,29 @@ def test_send_application_fails_when_no_cv_file_uploaded(client: TestClient, db_
     assert "Lebenslauf" in response.json()["detail"]
 
 
+def test_send_application_fails_when_no_profile_assigned_yet(client: TestClient, db_session_local) -> None:
+    # U3/R5: eine Bewerbung ohne bisherige Generierung hat noch kein
+    # gesperrtes Profil (`profile_id is None`) - der Versand muss das klar
+    # von "Profil vorhanden, aber kein Lebenslauf hochgeladen" (siehe Test
+    # oben) unterscheiden, statt fälschlich denselben Text zu zeigen.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/1b"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+    finally:
+        session.close()
+
+    response = client.post(
+        f"/api/applications/{application_id}/send",
+        json={"to_email": "recruiter@example.com"},
+    )
+
+    assert response.status_code == 422
+    assert "kein Profil zugeordnet" in response.json()["detail"]
+
+
 def test_send_application_with_blank_subject_and_message_uses_reworded_fallback(
     client: TestClient, db_session_local, tmp_path, monkeypatch
 ) -> None:
@@ -478,8 +1057,8 @@ def test_send_application_with_blank_subject_and_message_uses_reworded_fallback(
         job_offer = _create_job_offer(
             session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/1"
         )
-        application_id = _create_application(session, job_offer_id=job_offer.id).id
-        _create_profile_with_cv_file(session, tmp_path, filename="mein-lebenslauf.pdf")
+        profile = _create_profile_with_cv_file(session, tmp_path, filename="mein-lebenslauf.pdf")
+        application_id = _create_application(session, job_offer_id=job_offer.id, profile_id=profile.id).id
     finally:
         session.close()
 
@@ -508,8 +1087,8 @@ def test_send_application_fallback_body_text_does_not_mention_anschreiben(
         job_offer = _create_job_offer(
             session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/2"
         )
-        application_id = _create_application(session, job_offer_id=job_offer.id).id
-        _create_profile_with_cv_file(session, tmp_path)
+        profile = _create_profile_with_cv_file(session, tmp_path)
+        application_id = _create_application(session, job_offer_id=job_offer.id, profile_id=profile.id).id
     finally:
         session.close()
 
@@ -534,8 +1113,8 @@ def test_send_application_marks_application_as_sent(
         job_offer = _create_job_offer(
             session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/3"
         )
-        application_id = _create_application(session, job_offer_id=job_offer.id).id
-        _create_profile_with_cv_file(session, tmp_path)
+        profile = _create_profile_with_cv_file(session, tmp_path)
+        application_id = _create_application(session, job_offer_id=job_offer.id, profile_id=profile.id).id
     finally:
         session.close()
 
@@ -564,8 +1143,8 @@ def test_send_application_includes_profile_attachments_alongside_cv(
         job_offer = _create_job_offer(
             session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/4"
         )
-        application_id = _create_application(session, job_offer_id=job_offer.id).id
         profile = _create_profile_with_cv_file(session, tmp_path)
+        application_id = _create_application(session, job_offer_id=job_offer.id, profile_id=profile.id).id
 
         attachment_path = tmp_path / "zeugnis.pdf"
         attachment_path.write_bytes(b"%PDF-1.4 fake-zeugnis")
@@ -610,8 +1189,8 @@ def test_send_application_skips_missing_attachment_files(
         job_offer = _create_job_offer(
             session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/5"
         )
-        application_id = _create_application(session, job_offer_id=job_offer.id).id
         profile = _create_profile_with_cv_file(session, tmp_path)
+        application_id = _create_application(session, job_offer_id=job_offer.id, profile_id=profile.id).id
         session.add(
             ProfileAttachment(
                 profile_id=profile.id, file_path=str(tmp_path / "missing.pdf"), filename="missing.pdf"
@@ -646,8 +1225,8 @@ def test_send_application_creates_one_sent_email_log_entry(
         job_offer = _create_job_offer(
             session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/6"
         )
-        application_id = _create_application(session, job_offer_id=job_offer.id).id
-        _create_profile_with_cv_file(session, tmp_path, filename="mein-lebenslauf.pdf")
+        profile = _create_profile_with_cv_file(session, tmp_path, filename="mein-lebenslauf.pdf")
+        application_id = _create_application(session, job_offer_id=job_offer.id, profile_id=profile.id).id
     finally:
         session.close()
 
@@ -688,8 +1267,10 @@ def test_resending_an_application_creates_a_second_independent_log_entry(
         job_offer = _create_job_offer(
             session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/7"
         )
-        application_id = _create_application(session, job_offer_id=job_offer.id, status=ApplicationStatus.DRAFT).id
-        _create_profile_with_cv_file(session, tmp_path)
+        profile = _create_profile_with_cv_file(session, tmp_path)
+        application_id = _create_application(
+            session, job_offer_id=job_offer.id, status=ApplicationStatus.DRAFT, profile_id=profile.id
+        ).id
     finally:
         session.close()
 
@@ -731,8 +1312,8 @@ def test_failed_send_creates_no_log_entry_and_leaves_status_unchanged(
         job_offer = _create_job_offer(
             session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/8"
         )
-        application_id = _create_application(session, job_offer_id=job_offer.id).id
-        _create_profile_with_cv_file(session, tmp_path)
+        profile = _create_profile_with_cv_file(session, tmp_path)
+        application_id = _create_application(session, job_offer_id=job_offer.id, profile_id=profile.id).id
     finally:
         session.close()
 
@@ -752,5 +1333,161 @@ def test_failed_send_creates_no_log_entry_and_leaves_status_unchanged(
         assert session.query(SentEmail).filter_by(application_id=application_id).count() == 0
         application = session.get(Application, application_id)
         assert application.status == ApplicationStatus.DRAFT
+    finally:
+        session.close()
+
+
+# --- Cover letter PDF download ------------------------------------------
+
+
+def test_download_cover_letter_pdf_returns_a_pdf_with_content_disposition(
+    client: TestClient, db_session_local
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/cl-pdf"
+        )
+        profile = _create_profile(session)
+        application_id = _create_application(session, job_offer_id=job_offer.id, profile_id=profile.id).id
+    finally:
+        session.close()
+
+    response = client.get(f"/api/applications/{application_id}/cover-letter.pdf")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert "cover_letter" in response.headers["content-disposition"]
+    assert response.content.startswith(b"%PDF")
+
+
+def test_download_cover_letter_pdf_contains_cover_letter_text_and_header(
+    client: TestClient, db_session_local
+) -> None:
+    from io import BytesIO
+
+    from pypdf import PdfReader
+
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/cl-pdf-text"
+        )
+        profile = _create_profile(session)
+        application_id = _create_application(session, job_offer_id=job_offer.id, profile_id=profile.id).id
+    finally:
+        session.close()
+
+    response = client.get(f"/api/applications/{application_id}/cover-letter.pdf")
+
+    reader = PdfReader(BytesIO(response.content))
+    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    assert "Sehr geehrte Damen und Herren" in text
+    assert "Acme GmbH" in text
+    assert "Backend Engineer" in text
+    assert "Max Mustermann" in text
+
+
+def test_download_cover_letter_pdf_returns_404_for_unknown_id(client: TestClient) -> None:
+    response = client.get("/api/applications/999/cover-letter.pdf")
+
+    assert response.status_code == 404
+
+
+def test_download_cover_letter_pdf_returns_422_when_no_profile_exists(
+    client: TestClient, db_session_local
+) -> None:
+    # U3/R5: keine Generierung ist erfolgt, also ist auch kein Profil
+    # gesperrt (`profile_id is None`) - egal, ob überhaupt ein `MasterProfile`
+    # in der DB existiert.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/cl-no-profile"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+    finally:
+        session.close()
+
+    response = client.get(f"/api/applications/{application_id}/cover-letter.pdf")
+
+    assert response.status_code == 422
+
+
+# --- PortalSubmission log (U7, docs/plans/2026-09-19-002-feat-portal-
+# application-auto-fill-agent-plan.md) --------------------------------------
+
+
+def test_portal_submission_can_be_created_and_read_back_via_relationship(
+    client: TestClient, db_session_local
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/portal-3"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+        submission = PortalSubmission(
+            application_id=application_id,
+            company="Acme GmbH",
+            job_title="Backend Engineer",
+            platform="personio",
+            portal_url="https://acme.jobs.personio.de/job/1?application=1",
+            submitted_at=datetime(2026, 9, 19, 10, 0, tzinfo=timezone.utc),
+        )
+        session.add(submission)
+        session.commit()
+        session.refresh(submission)
+        submission_id = submission.id
+    finally:
+        session.close()
+
+    session = db_session_local()
+    try:
+        row = session.get(PortalSubmission, submission_id)
+        assert row.application is not None
+        assert row.application.id == application_id
+        assert row.portal_url == "https://acme.jobs.personio.de/job/1?application=1"
+        assert row.platform == "personio"
+    finally:
+        session.close()
+
+
+def test_deleting_application_sets_portal_submission_application_id_to_null_not_the_row(
+    client: TestClient, db_session_local
+) -> None:
+    # Gleiches Muster wie `SentEmail` (Audit-Log überlebt die Löschung der
+    # Application) - der Snapshot (company/job_title/platform) hält die Zeile
+    # danach weiterhin lesbar.
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/portal-4"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+        session.add(
+            PortalSubmission(
+                application_id=application_id,
+                company="Acme GmbH",
+                job_title="Backend Engineer",
+                platform="personio",
+                portal_url="https://acme.jobs.personio.de/job/2?application=1",
+                submitted_at=datetime(2026, 9, 19, 10, 0, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    response = client.delete(f"/api/applications/{application_id}")
+    assert response.status_code == 204
+
+    session = db_session_local()
+    try:
+        row = session.query(PortalSubmission).filter_by(company="Acme GmbH", job_title="Backend Engineer").one()
+        assert row.application_id is None
+        assert row.company == "Acme GmbH"
+        assert row.job_title == "Backend Engineer"
+        assert row.platform == "personio"
     finally:
         session.close()

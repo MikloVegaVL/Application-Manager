@@ -5,6 +5,13 @@ fragt ausschließlich den deutschen Markt ab: fehlt ein `location`, wird der
 Suchradius per Default auf Deutschland gesetzt. Die Antwort
 (`{totalCount, jobs}`) wird auf das harmonisierte `JobOfferCreate` gemappt.
 
+Joobles API-Keys sind regionsgebunden (siehe "Wichtige regionale
+Einschränkungen" in der REST-API-Doku): ein auf `jooble.org` erzeugter Key
+liefert ausschließlich US-Stellen - unabhängig vom `location`-Feld. Der
+deutsche Markt erfordert daher BEIDES: einen auf `de.jooble.org/api/about`
+registrierten Key UND den regionalen Endpunkt `de.jooble.org`. Ein US-Key
+wird hier mit HTTP 403 abgelehnt und als `not-configured` gemeldet.
+
 Zugangsdaten (`JOOBLE_API_KEY`) kommen ausschließlich aus den Settings - nie
 aus einem Nutzerkonto. Fehlt der Key, meldet `is_configured()` `False` und
 `search()` wirft `SourceNotConfiguredError`, OHNE einen HTTP-Call zu machen.
@@ -52,10 +59,12 @@ class JoobleJobsClient(CooldownMixin):
     """Client für Joobles credential-basierte Jobsuche-API (Deutschland)."""
 
     SOURCE_PLATFORM = "jooble"
-    BASE_URL_TEMPLATE = "https://jooble.org/api/{api_key}"
+    # Regionaler Endpunkt (Deutschland) - ein US-Key auf `jooble.org` liefert
+    # nur US-Stellen und wird hier abgelehnt (siehe Modul-Docstring).
+    BASE_URL_TEMPLATE = "https://de.jooble.org/api/{api_key}"
     # Jooble liefert keine eigene Detail-URL, die von `link` unabhängig wäre -
     # als Fallback (fehlender `link`) dient die kanonische Jooble-Detailseite.
-    DETAIL_URL_TEMPLATE = "https://jooble.org/desc/{job_id}"
+    DETAIL_URL_TEMPLATE = "https://de.jooble.org/desc/{job_id}"
     # Jooble ist auf den deutschen Markt ausgerichtet; fehlt der Aufrufer-Ort,
     # wird er explizit gesetzt statt leer gelassen.
     DEFAULT_LOCATION = "Germany"

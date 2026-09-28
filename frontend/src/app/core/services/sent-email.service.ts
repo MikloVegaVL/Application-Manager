@@ -59,6 +59,9 @@ export class SentEmailService {
     if (filter.date_to) {
       params = params.set('date_to', filter.date_to);
     }
+    if (filter.outcome) {
+      params = params.set('outcome', filter.outcome);
+    }
     return params;
   }
 }

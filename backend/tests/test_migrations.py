@@ -23,9 +23,10 @@ from pathlib import Path
 
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
-from alembic.command import upgrade
+from alembic.command import downgrade, upgrade
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import create_engine
+from alembic.script import ScriptDirectory
+from sqlalchemy import create_engine, inspect
 
 from app import models  # noqa: F401 - registriert alle Modelle in Base.metadata
 from app.db.database import Base
@@ -62,3 +63,52 @@ def test_alembic_migrations_match_current_models() -> None:
         "Modelle und Alembic-Migrationen sind nicht mehr synchron - fehlt eine "
         f"neue Migration (`alembic revision --autogenerate`)? Diff: {diff}"
     )
+
+
+def test_alembic_has_a_single_head() -> None:
+    """Nach der U2-Revision darf der Graph genau EINEN Head haben - ein
+    zweiter Head würde `alembic upgrade head` mit "Multiple head revisions"
+    abbrechen lassen."""
+    alembic_cfg = Config(str(_ALEMBIC_INI_PATH))
+    heads = ScriptDirectory.from_config(alembic_cfg).get_heads()
+
+    assert len(heads) == 1, f"Erwartet genau einen Alembic-Head, gefunden: {heads}"
+    assert "f71a8d3d7876" in heads
+
+
+def test_automation_column_drop_migration_upgrades_and_downgrades() -> None:
+    """U2-Testszenario: die neue Migration droppt auf einer frischen
+    SQLite-DB die vier `Application`-Automationsspalten und fügt
+    `portal_submissions.report_id` hinzu - vor UND wieder zurück."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        db_path = Path(tmp_dir) / "automation-drop-check.db"
+        database_url = f"sqlite:///{db_path}"
+
+        alembic_cfg = Config(str(_ALEMBIC_INI_PATH))
+        alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+        upgrade(alembic_cfg, "head")
+
+        application_columns = _table_columns(database_url, "applications")
+        assert "automation_state" not in application_columns
+        assert "action_needed_reason" not in application_columns
+        assert "action_needed_detail" not in application_columns
+        assert "automation_started_at" not in application_columns
+        assert "report_id" in _table_columns(database_url, "portal_submissions")
+
+        downgrade(alembic_cfg, "9c1d2e3f4a5b")
+
+        restored_columns = _table_columns(database_url, "applications")
+        assert "automation_state" in restored_columns
+        assert "action_needed_reason" in restored_columns
+        assert "action_needed_detail" in restored_columns
+        assert "automation_started_at" in restored_columns
+        assert "report_id" not in _table_columns(database_url, "portal_submissions")
+
+
+def _table_columns(database_url: str, table_name: str) -> set[str]:
+    engine = create_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            return {column["name"] for column in inspect(connection).get_columns(table_name)}
+    finally:
+        engine.dispose()

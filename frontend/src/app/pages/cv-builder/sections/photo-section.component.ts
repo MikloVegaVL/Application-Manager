@@ -1,11 +1,20 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnChanges,
+  OnDestroy,
+  SimpleChanges,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
-import { ProfileService } from '../../../core/services/profile.service';
+import { ProfileService, ProfileType } from '../../../core/services/profile.service';
 
 /**
  * Foto-Sektion des CV Builders (KTD4/KTD10). Anders als die übrigen
@@ -138,8 +147,13 @@ import { ProfileService } from '../../../core/services/profile.service';
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PhotoSectionComponent implements OnInit, OnDestroy {
+export class PhotoSectionComponent implements OnChanges, OnDestroy {
   private readonly profileService = inject(ProfileService);
+
+  /** U7/R1: welches der zwei unabhängigen Profile - ein Foto-Wechsel des
+   * Eltern-Toggles muss das Foto dieses (neuen) Profils laden, nicht das
+   * alte weiter anzeigen (R3). */
+  readonly profileType = input.required<ProfileType>();
 
   protected readonly photoUrl = signal<string | null>(null);
   protected readonly loading = signal(true);
@@ -148,8 +162,12 @@ export class PhotoSectionComponent implements OnInit, OnDestroy {
   protected readonly isDragOver = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
 
-  ngOnInit(): void {
-    this.loadPhoto();
+  ngOnChanges(changes: SimpleChanges): void {
+    // Lädt beim ersten Aufbau UND bei jedem Profiltyp-Wechsel neu (R3) -
+    // ersetzt das vormalige `ngOnInit()`, das nur einmal lief.
+    if (changes['profileType']) {
+      this.loadPhoto(this.profileType());
+    }
   }
 
   ngOnDestroy(): void {
@@ -190,7 +208,7 @@ export class PhotoSectionComponent implements OnInit, OnDestroy {
     }
 
     this.deleting.set(true);
-    this.profileService.deletePhoto().subscribe({
+    this.profileService.deletePhoto(this.profileType()).subscribe({
       next: () => {
         this.deleting.set(false);
         this.revokeCurrentUrl();
@@ -214,7 +232,7 @@ export class PhotoSectionComponent implements OnInit, OnDestroy {
 
     this.errorMessage.set(null);
     this.uploading.set(true);
-    this.profileService.uploadPhoto(file).subscribe({
+    this.profileService.uploadPhoto(this.profileType(), file).subscribe({
       next: () => {
         this.uploading.set(false);
         // Vorschau direkt aus der bereits im Browser vorhandenen Datei bauen,
@@ -234,9 +252,11 @@ export class PhotoSectionComponent implements OnInit, OnDestroy {
     });
   }
 
-  private loadPhoto(): void {
+  private loadPhoto(profileType: ProfileType): void {
     this.loading.set(true);
-    this.profileService.getPhoto().subscribe({
+    this.revokeCurrentUrl();
+    this.photoUrl.set(null);
+    this.profileService.getPhoto(profileType).subscribe({
       next: (blob) => {
         this.loading.set(false);
         this.revokeCurrentUrl();

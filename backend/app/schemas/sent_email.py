@@ -1,9 +1,12 @@
 """Pydantic-Schemas für protokollierte Bewerbungsmail-Versände (`SentEmail`)."""
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
 __all__ = ["SentEmailRead"]
+
+SentEmailOutcome = Literal["offer", "rejection", "pending"]
 
 
 class SentEmailRead(BaseModel):
@@ -12,10 +15,11 @@ class SentEmailRead(BaseModel):
     `company`/`job_title` stammen aus dem zum Versandzeitpunkt gespeicherten
     Snapshot (siehe `app.models.sent_email.SentEmail`), nicht aus einem
     Live-Join - bleiben daher auch erhalten, wenn `application_id` später
-    `None` wird (gelöschte Application, KTD7 des Plans). `job_offer_id` ist
-    dagegen KEIN Snapshot - er kommt live über die `application`-Beziehung
-    und wird `None`, sobald die Application (und damit die Zielseite für den
-    Link-through, R5) nicht mehr existiert."""
+    `None` wird (gelöschte Application, KTD7 des Plans). `job_offer_id` und
+    `outcome` sind dagegen KEIN Snapshot - sie kommen live über die
+    `application`-Beziehung. `job_offer_id` wird `None`, sobald die
+    Application (und damit die Zielseite für den Link-through, R5) nicht
+    mehr existiert; `outcome` wird dann "pending" (R4)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -23,6 +27,7 @@ class SentEmailRead(BaseModel):
     application_id: int | None
     job_offer_id: int | None
     ad_url: str | None
+    outcome: SentEmailOutcome
     company: str | None
     job_title: str | None
     source_platform: str | None
@@ -43,3 +48,4 @@ class SentEmailFilter(BaseModel):
     sender_email: str | None = None
     date_from: date | None = None
     date_to: date | None = None
+    outcome: SentEmailOutcome | None = None

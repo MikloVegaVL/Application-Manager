@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Application Manager Autofill",
+  "version": "0.1.0",
+  "description": "Fills job-application forms from your Application-Manager app. Stops before submit.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "scripting", "tabs", "activeTab"],
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*",
+    "https://www.linkedin.com/*",
+    "https://linkedin.com/*"
+  ],
+  "optional_host_permissions": ["https://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/*", "https://linkedin.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://localhost:8000 http://127.0.0.1:8000"
+  }
+}

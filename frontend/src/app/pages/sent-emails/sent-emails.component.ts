@@ -3,14 +3,17 @@ import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
 
+import { MatBadgeModule } from '@angular/material/badge';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatTableModule } from '@angular/material/table';
+import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { SENDER_EMAIL_OPTIONS } from '../../core/models/master-profile.model';
 import { SentEmail, SentEmailFilterParams } from '../../core/models/sent-email.model';
@@ -41,13 +44,16 @@ const DEFAULT_FULL_LOG_FILENAME = 'sent-emails-full-log.pdf';
     DatePipe,
     NgTemplateOutlet,
     RouterLink,
+    MatBadgeModule,
     MatButtonModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
+    MatMenuModule,
     MatProgressSpinnerModule,
     MatSelectModule,
     MatTableModule,
+    MatTooltipModule,
   ],
   templateUrl: './sent-emails.component.html',
   styleUrl: './sent-emails.component.scss',
@@ -63,13 +69,18 @@ export class SentEmailsComponent implements OnInit {
     'company',
     'ad_url',
     'source_platform',
-    'recipient_email',
     'sent_at',
-    'sender_email',
-    'subject',
-    'attachment_filenames',
+    'outcome',
     'actions',
   ];
+
+  /** Anzeigetext je `outcome` (KTD1) - "Offer"/"Rejection" spiegeln die Wortwahl aus
+   * `ApplicationsComponent.STATUS_LABELS` für denselben Zusage/Absage-Zustand. */
+  private static readonly OUTCOME_LABELS: Record<SentEmail['outcome'], string> = {
+    offer: 'Offer',
+    rejection: 'Rejection',
+    pending: 'Pending',
+  };
 
   protected readonly entries = signal<SentEmail[]>([]);
   protected readonly loading = signal(true);
@@ -81,6 +92,7 @@ export class SentEmailsComponent implements OnInit {
   protected readonly senderEmailFilter = signal<string | null>(null);
   protected readonly dateFromFilter = signal('');
   protected readonly dateToFilter = signal('');
+  protected readonly outcomeFilter = signal<SentEmail['outcome'] | null>(null);
 
   protected readonly exportingCurrent = signal(false);
   protected readonly exportingAll = signal(false);
@@ -96,7 +108,13 @@ export class SentEmailsComponent implements OnInit {
 
   protected hasActiveFilter(): boolean {
     const filter = this.currentFilter();
-    return Boolean(filter.company || filter.sender_email || filter.date_from || filter.date_to);
+    return Boolean(
+      filter.company || filter.sender_email || filter.date_from || filter.date_to || filter.outcome,
+    );
+  }
+
+  protected outcomeLabel(outcome: SentEmail['outcome']): string {
+    return SentEmailsComponent.OUTCOME_LABELS[outcome];
   }
 
   protected exportCurrent(): void {
@@ -176,6 +194,7 @@ export class SentEmailsComponent implements OnInit {
       sender_email: this.senderEmailFilter(),
       date_from: this.dateFromFilter() || null,
       date_to: this.dateToFilter() || null,
+      outcome: this.outcomeFilter(),
     };
   }
 

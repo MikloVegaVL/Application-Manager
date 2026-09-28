@@ -8,7 +8,7 @@ ein konkretes Stellenangebot.
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import JSON, DateTime, String, Text, func
+from sqlalchemy import JSON, DateTime, Enum, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -21,10 +21,23 @@ class MasterProfile(Base):
     """Stammdaten, Werdegang und Skills des Bewerbers."""
 
     __tablename__ = "master_profiles"
+    __table_args__ = (UniqueConstraint("profile_type", name="uq_master_profiles_profile_type"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    # Welche der zwei unabhängigen Profile das ist (R1) - `None` heißt "noch
+    # nicht zugeordnet" (Alt-Profil vor der ersten Migrationsabfrage, siehe
+    # R8, oder das noch leere zweite Profil). `native_enum=False` spiegelt
+    # exakt `Application.status` (siehe `app.models.application`), damit ein
+    # Wechsel SQLite -> PostgreSQL kein zusätzliches `CREATE TYPE` braucht.
+    profile_type: Mapped[str | None] = mapped_column(
+        Enum("it", "full_life", name="profile_type", native_enum=False, length=20, validate_strings=True),
+        nullable=True,
+    )
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    # Nicht mehr `unique=True` (U1, docs/plans/2026-09-23-001-feat-profile-
+    # types-plan.md): Kontaktdaten sind pro Profil vollständig unabhängig
+    # (R2/R3), zwei Profile dürfen also dieselbe E-Mail tragen.
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Weitere Kontaktkanäle für den CV-Header, identisch behandelt wie

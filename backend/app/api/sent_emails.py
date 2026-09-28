@@ -7,11 +7,11 @@ import io
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func
-from sqlalchemy.orm import Query, Session, joinedload
+from sqlalchemy import func, or_
+from sqlalchemy.orm import Query, Session, contains_eager, joinedload
 
 from app.db.database import get_db
-from app.models.application import Application
+from app.models.application import Application, ApplicationStatus
 from app.models.sent_email import SentEmail
 from app.schemas.sent_email import SentEmailFilter, SentEmailRead
 from app.services.pdf_service import PdfRenderError, render_sent_emails_pdf
@@ -34,6 +34,23 @@ def _apply_filters(query: Query, filters: SentEmailFilter) -> Query:
         query = query.filter(func.date(SentEmail.sent_at) >= filters.date_from)
     if filters.date_to:
         query = query.filter(func.date(SentEmail.sent_at) <= filters.date_to)
+    if filters.outcome:
+        # Outer join (KTD3): an inner join would silently drop "pending because
+        # the application was deleted" rows (`application_id IS NULL`) from the
+        # Pending filter option. Applies to both list and export queries (KTD2)
+        # via this shared function - only the rendered PDF column stays out (R6).
+        query = query.outerjoin(Application, SentEmail.application_id == Application.id)
+        if filters.outcome == "offer":
+            query = query.filter(Application.status == ApplicationStatus.ACCEPTED)
+        elif filters.outcome == "rejection":
+            query = query.filter(Application.status == ApplicationStatus.REJECTED)
+        else:
+            query = query.filter(
+                or_(
+                    Application.status.is_(None),
+                    Application.status.notin_([ApplicationStatus.ACCEPTED, ApplicationStatus.REJECTED]),
+                )
+            )
     return query
 
 
@@ -43,17 +60,23 @@ def _base_query(db: Session, filters: SentEmailFilter) -> Query:
 
 
 def _query_entries_for_list(db: Session, filters: SentEmailFilter) -> list[SentEmail]:
-    # `joinedload`: `SentEmailRead.job_offer_id`/`ad_url` lesen `entry.
-    # application.job_offer_id`/`.job_offer.source_url` (siehe die gleich-
-    # namigen `SentEmail`-Properties) - ohne Eager-Load würde das pro Zeile
-    # eigene Nachlade-Queries auslösen (N+1). Nur hier nötig: die PDF-Exports
-    # (`_query_entries_for_export`) lesen beides nie, der Join würde dort nur
-    # unnötig mitlaufen.
-    return (
-        _base_query(db, filters)
-        .options(joinedload(SentEmail.application).joinedload(Application.job_offer))
-        .all()
-    )
+    # `SentEmailRead.job_offer_id`/`ad_url`/`outcome` lesen `entry.application`
+    # (siehe die gleichnamigen `SentEmail`-Properties) - ohne Eager-Load würde
+    # das pro Zeile eigene Nachlade-Queries auslösen (N+1). Nur hier nötig: die
+    # PDF-Exports (`_query_entries_for_export`) lesen das nie, der Join würde
+    # dort nur unnötig mitlaufen.
+    #
+    # `contains_eager` statt `joinedload` wenn `filters.outcome` gesetzt ist:
+    # `_apply_filters` hat dann bereits einen `outerjoin(Application, ...)`
+    # für den WHERE-Filter hinzugefügt (KTD3) - `contains_eager` liest die
+    # Application-Spalten aus genau diesem bestehenden Join statt einen
+    # zweiten, redundanten JOIN auf dieselbe Tabelle zu erzeugen.
+    query = _base_query(db, filters)
+    if filters.outcome:
+        query = query.options(contains_eager(SentEmail.application).joinedload(Application.job_offer))
+    else:
+        query = query.options(joinedload(SentEmail.application).joinedload(Application.job_offer))
+    return query.all()
 
 
 def _query_entries_for_export(db: Session, filters: SentEmailFilter) -> list[SentEmail]:
@@ -65,7 +88,9 @@ def list_sent_emails(
     filters: SentEmailFilter = Depends(), db: Session = Depends(get_db)
 ) -> list[SentEmail]:
     """Listet alle protokollierten Bewerbungsmail-Versände, neueste zuerst,
-    optional gefiltert nach Firma, Absender-Account und Zeitraum (R4/R7)."""
+    optional gefiltert nach Firma, Absender-Account, Zeitraum (R4/R7) und
+    Outcome (R5) - Outcome wird live über die verknüpfte Application ermittelt,
+    nicht aus einer Spalte auf `SentEmail`."""
     return _query_entries_for_list(db, filters)
 
 

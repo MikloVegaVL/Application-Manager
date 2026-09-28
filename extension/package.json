@@ -1,0 +1,17 @@
+{
+  "name": "application-manager-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Manifest V3 browser extension that fills job-application forms from the Application-Manager app (U5/U6).",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "jsdom": "^25.0.1",
+    "vitest": "^2.1.8"
+  }
+}

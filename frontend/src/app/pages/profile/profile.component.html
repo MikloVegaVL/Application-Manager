@@ -4,14 +4,40 @@
     <p>Master data and documents - the basis for automatically generated applications. Maintain your work experience, education, skills and more in the <a routerLink="/cv-builder">CV editor</a>.</p>
   </header>
 
-  @if (loading()) {
+  @if (initializing()) {
     <div class="profile-page__loading">
       <mat-progress-spinner mode="indeterminate" diameter="48" />
       <p>Loading profile ...</p>
     </div>
   } @else {
-    <form [formGroup]="profileForm" (ngSubmit)="onSubmit()">
-      <mat-tab-group animationDuration="150ms">
+    <!-- U7/R1: äußerer Umschalter zwischen den zwei unabhängigen Profilen -
+         umschließt den bestehenden Feld-Tabs (`profile-page__field-tabs`)
+         unten per `ng-template`/`ngTemplateOutlet`, damit dessen Markup nicht
+         dupliziert werden muss (nur der jeweils aktive Tab rendert Inhalt). -->
+    <mat-tab-group
+      class="profile-page__type-tabs"
+      animationDuration="150ms"
+      [selectedIndex]="profileTypeIndex()"
+      (selectedIndexChange)="onTopTabIndexChange($event)"
+    >
+      <mat-tab label="IT">
+        <ng-container *ngTemplateOutlet="profileContent" />
+      </mat-tab>
+      <mat-tab label="Full-life/Non-IT">
+        <ng-container *ngTemplateOutlet="profileContent" />
+      </mat-tab>
+    </mat-tab-group>
+  }
+
+  <ng-template #profileContent>
+    @if (loading()) {
+      <div class="profile-page__loading">
+        <mat-progress-spinner mode="indeterminate" diameter="48" />
+        <p>Loading profile ...</p>
+      </div>
+    } @else {
+      <form [formGroup]="profileForm" (ngSubmit)="onSubmit()">
+      <mat-tab-group class="profile-page__field-tabs" animationDuration="150ms">
         <!-- Tab 1: Persönliche Daten -->
         <mat-tab label="Personal details">
           <div class="tab-content">
@@ -239,6 +265,7 @@
           Save profile
         </button>
       </div>
-    </form>
-  }
+      </form>
+    }
+  </ng-template>
 </div>

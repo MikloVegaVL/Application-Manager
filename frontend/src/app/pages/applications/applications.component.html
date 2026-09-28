@@ -32,6 +32,16 @@
   }
 
   @if (!loading() && !errorMessage() && applications().length > 0) {
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="applications__search">
+      <mat-label>Search by company or title</mat-label>
+      <input
+        matInput
+        type="text"
+        [value]="searchTerm()"
+        (input)="searchTerm.set($any($event.target).value)"
+      />
+    </mat-form-field>
+
     <mat-radio-group
       class="applications__filter"
       [value]="filter()"
@@ -59,94 +69,41 @@
   }
 
   @if (!loading() && !errorMessage() && applications().length > 0 && filteredApplications().length === 0) {
-    <p class="applications__empty">No applications with this status.</p>
+    <p class="applications__empty">
+      @if (searchTerm()) {
+        No applications match your search.
+      } @else {
+        No applications with this status.
+      }
+    </p>
+  }
+
+  @if (showInstallHint()) {
+    <div class="applications__install-hint">
+      <mat-icon>extension</mat-icon>
+      <span>
+        To fill applications in your own browser, load the application-manager browser extension
+        (<code>extension/dist</code>) unpacked, then use <strong>Apply via LinkedIn</strong>.
+      </span>
+      <button
+        mat-icon-button
+        type="button"
+        aria-label="Dismiss install hint"
+        (click)="onDismissInstallHint()"
+      >
+        <mat-icon>close</mat-icon>
+      </button>
+    </div>
   }
 
   @if (!loading() && filteredApplications().length > 0) {
     <div class="applications__results">
       @for (application of filteredApplications(); track application.id) {
-        <mat-card class="application-card" appearance="outlined">
-          <mat-card-header>
-            <mat-card-title>{{ application.job_offer.title }}</mat-card-title>
-            <mat-card-subtitle>
-              {{ application.job_offer.company }}
-              @if (application.job_offer.location) {
-                · {{ application.job_offer.location }}
-              }
-            </mat-card-subtitle>
-          </mat-card-header>
-
-          <mat-card-content class="application-card__content">
-            <div class="application-card__meta">
-              <mat-chip-set>
-                <mat-chip
-                  [class.application-card__status--sent]="application.status === 'sent'"
-                  [class.application-card__status--accepted]="application.status === 'accepted'"
-                  [class.application-card__status--rejected]="application.status === 'rejected'"
-                >
-                  {{ statusLabel(application.status) }}
-                </mat-chip>
-                <mat-chip>{{ sourceLabel(application.job_offer.source_platform) }}</mat-chip>
-              </mat-chip-set>
-
-              <div class="application-card__outcome">
-                <span class="application-card__outcome-label"> Outcome </span>
-                <mat-button-toggle-group
-                  class="application-card__outcome-options"
-                  [value]="application.status"
-                  [disabled]="isUpdatingStatus(application)"
-                  [hideSingleSelectionIndicator]="true"
-                  (change)="onStatusChange(application, $event.value)"
-                  aria-label="Outcome"
-                >
-                  <mat-button-toggle value="accepted" class="application-card__outcome-accept">
-                    <mat-icon>check</mat-icon>
-                    {{ statusLabel('accepted') }}
-                  </mat-button-toggle>
-                  <mat-button-toggle value="rejected" class="application-card__outcome-reject">
-                    <mat-icon>close</mat-icon>
-                    {{ statusLabel('rejected') }}
-                  </mat-button-toggle>
-                </mat-button-toggle-group>
-                @if (isUpdatingStatus(application)) {
-                  <mat-progress-spinner mode="indeterminate" diameter="16" />
-                }
-              </div>
-
-              @if (application.sent_to_email) {
-                <div class="application-card__sent-to">
-                  <mat-icon>mail_outline</mat-icon>
-                  <span>
-                    <span class="application-card__sent-to-label"> Sent to: </span>
-                    {{ application.sent_to_email }}
-                  </span>
-                </div>
-              }
-            </div>
-          </mat-card-content>
-
-          <mat-card-actions class="application-card__actions">
-            <button
-              mat-button
-              color="warn"
-              type="button"
-              [disabled]="isDeleting(application)"
-              (click)="onDelete(application)"
-            >
-              @if (isDeleting(application)) {
-                <mat-progress-spinner mode="indeterminate" diameter="18" />
-              } @else {
-                <mat-icon>delete</mat-icon>
-              }
-              Delete
-            </button>
-
-            <a mat-stroked-button color="primary" [routerLink]="['/editor', application.job_offer.id]">
-              <mat-icon>open_in_new</mat-icon>
-              Open application
-            </a>
-          </mat-card-actions>
-        </mat-card>
+        <app-compact-card
+          [viewModel]="cardViewModel(application)"
+          [busy]="isCardBusy(application)"
+          (menuItemClick)="onMenuAction(application, $event)"
+        ></app-compact-card>
       }
     </div>
   }

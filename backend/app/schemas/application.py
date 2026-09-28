@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.application import ApplicationStatus
 from app.schemas.job_offer import JobOfferRead
+from app.schemas.master_profile import ProfileType
 
 # Enum aus dem ORM-Modell wiederverwendet, damit API und DB immer denselben
 # Satz gültiger Status-Werte kennen
@@ -17,6 +18,7 @@ __all__ = [
     "ApplicationRead",
     "ApplicationGenerateRequest",
     "ApplicationSendRequest",
+    "ApplicationSubmissionSummary",
 ]
 
 
@@ -44,6 +46,18 @@ class ApplicationUpdate(BaseModel):
     sent_at: datetime | None = None
 
 
+class ApplicationSubmissionSummary(BaseModel):
+    """Kompaktes "applied"-Indiz für die Bewerbungsübersicht (U4/KTD3),
+    abgeleitet aus der jüngsten `PortalSubmission`-Zeile der Bewerbung -
+    damit die Oberfläche das Indiz ohne zweiten Request rendern kann."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    platform: str | None = None
+    portal_url: str
+    submitted_at: datetime
+
+
 class ApplicationRead(ApplicationBase):
     """Antwortmodell inkl. serverseitig verwalteter Felder.
 
@@ -59,12 +73,34 @@ class ApplicationRead(ApplicationBase):
     sent_to_email: str | None = None
     created_at: datetime
     job_offer: JobOfferRead
+    # `null`, solange kein Portal-Fill erfolgreich gemeldet wurde (R11).
+    submission: ApplicationSubmissionSummary | None = None
+    # Zugeordnetes Profil (`it`/`full_life`, U3/R4/R5) - `null`, solange noch
+    # nicht generiert wurde. Gelesen über `Application.profile_type` (Property,
+    # siehe `app.models.application`), das intern die verknüpfte
+    # `MasterProfile.profile_type` auflöst.
+    profile_type: str | None = None
 
 
 class ApplicationGenerateRequest(BaseModel):
-    """Payload für `POST /api/applications/generate`."""
+    """Payload für `POST /api/applications/generate`.
+
+    `profile_type` ist nur bei der ERSTEN Generierung für ein Stellenangebot
+    Pflicht (R4) - ist für die Bewerbung bereits ein Profil gesperrt (R5),
+    wird ein hier mitgeschickter Wert ignoriert (siehe
+    `app.api.applications.generate_application`, KTD3).
+
+    `for_new_application` ist R5's Ausweg (U9, KTD12): statt das für dieses
+    Stellenangebot bereits gesperrte Profil zu überschreiben, legt es eine
+    ZUSÄTZLICHE, unabhängige `Application`-Zeile für dasselbe Stellenangebot
+    an, gesperrt auf das hier mitgeschickte `profile_type`. Bewusst ein
+    explizites Flag statt eines impliziten Nebeneffekts (z. B. beim erneuten
+    Speichern des Jobs) - das verhindert, dass ein wiederholter/verdoppelter
+    Request stillschweigend weitere `Application`-Zeilen erzeugt."""
 
     job_offer_id: int
+    profile_type: ProfileType | None = None
+    for_new_application: bool = False
 
 
 class ApplicationSendRequest(BaseModel):

@@ -8,10 +8,17 @@ Deckt zwei Dinge ab:
    `skills_json: list[str]`-Zeilen nach `list[{"name": ..., "level": ...}]`
    (KTD5), ohne Daten zu verlieren, und ist ein No-Op für bereits leere/
    bereits migrierte Zeilen.
+
+Am Ende der Datei: Tests für U1 des Profil-Typen-Plans (docs/plans/2026-09-
+23-001-feat-profile-types-plan.md) - Migration `f71a8d3d7876` fügt
+`master_profiles.profile_type` (unique) und `applications.profile_id` (FK,
+mit Backfill für bereits generierte Bewerbungen) hinzu und droppt
+`master_profiles.email`s altes `unique=True`.
 """
 from __future__ import annotations
 
 import tempfile
+import uuid
 from pathlib import Path
 
 import pytest
@@ -19,7 +26,12 @@ import sqlalchemy as sa
 from alembic.command import downgrade, upgrade
 from alembic.config import Config
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
+from app.db.database import Base
+from app.models.master_profile import MasterProfile
 from app.schemas.master_profile import (
     LanguageEntry,
     MasterProfileBase,
@@ -468,3 +480,200 @@ def test_remap_downgrade_does_not_revert_a_genuine_template_1(tmp_path) -> None:
         assert row.template_id == "template-1"
     finally:
         engine.dispose()
+
+
+# --- Migration f71a8d3d7876: profile_type + applications.profile_id --------
+#
+# U1, docs/plans/2026-09-23-001-feat-profile-types-plan.md.
+
+
+@pytest.fixture
+def previous_head_db():
+    """Frische SQLite-Datei, hochgezogen bis exakt VOR die neue Migration
+    (auf den vorherigen Single-Head `d1a2b3c4e5f6`), damit Testzeilen im
+    Alt-Schema (kein `profile_type`/`profile_id`, `email` noch unique)
+    eingefügt werden können, bevor `upgrade()` der neuen Migration läuft."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        db_path = Path(tmp_dir) / "profile-type-migration-check.db"
+        database_url = f"sqlite:///{db_path}"
+
+        alembic_cfg = Config(str(_ALEMBIC_INI_PATH))
+        alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+        upgrade(alembic_cfg, "d1a2b3c4e5f6")
+
+        engine = sa.create_engine(database_url)
+        try:
+            yield alembic_cfg, engine
+        finally:
+            engine.dispose()
+
+
+def _insert_master_profile_pre_migration(engine: sa.Engine, **columns) -> int:
+    defaults = dict(
+        full_name="Max Mustermann",
+        email="max@example.com",
+        experiences_json="[]",
+        education_json="[]",
+        skills_json="[]",
+        languages_json="[]",
+        projects_json="[]",
+    )
+    defaults.update(columns)
+    with engine.begin() as conn:
+        cols = ", ".join(defaults.keys())
+        placeholders = ", ".join(f":{key}" for key in defaults)
+        result = conn.execute(
+            sa.text(f"INSERT INTO master_profiles ({cols}) VALUES ({placeholders})"), defaults
+        )
+        return result.lastrowid
+
+
+def _insert_job_offer(engine: sa.Engine, **columns) -> int:
+    defaults = dict(
+        title="Backend Engineer",
+        company="Acme",
+        source_url=f"https://example.com/jobs/{uuid.uuid4()}",
+        source_platform="manual",
+        is_processed=False,
+    )
+    defaults.update(columns)
+    with engine.begin() as conn:
+        cols = ", ".join(defaults.keys())
+        placeholders = ", ".join(f":{key}" for key in defaults)
+        result = conn.execute(
+            sa.text(f"INSERT INTO job_offers ({cols}) VALUES ({placeholders})"), defaults
+        )
+        return result.lastrowid
+
+
+def _insert_application(engine: sa.Engine, job_offer_id: int, **columns) -> int:
+    defaults = dict(job_offer_id=job_offer_id, status="draft", cover_letter_text=None)
+    defaults.update(columns)
+    with engine.begin() as conn:
+        cols = ", ".join(defaults.keys())
+        placeholders = ", ".join(f":{key}" for key in defaults)
+        result = conn.execute(
+            sa.text(f"INSERT INTO applications ({cols}) VALUES ({placeholders})"), defaults
+        )
+        return result.lastrowid
+
+
+def test_migration_adds_profile_type_and_profile_id_columns(previous_head_db) -> None:
+    alembic_cfg, engine = previous_head_db
+
+    upgrade(alembic_cfg, "head")
+
+    profile_columns = {col["name"] for col in sa.inspect(engine).get_columns("master_profiles")}
+    application_columns = {col["name"] for col in sa.inspect(engine).get_columns("applications")}
+    assert "profile_type" in profile_columns
+    assert "profile_id" in application_columns
+
+
+def test_migration_backfills_profile_id_only_for_applications_with_generated_content(
+    previous_head_db,
+) -> None:
+    alembic_cfg, engine = previous_head_db
+    profile_id = _insert_master_profile_pre_migration(engine, email="max@example.com")
+    job_offer_id = _insert_job_offer(engine)
+    generated_1 = _insert_application(engine, job_offer_id, cover_letter_text="Sehr geehrte Damen...")
+    generated_2 = _insert_application(engine, job_offer_id, cover_letter_text="Sehr geehrter Herr...")
+    draft = _insert_application(engine, job_offer_id, cover_letter_text=None)
+
+    upgrade(alembic_cfg, "head")
+
+    with engine.connect() as conn:
+        rows = {
+            row.id: row.profile_id
+            for row in conn.execute(sa.text("SELECT id, profile_id FROM applications"))
+        }
+
+    assert rows[generated_1] == profile_id
+    assert rows[generated_2] == profile_id
+    assert rows[draft] is None
+
+
+def test_migration_leaves_profile_id_null_when_no_preexisting_profile(previous_head_db) -> None:
+    alembic_cfg, engine = previous_head_db
+    job_offer_id = _insert_job_offer(engine)
+    application_id = _insert_application(engine, job_offer_id, cover_letter_text="Anschreiben-Text")
+
+    upgrade(alembic_cfg, "head")
+
+    with engine.connect() as conn:
+        row = conn.execute(
+            sa.text("SELECT profile_id FROM applications WHERE id = :id"), {"id": application_id}
+        ).fetchone()
+
+    assert row.profile_id is None
+
+
+def test_migration_downgrade_cleanly_reverses_both_column_additions(previous_head_db) -> None:
+    alembic_cfg, engine = previous_head_db
+
+    upgrade(alembic_cfg, "head")
+    downgrade(alembic_cfg, "-1")
+
+    profile_columns = {col["name"] for col in sa.inspect(engine).get_columns("master_profiles")}
+    application_columns = {col["name"] for col in sa.inspect(engine).get_columns("applications")}
+    assert "profile_type" not in profile_columns
+    assert "profile_id" not in application_columns
+
+    # `email` unique-ness is restored on downgrade.
+    unique_constraints = sa.inspect(engine).get_unique_constraints("master_profiles")
+    assert any(uc["column_names"] == ["email"] for uc in unique_constraints)
+
+
+def test_migration_upgrade_head_twice_does_not_raise(previous_head_db) -> None:
+    alembic_cfg, _engine = previous_head_db
+
+    upgrade(alembic_cfg, "head")
+    upgrade(alembic_cfg, "head")  # must be a no-op, not an error
+
+
+@pytest.fixture
+def orm_session():
+    """In-memory SQLite via `Base.metadata.create_all()` (wie
+    `tests/api/test_profile.py`) statt Alembic - für ORM-Ebene-Checks der
+    neuen `master_profiles`-Constraints."""
+    engine = sa.create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(bind=engine)
+    session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    session = session_local()
+    try:
+        yield session
+    finally:
+        session.close()
+        engine.dispose()
+
+
+def test_two_profiles_with_same_email_but_different_profile_type_both_save(orm_session) -> None:
+    orm_session.add(MasterProfile(full_name="IT Profil", email="same@example.com", profile_type="it"))
+    orm_session.add(
+        MasterProfile(full_name="Non-IT Profil", email="same@example.com", profile_type="full_life")
+    )
+
+    orm_session.commit()  # must not raise
+
+    assert orm_session.query(MasterProfile).count() == 2
+
+
+def test_second_profile_with_same_profile_type_is_rejected(orm_session) -> None:
+    orm_session.add(MasterProfile(full_name="Erstes IT Profil", email="first@example.com", profile_type="it"))
+    orm_session.commit()
+
+    orm_session.add(MasterProfile(full_name="Zweites IT Profil", email="second@example.com", profile_type="it"))
+    with pytest.raises(IntegrityError):
+        orm_session.commit()
+
+
+def test_second_profile_with_null_profile_type_still_saves(orm_session) -> None:
+    orm_session.add(MasterProfile(full_name="Erstes IT Profil", email="first@example.com", profile_type="it"))
+    orm_session.commit()
+
+    orm_session.add(MasterProfile(full_name="Unassigned Profil", email="second@example.com", profile_type=None))
+
+    orm_session.commit()  # must not raise: NULL never collides with NULL
+
+    assert orm_session.query(MasterProfile).count() == 2

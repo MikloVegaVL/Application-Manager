@@ -19,6 +19,23 @@
   --app-on-success: rgba(0, 0, 0, 0.87);
   --app-error: #ff9e93;
   --app-on-error: rgba(0, 0, 0, 0.87);
+  /* Akzentfarbe des aktiven Material-Themes (Default: purple-green). */
+  --app-accent: #69f0ae;
+}
+
+/* Die Akzentfarbe hängt vom gewählten Theme ab (nicht nur vom Hell-/Dunkel-Ton),
+   daher wird sie über `data-theme` gesetzt - `ThemeService` schreibt die Theme-ID
+   auf `<html>` (siehe `theme.service.ts`). */
+html[data-theme='deeppurple-amber'] {
+  --app-accent: #ffd740;
+}
+
+html[data-theme='indigo-pink'] {
+  --app-accent: #ff4081;
+}
+
+html[data-theme='pink-bluegrey'] {
+  --app-accent: #b0bec5;
 }
 
 html[data-theme-tone='light'] {
