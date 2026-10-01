@@ -531,6 +531,21 @@ class TestRequirementAssessmentEvidenceValidator:
         assert result.matched is False
         assert result.evidence is None
 
+    def test_matched_false_with_evidence_clears_it(self):
+        """ce-code-review-Fund: ein ausgefülltes evidence auf einem
+        matched=false-Eintrag wäre ein beleg-aussehender Text zu einer nicht
+        erfüllten Anforderung, der unverändert in den Schreib-Aufruf
+        weiterfließen würde - evidence wird stattdessen verworfen."""
+        result = RequirementAssessment(
+            requirement="Kubernetes",
+            is_core=False,
+            matched=False,
+            evidence="5 Jahre Kubernetes bei Acme GmbH",
+        )
+
+        assert result.matched is False
+        assert result.evidence is None
+
 
 class TestUnavailable:
     def test_connection_error_raises_unavailable(self, mock_client):

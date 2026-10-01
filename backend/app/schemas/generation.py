@@ -32,7 +32,7 @@ class RequirementAssessment(BaseModel):
     evidence: str | None = None
 
     @model_validator(mode="after")
-    def _evidence_required_when_matched(self) -> "RequirementAssessment":
+    def _evidence_matches_matched_flag(self) -> "RequirementAssessment":
         # KTD9: ein "matched"-Urteil ohne belegendes Profil-Fakt ist keine
         # Einschätzung, sondern eine unbelegte Behauptung - genau das soll
         # dieses Schema verhindern.
@@ -40,6 +40,15 @@ class RequirementAssessment(BaseModel):
             raise ValueError(
                 "evidence darf nicht leer sein, wenn matched=True ist."
             )
+        # Umkehrung (ce-code-review-Fund): "matched": false mit einem
+        # ausgefüllten "evidence" wäre ein beleg-aussehender Text zu einer
+        # nicht erfüllten Anforderung, der unverändert in den Schreib-Aufruf
+        # weiterfließt - genau der Lauf, den dieses Schema verhindern soll.
+        # Verwerfen statt Validierung scheitern lassen: ein überflüssig
+        # ausgefülltes Feld ist kein struktureller Fehler, der einen
+        # Retry/Flatten-Fallback-Zyklus rechtfertigt.
+        if not self.matched:
+            self.evidence = None
         return self
 
 

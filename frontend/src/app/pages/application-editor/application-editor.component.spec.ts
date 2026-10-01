@@ -344,8 +344,12 @@ describe('ApplicationEditorComponent', () => {
 
       // Weit über die Obergrenze hinaus vorspulen - jeder Tick liefert
       // weiterhin ein leeres Anschreiben (die abgewartete Generierung ist
-      // nie fertig geworden).
-      tick(30 * 60 * 1000 + 5000);
+      // nie fertig geworden). Liest die Obergrenze von der Komponente
+      // selbst statt sie hier zu duplizieren (sonst genau die Drift, die
+      // `GENERATION_POLL_TIMEOUT_MS` beim Fit-Grounding-Fix schon einmal
+      // getroffen hat).
+      tick((ApplicationEditorComponent as unknown as { GENERATION_POLL_TIMEOUT_MS: number })
+        .GENERATION_POLL_TIMEOUT_MS + 5000);
       httpMock.match(() => true).forEach((req) => {
         if (!req.cancelled) {
           req.flush([buildApplication(null)]);

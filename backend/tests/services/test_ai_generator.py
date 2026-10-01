@@ -184,6 +184,21 @@ class TestGenerateApplicationContentUnavailable:
 
         assert mock_generate.call_count == 1
 
+    def test_writing_call_unavailable_after_successful_match_analysis(self, mocker):
+        """ce-code-review-Fund: nur die LlmValidationError-Variante des
+        'zweiter Aufruf scheitert nach erfolgreichem ersten Aufruf'-Falls war
+        bisher getestet, nicht diese LlmUnavailableError-Variante."""
+        mock_generate = mocker.patch.object(
+            ai_generator.llm_client,
+            "generate_structured",
+            side_effect=[VALID_FIT_ASSESSMENT, LlmUnavailableError("Ollama ist nicht erreichbar")],
+        )
+
+        with pytest.raises(ApplicationGenerationError):
+            ai_generator.generate_application_content(_profile(), _job_offer())
+
+        assert mock_generate.call_count == 2
+
 
 class TestBuildUserPrompt:
     def test_includes_profile_and_job_data(self):
