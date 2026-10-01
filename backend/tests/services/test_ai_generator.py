@@ -69,11 +69,26 @@ VALID_RESULT = AiGenerationResult(
     cover_letter_text="Betreff: Bewerbung als Senior Backend-Entwickler\n\nSehr geehrte Damen und Herren,\n\n...\n\nMit freundlichen Grüßen\nMax Mustermann",
 )
 
+VALID_FIT_ASSESSMENT = CoverLetterFitAssessment(
+    requirements=[
+        RequirementAssessment(
+            requirement="3 Jahre Python-Erfahrung",
+            is_core=True,
+            matched=True,
+            evidence="3 Jahre Backend-Entwicklung mit Python bei Acme GmbH",
+        ),
+    ]
+)
+
 
 class TestGenerateApplicationContentHappyPath:
-    def test_returns_cover_letter_text_from_helper(self, mocker):
+    def test_returns_cover_letter_text_and_calls_both_steps_in_order(self, mocker):
+        """Covers F1/R1: match-analysis call runs first, its result reaches
+        the writing call's prompt as `fit_assessment`."""
         mock_generate = mocker.patch.object(
-            ai_generator.llm_client, "generate_structured", return_value=VALID_RESULT
+            ai_generator.llm_client,
+            "generate_structured",
+            side_effect=[VALID_FIT_ASSESSMENT, VALID_RESULT],
         )
 
         profile = _profile()
@@ -82,14 +97,27 @@ class TestGenerateApplicationContentHappyPath:
         cover_letter_text = ai_generator.generate_application_content(profile, job_offer)
 
         assert cover_letter_text == VALID_RESULT.cover_letter_text
+        assert mock_generate.call_count == 2
 
-        mock_generate.assert_called_once()
-        called_model_cls, called_messages = mock_generate.call_args[0]
-        assert called_model_cls is AiGenerationResult
-        assert called_messages[0] == {"role": "system", "content": ai_generator._SYSTEM_PROMPT}
-        assert called_messages[1] == {
+        match_model_cls, match_messages = mock_generate.call_args_list[0][0]
+        assert match_model_cls is CoverLetterFitAssessment
+        assert match_messages[0] == {
+            "role": "system",
+            "content": ai_generator._MATCH_ANALYSIS_SYSTEM_PROMPT,
+        }
+        assert match_messages[1] == {
             "role": "user",
-            "content": _build_user_prompt(profile, job_offer),
+            "content": _build_match_analysis_user_prompt(profile, job_offer),
+        }
+
+        write_model_cls, write_messages = mock_generate.call_args_list[1][0]
+        assert write_model_cls is AiGenerationResult
+        assert write_messages[0] == {"role": "system", "content": ai_generator._SYSTEM_PROMPT}
+        assert write_messages[1] == {
+            "role": "user",
+            "content": _build_user_prompt(
+                profile, job_offer, fit_assessment=VALID_FIT_ASSESSMENT
+            ),
         }
 
 
@@ -104,6 +132,34 @@ class TestGenerateApplicationContentValidationFailure:
         with pytest.raises(ApplicationGenerationError):
             ai_generator.generate_application_content(_profile(), _job_offer())
 
+    def test_match_analysis_failure_short_circuits_before_writing_call(self, mocker):
+        """The match-analysis call fails -> ApplicationGenerationError, and
+        the writing call is never reached."""
+        mock_generate = mocker.patch.object(
+            ai_generator.llm_client,
+            "generate_structured",
+            side_effect=LlmValidationError("schema mismatch"),
+        )
+
+        with pytest.raises(ApplicationGenerationError):
+            ai_generator.generate_application_content(_profile(), _job_offer())
+
+        assert mock_generate.call_count == 1
+
+    def test_writing_call_failure_after_successful_match_analysis(self, mocker):
+        """The writing call fails after a successful match-analysis call ->
+        ApplicationGenerationError, both calls were attempted."""
+        mock_generate = mocker.patch.object(
+            ai_generator.llm_client,
+            "generate_structured",
+            side_effect=[VALID_FIT_ASSESSMENT, LlmValidationError("schema mismatch")],
+        )
+
+        with pytest.raises(ApplicationGenerationError):
+            ai_generator.generate_application_content(_profile(), _job_offer())
+
+        assert mock_generate.call_count == 2
+
 
 class TestGenerateApplicationContentUnavailable:
     def test_llm_unavailable_error_becomes_application_generation_error(self, mocker):
@@ -115,6 +171,18 @@ class TestGenerateApplicationContentUnavailable:
 
         with pytest.raises(ApplicationGenerationError):
             ai_generator.generate_application_content(_profile(), _job_offer())
+
+    def test_match_analysis_unavailable_short_circuits_before_writing_call(self, mocker):
+        mock_generate = mocker.patch.object(
+            ai_generator.llm_client,
+            "generate_structured",
+            side_effect=LlmUnavailableError("Ollama ist nicht erreichbar"),
+        )
+
+        with pytest.raises(ApplicationGenerationError):
+            ai_generator.generate_application_content(_profile(), _job_offer())
+
+        assert mock_generate.call_count == 1
 
 
 class TestBuildUserPrompt:
@@ -417,17 +485,26 @@ class TestMatchAnalysisSystemPrompt:
 class TestGenerateApplicationContentPreviousLetter:
     def test_defaults_to_none_and_omits_third_block(self, mocker):
         mock_generate = mocker.patch.object(
-            ai_generator.llm_client, "generate_structured", return_value=VALID_RESULT
+            ai_generator.llm_client,
+            "generate_structured",
+            side_effect=[VALID_FIT_ASSESSMENT, VALID_RESULT],
         )
 
         ai_generator.generate_application_content(_profile(), _job_offer())
 
-        called_messages = mock_generate.call_args[0][1]
-        assert "Vorherige Version des Anschreibens" not in called_messages[1]["content"]
+        match_messages = mock_generate.call_args_list[0][0][1]
+        write_messages = mock_generate.call_args_list[1][0][1]
+        assert "Vorherige Version des Anschreibens" not in match_messages[1]["content"]
+        assert "Vorherige Version des Anschreibens" not in write_messages[1]["content"]
 
-    def test_passes_previous_cover_letter_text_into_prompt(self, mocker):
+    def test_passes_previous_cover_letter_text_into_both_calls_prompt(self, mocker):
+        """Covers R7/AE3: `previous_cover_letter_text` reaches the
+        match-analysis call (KTD5 verdict stability) AND the writing call
+        (existing divergence instruction)."""
         mock_generate = mocker.patch.object(
-            ai_generator.llm_client, "generate_structured", return_value=VALID_RESULT
+            ai_generator.llm_client,
+            "generate_structured",
+            side_effect=[VALID_FIT_ASSESSMENT, VALID_RESULT],
         )
         previous_text = "Alte Version, die sich von der neuen unterscheiden soll."
 
@@ -435,5 +512,7 @@ class TestGenerateApplicationContentPreviousLetter:
             _profile(), _job_offer(), previous_cover_letter_text=previous_text
         )
 
-        called_messages = mock_generate.call_args[0][1]
-        assert previous_text in called_messages[1]["content"]
+        match_messages = mock_generate.call_args_list[0][0][1]
+        write_messages = mock_generate.call_args_list[1][0][1]
+        assert previous_text in match_messages[1]["content"]
+        assert previous_text in write_messages[1]["content"]

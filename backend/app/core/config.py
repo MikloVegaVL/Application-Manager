@@ -99,7 +99,13 @@ class Settings(BaseSettings):
     # langsameren 7b-Modell realistisch Zeit inkl. Spielraum für diese
     # Varianz - `frontend/nginx.conf`s `proxy_read_timeout` MUSS deutlich
     # darüber liegen, da `generate_structured` bis zu drei sequentielle
-    # Aufrufe machen kann (Erstversuch + Retry + Abflach-Fallback).
+    # Aufrufe machen kann (Erstversuch + Retry + Abflach-Fallback). Seit dem
+    # Fit-Grounding-Fix (2026-10-01,
+    # docs/plans/2026-10-01-001-fix-cover-letter-fit-grounding-plan.md) ruft
+    # `generate_application_content` `generate_structured` selbst ZWEIMAL
+    # sequentiell auf (Passungsanalyse, dann Anschreiben) - der echte
+    # Worst-Case für `proxy_read_timeout` ist daher
+    # 2×3×OLLAMA_TIMEOUT_SECONDS plus Marge, nicht nur 3×.
     OLLAMA_TIMEOUT_SECONDS: float = 600.0
 
     # --- SMTP / Mailversand ---

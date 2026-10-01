@@ -315,18 +315,44 @@ def generate_application_content(
     keine gültige KI-Antwort zustande kam.
     """
     resolved_profile_type = profile_type if profile_type is not None else profile.profile_type
-    messages = [
+
+    # R1/KTD1: Match-Analyse-Aufruf läuft VOR dem Schreib-Aufruf und liefert
+    # dessen Tatsachengrundlage (siehe _SYSTEM_PROMPT-Abschnitt "Tatsachen-
+    # grundlage aus der Passungsanalyse").
+    match_messages = [
+        {"role": "system", "content": _MATCH_ANALYSIS_SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": _build_match_analysis_user_prompt(
+                profile, job_offer, previous_cover_letter_text
+            ),
+        },
+    ]
+    try:
+        fit_assessment = llm_client.generate_structured(
+            CoverLetterFitAssessment, match_messages
+        )
+    except LlmValidationError as exc:
+        logger.warning("Passungsanalyse entsprach nicht dem erwarteten Schema: %s", exc)
+        raise ApplicationGenerationError(
+            "Die KI-Antwort entsprach nicht dem erwarteten Schema."
+        ) from exc
+    except LlmUnavailableError as exc:
+        logger.exception("Ollama-Aufruf zur Passungsanalyse fehlgeschlagen.")
+        raise ApplicationGenerationError(f"KI-Generierung fehlgeschlagen: {exc}") from exc
+
+    write_messages = [
         {"role": "system", "content": _build_system_prompt(resolved_profile_type)},
         {
             "role": "user",
             "content": _build_user_prompt(
-                profile, job_offer, previous_cover_letter_text
+                profile, job_offer, previous_cover_letter_text, fit_assessment
             ),
         },
     ]
 
     try:
-        result = llm_client.generate_structured(AiGenerationResult, messages)
+        result = llm_client.generate_structured(AiGenerationResult, write_messages)
     except LlmValidationError as exc:
         logger.warning("KI-Antwort entsprach nicht dem erwarteten Schema: %s", exc)
         raise ApplicationGenerationError(

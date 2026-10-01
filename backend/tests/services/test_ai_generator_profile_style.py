@@ -75,21 +75,26 @@ class TestBuildSystemPromptStyleBranches:
         assert ai_generator._build_system_prompt("unknown") == ai_generator._SYSTEM_PROMPT
 
 
+_VALID_FIT_ASSESSMENT = ai_generator.CoverLetterFitAssessment(requirements=[])
+_VALID_AI_RESULT = ai_generator.AiGenerationResult(
+    cover_letter_text="Betreff: ...\n\nSehr geehrte Damen und Herren,\n\n...\n\nMit freundlichen Grüßen\nMax Mustermann"
+)
+
+
 class TestGenerateApplicationContentThreadsProfileType:
     def test_profile_type_argument_selects_the_matching_style_block(self, mocker):
         mock_generate = mocker.patch.object(
             ai_generator.llm_client,
             "generate_structured",
-            return_value=ai_generator.AiGenerationResult(
-                cover_letter_text="Betreff: ...\n\nSehr geehrte Damen und Herren,\n\n...\n\nMit freundlichen Grüßen\nMax Mustermann"
-            ),
+            side_effect=[_VALID_FIT_ASSESSMENT, _VALID_AI_RESULT],
         )
 
         ai_generator.generate_application_content(
             _profile(), _job_offer(), profile_type="it"
         )
 
-        called_messages = mock_generate.call_args[0][1]
+        # Index 1: the writing call (index 0 is the match-analysis call).
+        called_messages = mock_generate.call_args_list[1][0][1]
         system_content = called_messages[0]["content"]
         assert system_content == ai_generator._build_system_prompt("it")
         assert "tech-stack" in system_content.lower() or "skills" in system_content.lower()
@@ -101,15 +106,13 @@ class TestGenerateApplicationContentThreadsProfileType:
         mock_generate = mocker.patch.object(
             ai_generator.llm_client,
             "generate_structured",
-            return_value=ai_generator.AiGenerationResult(
-                cover_letter_text="Betreff: ...\n\nSehr geehrte Damen und Herren,\n\n...\n\nMit freundlichen Grüßen\nMax Mustermann"
-            ),
+            side_effect=[_VALID_FIT_ASSESSMENT, _VALID_AI_RESULT],
         )
 
         profile = _profile(profile_type="full_life")
         ai_generator.generate_application_content(profile, _job_offer())
 
-        called_messages = mock_generate.call_args[0][1]
+        called_messages = mock_generate.call_args_list[1][0][1]
         system_content = called_messages[0]["content"]
         assert system_content == ai_generator._build_system_prompt("full_life")
         assert "erzählerisch" in system_content.lower()
@@ -120,12 +123,10 @@ class TestGenerateApplicationContentThreadsProfileType:
         mock_generate = mocker.patch.object(
             ai_generator.llm_client,
             "generate_structured",
-            return_value=ai_generator.AiGenerationResult(
-                cover_letter_text="Betreff: ...\n\nSehr geehrte Damen und Herren,\n\n...\n\nMit freundlichen Grüßen\nMax Mustermann"
-            ),
+            side_effect=[_VALID_FIT_ASSESSMENT, _VALID_AI_RESULT],
         )
 
         ai_generator.generate_application_content(_profile(), _job_offer())
 
-        called_messages = mock_generate.call_args[0][1]
+        called_messages = mock_generate.call_args_list[1][0][1]
         assert called_messages[0]["content"] == ai_generator._SYSTEM_PROMPT
