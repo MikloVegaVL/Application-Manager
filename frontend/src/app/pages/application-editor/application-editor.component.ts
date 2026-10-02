@@ -94,11 +94,15 @@ export class ApplicationEditorComponent implements OnInit {
    * Generierung (ce-code-review-Fund, 2026-08-28: ohne diese Grenze wartete
    * `pollForRunningGeneration` unbegrenzt weiter, wenn die abgewartete
    * Generierung am Ende fehlschlug - genau das Symptom, das dieser Fix
-   * eigentlich beheben sollte, nur über einen anderen Auslöser). 30 Minuten
-   * geben selbst dem dokumentierten Ollama-Worst-Case (3 sequentielle
-   * Aufrufe à bis zu `OLLAMA_TIMEOUT_SECONDS`=600s, siehe config.py/
-   * nginx.conf) Spielraum. */
-  private static readonly GENERATION_POLL_TIMEOUT_MS = 30 * 60 * 1000;
+   * eigentlich beheben sollte, nur über einen anderen Auslöser). War 30
+   * Minuten, abgeleitet vom damaligen Ein-Aufruf-Worst-Case (3 sequentielle
+   * Aufrufe à bis zu `OLLAMA_TIMEOUT_SECONDS`=600s = 1800s). Seit dem
+   * Fit-Grounding-Fix (2026-10-01, siehe
+   * docs/plans/2026-10-01-001-fix-cover-letter-fit-grounding-plan.md) macht
+   * `generate_application_content` ZWEI sequentielle Aufrufe, echter
+   * Worst-Case daher 2×3×OLLAMA_TIMEOUT_SECONDS=3600s (siehe config.py/
+   * nginx.conf, dieselbe Rechnung). 70 Minuten geben darüber Spielraum. */
+  private static readonly GENERATION_POLL_TIMEOUT_MS = 70 * 60 * 1000;
 
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);

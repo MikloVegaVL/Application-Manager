@@ -12,6 +12,7 @@ import httpx
 import pytest
 from pydantic import BaseModel, ValidationError
 
+from app.schemas.generation import CoverLetterFitAssessment, RequirementAssessment
 from app.schemas.master_profile import EducationEntry, ExperienceEntry, ParsedCvProfile
 from app.services import llm_client
 
@@ -454,6 +455,96 @@ class TestStructuralFailureFallback:
         assert isinstance(result, _NestedSubmodelResult)
         assert result.cv_content.experiences[0].company == "Acme GmbH"
         assert mock_client.chat.call_count == 3
+
+
+class TestCoverLetterFitAssessmentStructuralFallback:
+    """U1 des Fit-Grounding-Plans (docs/plans/2026-10-01-001-...): KTD3 - die
+    neue `CoverLetterFitAssessment.requirements` nutzt denselben generischen
+    Abflach-Fallback wie jedes andere verschachtelte Listenfeld, kein
+    bespoke Retry-Verhalten. Spiegelt
+    `test_same_nested_list_field_triggers_flattened_fallback`."""
+
+    def test_requirements_field_triggers_flattened_fallback(self, mock_client):
+        # Erster Fehler: requirements[0] fehlt "requirement".
+        first_invalid = {
+            "requirements": [{"is_core": True, "matched": False}],
+        }
+        # Zweiter Fehler: requirements[1] fehlt "requirement" - anderer
+        # Index, aber dasselbe verschachtelte Listenfeld -> strukturell.
+        second_invalid = {
+            "requirements": [
+                {"requirement": "Python-Kenntnisse", "is_core": True, "matched": False},
+                {"is_core": False, "matched": False},
+            ],
+        }
+        flat_payload = {
+            "requirements": json.dumps(
+                [
+                    {
+                        "requirement": "Python-Kenntnisse",
+                        "is_core": True,
+                        "matched": True,
+                        "evidence": "5 Jahre Python-Erfahrung bei Acme GmbH",
+                    }
+                ]
+            ),
+        }
+
+        mock_client.chat.side_effect = [
+            _response(first_invalid),
+            _response(second_invalid),
+            _response(flat_payload),
+        ]
+
+        result = llm_client.generate_structured(CoverLetterFitAssessment, _messages())
+
+        assert isinstance(result, CoverLetterFitAssessment)
+        assert len(result.requirements) == 1
+        assert result.requirements[0].requirement == "Python-Kenntnisse"
+        assert result.requirements[0].matched is True
+        assert result.requirements[0].evidence == "5 Jahre Python-Erfahrung bei Acme GmbH"
+        assert mock_client.chat.call_count == 3
+
+        first_format = mock_client.chat.call_args_list[0].kwargs["format"]
+        fallback_format = mock_client.chat.call_args_list[2].kwargs["format"]
+        assert first_format != fallback_format
+
+
+class TestRequirementAssessmentEvidenceValidator:
+    """KTD9: `matched=True` erfordert ein nicht-leeres `evidence` - sonst
+    wäre ein "matched"-Urteil eine unbelegte Behauptung statt einer
+    Einschätzung gegen das tatsächliche Profil."""
+
+    def test_matched_true_without_evidence_fails_validation(self):
+        with pytest.raises(ValidationError):
+            RequirementAssessment(requirement="Python", is_core=True, matched=True, evidence=None)
+
+    def test_matched_true_with_blank_evidence_fails_validation(self):
+        with pytest.raises(ValidationError):
+            RequirementAssessment(requirement="Python", is_core=True, matched=True, evidence="   ")
+
+    def test_matched_false_without_evidence_is_valid(self):
+        result = RequirementAssessment(
+            requirement="Kubernetes", is_core=False, matched=False, evidence=None
+        )
+
+        assert result.matched is False
+        assert result.evidence is None
+
+    def test_matched_false_with_evidence_clears_it(self):
+        """ce-code-review-Fund: ein ausgefülltes evidence auf einem
+        matched=false-Eintrag wäre ein beleg-aussehender Text zu einer nicht
+        erfüllten Anforderung, der unverändert in den Schreib-Aufruf
+        weiterfließen würde - evidence wird stattdessen verworfen."""
+        result = RequirementAssessment(
+            requirement="Kubernetes",
+            is_core=False,
+            matched=False,
+            evidence="5 Jahre Kubernetes bei Acme GmbH",
+        )
+
+        assert result.matched is False
+        assert result.evidence is None
 
 
 class TestUnavailable:
