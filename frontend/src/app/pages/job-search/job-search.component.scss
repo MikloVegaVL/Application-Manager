@@ -29,6 +29,13 @@
     min-width: 200px;
   }
 
+  &__form-error {
+    flex-basis: 100%;
+    margin: 0;
+    color: var(--app-error);
+    font-size: 0.75rem;
+  }
+
   &__submit,
   &__clear {
     height: 56px;

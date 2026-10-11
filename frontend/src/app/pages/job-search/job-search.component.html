@@ -9,9 +9,7 @@
       <mat-label>Keywords</mat-label>
       <mat-icon matPrefix>search</mat-icon>
       <input matInput formControlName="keywords" placeholder="e.g. Backend Engineer" />
-      @if (searchForm.controls.keywords.hasError('required') && searchForm.controls.keywords.touched) {
-        <mat-error>Please enter a search term.</mat-error>
-      } @else if (searchForm.controls.keywords.hasError('minlength') && searchForm.controls.keywords.touched) {
+      @if (searchForm.controls.keywords.hasError('minlength') && searchForm.controls.keywords.touched) {
         <mat-error>The search term must be at least 2 characters long.</mat-error>
       }
     </mat-form-field>
@@ -35,6 +33,10 @@
         <mat-hint>Add a location to set a search radius</mat-hint>
       }
     </mat-form-field>
+
+    @if (searchForm.hasError('requireKeywordsOrLocation') && searchForm.touched) {
+      <p class="job-search__form-error">Please enter a keyword or a location.</p>
+    }
 
     <button mat-raised-button color="primary" type="submit" class="job-search__submit" [disabled]="loading()">
       <mat-icon>search</mat-icon>

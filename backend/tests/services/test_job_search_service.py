@@ -490,6 +490,27 @@ def test_filter_passes_everything_through_on_an_empty_keyword_string():
     assert {offer.title for offer in response.results} == {"Backend Engineer", "Data Analyst"}
 
 
+def test_location_only_search_passes_empty_keywords_and_the_location_to_every_source():
+    """Eine Ort-only-Suche (kein Suchbegriff) reicht den leeren Suchbegriff und
+    den Ort an alle Quellen weiter - der Relevanzfilter lässt bei leerem
+    Suchbegriff alle Treffer passieren."""
+    service, aa_client, li_client, xi_client, _ = _service(
+        aa_offers=[_offer("arbeitsagentur", "Backend Engineer")],
+        li_offers=[_offer("linkedin", "Data Analyst")],
+        xi_offers=[_offer("xing", "DevOps Engineer")],
+    )
+
+    response = service.search(keywords=None, location="Berlin")
+
+    for client in (aa_client, li_client, xi_client):
+        assert client.calls == [("", "Berlin")]
+    assert {offer.source_platform for offer in response.results} == {
+        "arbeitsagentur",
+        "linkedin",
+        "xing",
+    }
+
+
 def test_filter_does_not_change_source_status_when_all_of_a_sources_results_are_dropped():
     """KTD5: der Filter wirkt nur auf `results`, nicht auf den pro-Quelle
     Status - eine Quelle mit vollständig herausgefilterten Treffern bleibt
@@ -704,6 +725,17 @@ def test_arbeitsagentur_omits_umkreis_without_a_radius(requests_mock):
     # Regression (feasibility review, U1): a radius must never collide with
     # the client's pre-existing `results_limit` -> `size` param.
     assert requests_mock.last_request.qs["size"] == ["25"]
+
+
+def test_arbeitsagentur_omits_was_without_keywords(requests_mock):
+    """Eine Ort-only-Suche darf keinen leeren `was`-Parameter mitschicken -
+    die Arbeitsagentur-API sucht dann ausschließlich nach `wo`."""
+    requests_mock.get(f"{ArbeitsagenturJobsClient.BASE_URL}/jobs", json={"ergebnisliste": []})
+
+    ArbeitsagenturJobsClient().search("", "Berlin")
+
+    assert "was" not in requests_mock.last_request.qs
+    assert requests_mock.last_request.qs["wo"] == ["berlin"]
 
 
 # --- ArbeitsagenturJobsClient.fetch_description() (lazy detail-page load) --

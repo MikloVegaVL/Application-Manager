@@ -92,7 +92,9 @@ class XingJobScraper:
         (`JobSearchService`) entscheidet anhand des Ergebnisses über den
         Status "unavailable" (siehe U4 im Plan).
         """
-        query: dict[str, Any] = {"keywords": keywords}
+        query: dict[str, Any] = {}
+        if keywords:
+            query["keywords"] = keywords
         if location:
             query["location"] = location
         url = f"{self.SEARCH_URL}?{urlencode(query)}"

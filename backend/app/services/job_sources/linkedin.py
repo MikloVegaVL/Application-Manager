@@ -95,12 +95,14 @@ class LinkedInJobsClient(CooldownMixin):
 
         # geoId ist immer gesetzt (siehe GERMANY_GEO_ID) - `location` bleibt
         # zusätzlich ein Freitext-Hinweis, wird aber nie allein zur
-        # Länder-Eingrenzung verlassen.
+        # Länder-Eingrenzung verlassen. Ein leerer Suchbegriff (Ort-only-Suche)
+        # lässt `keywords` weg, statt `keywords=` mitzuschicken.
         params: dict[str, Any] = {
-            "keywords": keywords,
             "start": 0,
             "geoId": self.GERMANY_GEO_ID,
         }
+        if keywords:
+            params["keywords"] = keywords
         if location:
             params["location"] = location
 

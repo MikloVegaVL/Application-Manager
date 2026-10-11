@@ -131,7 +131,9 @@ class ArbeitsagenturJobsClient:
         results_limit: int = 25,
     ) -> list[JobOfferCreate]:
         """Sucht Stellenangebote nach Jobtitel/Keywords und optional Ort/Umkreis."""
-        params: dict[str, Any] = {"was": keywords, "size": results_limit}
+        params: dict[str, Any] = {"size": results_limit}
+        if keywords:
+            params["was"] = keywords
         if location:
             params["wo"] = location
             if radius_km:
@@ -426,14 +428,18 @@ class JobSearchService:
 
     def search(
         self,
-        keywords: str,
+        keywords: str | None = None,
         location: str | None = None,
         radius_km: int | None = None,
         fallback_url: str | None = None,
         excluded_source_urls: Collection[str] | None = None,
     ) -> JobSearchResponse:
         """Fragt alle registrierten Quellen gleichzeitig ab und liefert eine
-        zusammengeführte `JobSearchResponse` (KTD3/KTD8/KTD9)."""
+        zusammengeführte `JobSearchResponse` (KTD3/KTD8/KTD9).
+
+        `keywords` darf leer/`None` sein (Ort-only-Suche) - die Quellen lassen
+        dann ihr Keyword-Argument weg; der zentrale Relevanzfilter lässt bei
+        leerem Suchbegriff ohnehin alle Treffer passieren."""
         # Normalisiert VOR dem R2/R3-Guard: ein rein aus Leerraum bestehender
         # `location`-Wert ist in Python truthy, würde also sowohl diesen Guard
         # als auch die identische `if location:`-Prüfung in jedem einzelnen
@@ -441,6 +447,7 @@ class JobSearchService:
         # Variante läuft weiter durch den Fan-out, damit alle Quellen denselben
         # Wert sehen.
         location = location.strip() if location else location
+        keywords = keywords.strip() if keywords else ""
 
         # R2/R3 (KTD5): ein Umkreis ohne Ort ergibt keinen Sinn - die Suche
         # verhält sich dann wie ohne Radius-Auswahl. Das Frontend deaktiviert

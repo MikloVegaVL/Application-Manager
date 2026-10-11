@@ -122,9 +122,10 @@ class JoobleJobsClient(CooldownMixin):
             return []
 
         payload: dict[str, Any] = {
-            "keywords": keywords,
             "location": location or self.DEFAULT_LOCATION,
         }
+        if keywords:
+            payload["keywords"] = keywords
         if location and radius_km:
             payload["radius"] = str(self._snap_radius_km(radius_km))
         # Nur die redigierte URL loggen - die rohe URL enthält den API-Key im

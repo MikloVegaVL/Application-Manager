@@ -1,7 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import {
+  AbstractControl,
+  FormBuilder,
+  ReactiveFormsModule,
+  ValidationErrors,
+  Validators,
+} from '@angular/forms';
 import { Router } from '@angular/router';
 
 import { MatButtonModule } from '@angular/material/button';
@@ -29,6 +35,17 @@ import {
   CompactCardMenuItem,
   CompactCardViewModel,
 } from '../../shared/compact-card/compact-card.component';
+
+/**
+ * Verlangt mindestens einen Suchbegriff ODER einen Ort - eine Suche mit
+ * beidem leer wäre sinnlos (alle Quellen würden ungefiltert liefern). Der
+ * Radius bleibt hier außen vor, da er ohne Ort ohnehin deaktiviert ist.
+ */
+function requireKeywordsOrLocation(control: AbstractControl): ValidationErrors | null {
+  const keywords = (control.get('keywords')?.value ?? '').trim();
+  const location = (control.get('location')?.value ?? '').trim();
+  return keywords || location ? null : { requireKeywordsOrLocation: true };
+}
 
 @Component({
   selector: 'app-job-search',
@@ -62,11 +79,14 @@ export class JobSearchComponent {
    * auf die nächstgrößere eigene Stufe auf (siehe `JoobleJobsClient`). */
   protected readonly radiusKmOptions = ['5', '10', '25', '50', '100', '200'];
 
-  protected readonly searchForm = this.formBuilder.nonNullable.group({
-    keywords: [this.state.keywords(), [Validators.required, Validators.minLength(2)]],
-    location: [this.state.location()],
-    radiusKm: [{ value: this.state.radiusKm(), disabled: !this.state.location().trim() }],
-  });
+  protected readonly searchForm = this.formBuilder.nonNullable.group(
+    {
+      keywords: [this.state.keywords(), [Validators.minLength(2)]],
+      location: [this.state.location()],
+      radiusKm: [{ value: this.state.radiusKm(), disabled: !this.state.location().trim() }],
+    },
+    { validators: [requireKeywordsOrLocation] },
+  );
 
   /** Der Umkreis ist ohne Ort bedeutungslos (R2) - deaktiviert/aktiviert das
    * Control passend zum Ort-Feld, statt eine sinnlose Auswahl zuzulassen. */

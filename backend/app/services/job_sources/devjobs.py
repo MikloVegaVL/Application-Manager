@@ -78,7 +78,9 @@ class DevjobsScraper:
         der Aufrufer (`JobSearchService`) entscheidet anhand des Ergebnisses
         über den Status "unavailable".
         """
-        query = {"text": keywords}
+        query: dict[str, str] = {}
+        if keywords:
+            query["text"] = keywords
         location_slug = self._resolve_location_slug(location)
         if location_slug:
             query["locations"] = location_slug

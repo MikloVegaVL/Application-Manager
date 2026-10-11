@@ -83,6 +83,17 @@ describe('JobService', () => {
     req.flush({ results: [], sources: [] });
   });
 
+  it('omits keywords when empty for a location-only search', () => {
+    service.searchJobs('', { location: 'Berlin' }).subscribe();
+
+    const req = httpMock.expectOne(
+      (request) => request.url === `${environment.apiBaseUrl}/jobs/search`,
+    );
+    expect(req.request.params.has('keywords')).toBeFalse();
+    expect(req.request.params.get('location')).toBe('Berlin');
+    req.flush({ results: [], sources: [] });
+  });
+
   it('Covers R1: findApplicationEmail POSTs the job payload and maps the result', () => {
     const payload = {
       source_url: 'https://example.com/job/1',

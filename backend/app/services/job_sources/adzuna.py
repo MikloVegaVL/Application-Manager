@@ -100,9 +100,10 @@ class AdzunaJobsClient(CooldownMixin):
         params: dict[str, Any] = {
             "app_id": self._app_id,
             "app_key": self._app_key,
-            "what": keywords,
             "results_per_page": self._result_cap,
         }
+        if keywords:
+            params["what"] = keywords
         if location:
             params["where"] = location
             if radius_km:

@@ -141,6 +141,18 @@ def test_geo_id_still_sent_when_location_text_does_not_resolve(requests_mock):
     assert requests_mock.last_request.qs["location"] == ["deutschland"]
 
 
+def test_keywords_omitted_when_empty_for_location_only_search(requests_mock):
+    """Eine Ort-only-Suche darf keinen leeren `keywords`-Parameter mitschicken -
+    geoId/location grenzen dann allein auf Deutschland/Ort ein."""
+    requests_mock.get(LinkedInJobsClient.BASE_URL, text=ZERO_CARDS_FRAGMENT)
+
+    _client().search("", "Berlin")
+
+    assert "keywords" not in requests_mock.last_request.qs
+    assert requests_mock.last_request.qs["geoid"] == [LinkedInJobsClient.GERMANY_GEO_ID]
+    assert requests_mock.last_request.qs["location"] == ["berlin"]
+
+
 def test_cooldown_persists_across_separate_instances(requests_mock):
     """Beweist, dass der Cooldown Klassen-/Modul-Level-State ist, nicht ein
     Instanzattribut - pro Request wird ein neuer Client instanziiert (KTD3),

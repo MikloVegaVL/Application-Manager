@@ -27,7 +27,7 @@ router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
 @router.get("/search", response_model=JobSearchResponse)
 def search_jobs(
-    keywords: str = Query(..., min_length=2, description="Jobtitel / Suchbegriff"),
+    keywords: str | None = Query(default=None, min_length=2, description="Jobtitel / Suchbegriff"),
     location: str | None = Query(default=None, description="Ort oder PLZ"),
     radius_km: int | None = Query(default=None, ge=1, le=200, description="Umkreis in km"),
     fallback_url: str | None = Query(
@@ -49,6 +49,14 @@ def search_jobs(
     Bereits gespeicherte Stellenangebote (= bereits beworben) werden
     ausgeblendet (R1/R2). Der Service bleibt ohne Datenbankzugriff; die
     gespeicherten `source_url`s kommen aus dieser Ebene (KTD1)."""
+    if not (keywords or "").strip() and not (location or "").strip():
+        # Eine Suche ohne Suchbegriff UND ohne Ort wäre sinnlos (alle Quellen
+        # würden ungefiltert ihre komplette Trefferliste liefern) - bereits
+        # hier ablehnen, statt den Fan-out mit leerer Absicht zu starten.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Please provide a keyword or a location.",
+        )
     saved_source_urls = [row[0] for row in db.query(JobOffer.source_url).all()]
     return service.search(
         keywords=keywords,

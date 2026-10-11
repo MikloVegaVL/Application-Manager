@@ -123,6 +123,34 @@ def test_search_accepts_a_radius_km_within_the_allowed_range(client):
     assert response.status_code == 200
 
 
+def test_search_accepts_a_location_only_search_without_keywords(client):
+    """Eine Suche nur mit Ort (ohne Suchbegriff) ist zulässig und läuft durch
+    den normalen Fan-out."""
+    app.dependency_overrides[get_job_search_service] = lambda: _FakeJobSearchService()
+
+    response = client.get("/api/jobs/search", params={"location": "Berlin"})
+
+    assert response.status_code == 200
+
+
+def test_search_rejects_a_request_with_neither_keywords_nor_location(client):
+    app.dependency_overrides[get_job_search_service] = lambda: _FakeJobSearchService()
+
+    response = client.get("/api/jobs/search")
+
+    assert response.status_code == 422
+
+
+def test_search_rejects_whitespace_only_keywords_and_location(client):
+    app.dependency_overrides[get_job_search_service] = lambda: _FakeJobSearchService()
+
+    response = client.get(
+        "/api/jobs/search", params={"keywords": "   ", "location": "   "}
+    )
+
+    assert response.status_code == 422
+
+
 # --- U8: End-to-end multi-source verification (2026-09-11 plan) -------------
 #
 # These tests override `get_job_search_service` with a REAL `JobSearchService`

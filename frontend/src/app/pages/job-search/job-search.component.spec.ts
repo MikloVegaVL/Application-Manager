@@ -81,6 +81,21 @@ describe('JobSearchComponent', () => {
     expect(component['searchForm'].invalid).toBeTrue();
   });
 
+  it('is valid with a location but no keywords (location-only search)', () => {
+    component['searchForm'].controls.location.setValue('Berlin');
+
+    expect(component['searchForm'].valid).toBeTrue();
+    expect(component['searchForm'].hasError('requireKeywordsOrLocation')).toBeFalse();
+  });
+
+  it('is invalid with neither keywords nor location', () => {
+    component['searchForm'].controls.keywords.setValue('');
+    component['searchForm'].controls.location.setValue('');
+
+    expect(component['searchForm'].invalid).toBeTrue();
+    expect(component['searchForm'].hasError('requireKeywordsOrLocation')).toBeTrue();
+  });
+
   function triggerSearch(keywords = 'Angular', location = '', radiusKm = ''): void {
     component['searchForm'].setValue({ keywords, location, radiusKm });
     component.onSearch();
@@ -153,6 +168,17 @@ describe('JobSearchComponent', () => {
 
     expect(component['results']().length).toBe(1);
     expect(component['unavailableSources']().length).toBe(0);
+  });
+
+  it('sends a location-only search without the keywords param', () => {
+    triggerSearch('', 'Berlin');
+
+    const req = httpMock.expectOne(
+      (request) => request.url === `${environment.apiBaseUrl}/jobs/search`,
+    );
+    expect(req.request.params.has('keywords')).toBeFalse();
+    expect(req.request.params.get('location')).toBe('Berlin');
+    req.flush({ results: [], sources: [] });
   });
 
   it('Covers AE1: keeps other sources\' results and flags the unavailable one instead of wiping results', () => {

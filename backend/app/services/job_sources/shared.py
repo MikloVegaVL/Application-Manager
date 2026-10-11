@@ -705,7 +705,9 @@ def make_search_url_builder(
     """Baut einen einfachen `?keyword_param=...&location_param=...`-Builder."""
 
     def _build(keywords: str, location: str | None) -> str:
-        query: dict[str, str] = {keyword_param: keywords}
+        query: dict[str, str] = {}
+        if keywords:
+            query[keyword_param] = keywords
         if location:
             query[location_param] = location
         return f"{base_url}?{urlencode(query)}"
