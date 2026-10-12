@@ -16,7 +16,7 @@
 # calls `ollama pull`.
 set -eu
 
-MODEL="${OLLAMA_MODEL:-qwen2.5:7b-instruct}"
+MODEL="${OLLAMA_MODEL:-mistral-nemo:12b}"
 CV_PARSING_MODEL="${OLLAMA_MODEL_CV_PARSING:-qwen2.5:3b-instruct}"
 
 echo "[ollama-entrypoint] starting ollama server..."

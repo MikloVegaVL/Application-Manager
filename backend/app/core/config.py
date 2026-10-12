@@ -70,8 +70,12 @@ class Settings(BaseSettings):
     # --- Ollama / LLM ---
     OLLAMA_BASE_URL: str = "http://ollama:11434"
     # Allgemeiner Default (aktuell nur von der Bewerbungstext-Generierung in
-    # ai_generator.py genutzt).
-    OLLAMA_MODEL: str = "qwen2.5:7b-instruct"
+    # ai_generator.py genutzt). 2026-10-12: versuchsweise (Trial) auf
+    # mistral-nemo:12b umgestellt - qwen2.5:7b-instruct formulierte Anschreiben
+    # zu generisch/steif; das 12b-Modell liefert bessere deutsche Prosa, ist
+    # auf CPU-only aber ~1.5-1.7x langsamer (siehe OLLAMA_TIMEOUT_SECONDS).
+    # Bei schlechterem Ergebnis zurück auf qwen2.5:7b-instruct stellen.
+    OLLAMA_MODEL: str = "mistral-nemo:12b"
     # Eigenes, kleineres Modell nur für die CV-Analyse (siehe
     # ce-debug-Untersuchung, 2026-08-18): qwen2.5:7b-instruct lief unter
     # schema-eingeschränkter Generierung auf CPU-only Ollama regelmäßig in
@@ -95,9 +99,10 @@ class Settings(BaseSettings):
     # Analyse (qwen2.5:3b-instruct, sonst 108-246s) überschritt bei einem
     # Lauf gegen eine reale, echte CV-PDF ebenfalls 300s, obwohl ein exakt
     # identischer Wiederholungslauf nur 141s brauchte - reine Lauf-zu-Lauf-
-    # Varianz auf CPU-only Hardware, kein Datenproblem. 600s gibt selbst dem
-    # langsameren 7b-Modell realistisch Zeit inkl. Spielraum für diese
-    # Varianz - `frontend/nginx.conf`s `proxy_read_timeout` MUSS deutlich
+    # Varianz auf CPU-only Hardware, kein Datenproblem. Mit dem 12b-Modell
+    # (mistral-nemo, ~1.5-1.7x langsamer als 7b) wurde 900s gewählt: gibt
+    # selbst dem langsameren 12b-Modell realistisch Zeit inkl. Spielraum für
+    # diese Varianz - `frontend/nginx.conf`s `proxy_read_timeout` MUSS deutlich
     # darüber liegen, da `generate_structured` bis zu drei sequentielle
     # Aufrufe machen kann (Erstversuch + Retry + Abflach-Fallback). Seit dem
     # Fit-Grounding-Fix (2026-10-01,
@@ -106,7 +111,7 @@ class Settings(BaseSettings):
     # sequentiell auf (Passungsanalyse, dann Anschreiben) - der echte
     # Worst-Case für `proxy_read_timeout` ist daher
     # 2×3×OLLAMA_TIMEOUT_SECONDS plus Marge, nicht nur 3×.
-    OLLAMA_TIMEOUT_SECONDS: float = 600.0
+    OLLAMA_TIMEOUT_SECONDS: float = 900.0
 
     # --- SMTP / Mailversand ---
     SMTP_HOST: str | None = None

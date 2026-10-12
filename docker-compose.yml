@@ -24,7 +24,7 @@ services:
   ollama:
     image: ollama/ollama:latest
     environment:
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b-instruct}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral-nemo:12b}
       # Eigenes, kleineres Modell nur für die CV-Analyse (siehe
       # backend/app/core/config.py: OLLAMA_MODEL_CV_PARSING und die
       # ce-debug-Untersuchung, 2026-08-18) - muss hier separat gepullt werden,
