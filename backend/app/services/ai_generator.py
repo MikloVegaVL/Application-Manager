@@ -67,6 +67,17 @@ in drei Punkte gliedert.
 Behauptungen.
 - Mische kurze und lange Sätze; vermeide eine gleichförmige Satzlänge.
 
+Neue Version bei Regenerate (nur wenn unten eine "Vorherige Version des \
+Anschreibens" vorgelegt wird):
+- Verfasse ein eigenständiges, NEUES Anschreiben, das sich in Aufbau und \
+Formulierung DEUTLICH von der vorherigen Version unterscheidet: andere \
+Satzanfänge, anderer Absatzaufbau, andere Formulierungen und - sofern \
+passend - andere konkrete Beispiele aus dem Profil.
+- Übernimm die vorherige Version NICHT wortgleich und formuliere sie nicht \
+nur oberflächlich um: kein bloßes Abschreiben, keine reine Umformulierung \
+derselben Sätze. Die neue Version muss strukturell und sprachlich \
+eigenständig sein.
+
 Tatsachengrundlage aus der Passungsanalyse (R3/R4/R5):
 - Unten findest du einen Abschnitt "Ergebnis der Passungsanalyse (JSON)" mit \
 einer vorab erstellten, belegten Einschätzung pro Stellenanforderung \
@@ -198,8 +209,9 @@ def _build_user_prompt(
         )
     if previous_cover_letter_text:
         prompt += (
-            "\n\nVorherige Version des Anschreibens (zur Abgrenzung, nicht "
-            "zum Kopieren):\n"
+            "\n\nVorherige Version des Anschreibens - verfasse eine davon "
+            "DEUTLICH unterschiedliche neue Version (nicht kopieren, nicht "
+            "nur umformulieren):\n"
             f"{previous_cover_letter_text}"
         )
     return prompt

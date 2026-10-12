@@ -412,6 +412,16 @@ class TestSystemPromptStyleAndHonestyRules:
         assert "anweisung" in prompt_lower
         assert "zielstelle" in prompt_lower
 
+    def test_contains_regenerate_divergence_instruction(self):
+        """Covers R4/AE3: when a previous version is supplied (Regenerate),
+        the writing-call system prompt must instruct a genuinely different
+        letter (structure and wording), not a copy or superficial rewording."""
+        prompt_lower = ai_generator._SYSTEM_PROMPT.lower()
+
+        assert "vorherige version" in prompt_lower
+        assert "unterscheid" in prompt_lower
+        assert "abschreib" in prompt_lower  # "kein bloßes Abschreiben"
+
 
 class TestBuildMatchAnalysisPrompt:
     """U1 des Fit-Grounding-Plans (docs/plans/2026-10-01-001-...): Prompt-
