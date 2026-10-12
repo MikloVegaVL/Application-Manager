@@ -70,7 +70,7 @@ services:
       - path: ./backend/.env
         required: false
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-app_user}:${POSTGRES_PASSWORD:-app_password}@db:5432/${POSTGRES_DB:-application_manager}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-app_user}:${POSTGRES_PASSWORD:-app_password}@db:5432/${POSTGRES_DB:-application_manager}
     volumes:
       # Persistiert generierte Bewerbungs-PDFs über Container-Neustarts hinweg.
       - ./backend/generated:/app/generated
