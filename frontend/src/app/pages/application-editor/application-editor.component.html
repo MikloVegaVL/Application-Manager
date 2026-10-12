@@ -17,89 +17,94 @@
         </span>
       }
     </span>
+  </mat-toolbar>
 
-    <span class="editor-toolbar__spacer"></span>
-
-    <button
-      mat-button
-      type="button"
-      matTooltip="Saves the edited cover letter text"
-      [disabled]="!application() || busy()"
-      (click)="onSaveCoverLetter()"
-    >
-      @if (saving()) {
-        <mat-progress-spinner mode="indeterminate" diameter="18" />
-      } @else {
-        <mat-icon>save</mat-icon>
-      }
-      Save cover letter
-    </button>
-
-    <button
-      mat-button
-      type="button"
-      matTooltip="Downloads the saved cover letter as a PDF"
-      [disabled]="!application() || downloading()"
-      (click)="onDownloadCoverLetter()"
-    >
-      @if (downloading()) {
-        <mat-progress-spinner mode="indeterminate" diameter="18" />
-      } @else {
-        <mat-icon>download</mat-icon>
-      }
-      Download PDF
-    </button>
-
-    <button
-      mat-button
-      type="button"
-      matTooltip="Generates a new cover letter, replacing the current text"
-      [disabled]="!application() || busy()"
-      (click)="onRegenerate()"
-    >
-      @if (regenerating()) {
-        <mat-progress-spinner mode="indeterminate" diameter="18" />
-      } @else {
-        <mat-icon>autorenew</mat-icon>
-      }
-      Regenerate
-    </button>
-
-    <button
-      mat-raised-button
-      color="accent"
-      type="button"
-      [disabled]="!application() || busy()"
-      (click)="onOpenSendDialog()"
-    >
-      @if (sending()) {
-        <mat-progress-spinner mode="indeterminate" diameter="18" />
-      } @else {
-        <mat-icon>send</mat-icon>
-      }
-      Send application by email now
-    </button>
-
-    @if (otherProfileType(); as otherProfileType) {
-      <!-- R5's Ausweg (U9, KTD12): nur sichtbar, wenn für DIESE Bewerbung
-           bereits ein Profil gesperrt ist - legt eine separate Bewerbung mit
-           dem jeweils ANDEREN Profil an, statt die Sperre zu umgehen. -->
+  <div class="editor-actions">
+    <div class="editor-actions__group">
       <button
-        mat-button
+        mat-stroked-button
         type="button"
-        matTooltip="Creates a separate application for this job using the other profile"
-        [disabled]="busy()"
-        (click)="onStartNewApplicationWithOtherProfile()"
+        matTooltip="Saves the edited cover letter text"
+        [disabled]="!application() || busy()"
+        (click)="onSaveCoverLetter()"
       >
-        @if (startingNewApplication()) {
+        @if (saving()) {
           <mat-progress-spinner mode="indeterminate" diameter="18" />
         } @else {
-          <mat-icon>person_add</mat-icon>
+          <mat-icon>save</mat-icon>
         }
-        Start a new application with the {{ profileTypeLabel(otherProfileType) }} profile
+        Save cover letter
       </button>
-    }
-  </mat-toolbar>
+
+      <button
+        mat-stroked-button
+        type="button"
+        matTooltip="Downloads the saved cover letter as a PDF"
+        [disabled]="!application() || downloading()"
+        (click)="onDownloadCoverLetter()"
+      >
+        @if (downloading()) {
+          <mat-progress-spinner mode="indeterminate" diameter="18" />
+        } @else {
+          <mat-icon>download</mat-icon>
+        }
+        Download PDF
+      </button>
+
+      <button
+        mat-stroked-button
+        type="button"
+        matTooltip="Generates a new cover letter, replacing the current text"
+        [disabled]="!application() || busy()"
+        (click)="onRegenerate()"
+      >
+        @if (regenerating()) {
+          <mat-progress-spinner mode="indeterminate" diameter="18" />
+        } @else {
+          <mat-icon>autorenew</mat-icon>
+        }
+        Regenerate
+      </button>
+    </div>
+
+    <div class="editor-actions__group editor-actions__group--end">
+      @if (otherProfileType(); as otherProfileType) {
+        <!-- R5's Ausweg (U9, KTD12): nur sichtbar, wenn für DIESE Bewerbung
+             bereits ein Profil gesperrt ist - legt eine separate Bewerbung mit
+             dem jeweils ANDEREN Profil an, statt die Sperre zu umgehen. -->
+        <button
+          mat-button
+          type="button"
+          matTooltip="Creates a separate application for this job using the other profile"
+          [disabled]="busy()"
+          (click)="onStartNewApplicationWithOtherProfile()"
+        >
+          @if (startingNewApplication()) {
+            <mat-progress-spinner mode="indeterminate" diameter="18" />
+          } @else {
+            <mat-icon>person_add</mat-icon>
+          }
+          Start a new application with the {{ profileTypeLabel(otherProfileType) }} profile
+        </button>
+      }
+
+      <button
+        mat-raised-button
+        color="accent"
+        type="button"
+        class="editor-actions__send"
+        [disabled]="!application() || busy()"
+        (click)="onOpenSendDialog()"
+      >
+        @if (sending()) {
+          <mat-progress-spinner mode="indeterminate" diameter="18" />
+        } @else {
+          <mat-icon>send</mat-icon>
+        }
+        Send application by email now
+      </button>
+    </div>
+  </div>
 
   @if (loading()) {
     <div class="editor-page__loading">
