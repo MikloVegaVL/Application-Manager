@@ -22,6 +22,9 @@ class ApplicationStatus(str, enum.Enum):
     REJECTED = "rejected"
     ACCEPTED = "accepted"
     INTERVIEW = "interview"
+    # Bewerbung wurde direkt über das Online-Formular der Firmenwebsite
+    # abgeschickt (nicht per E-Mail und nicht über den LinkedIn-Fill).
+    WEBFORM = "webform"
 
 
 class Application(Base):

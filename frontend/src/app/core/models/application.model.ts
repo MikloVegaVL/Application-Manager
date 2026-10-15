@@ -1,7 +1,7 @@
 import { JobOfferRead } from './job-offer.model';
 
 /** Spiegelt `backend/app/models/application.py::ApplicationStatus` wider. */
-export type ApplicationStatus = 'draft' | 'sent' | 'rejected' | 'accepted' | 'interview';
+export type ApplicationStatus = 'draft' | 'sent' | 'rejected' | 'accepted' | 'interview' | 'webform';
 
 /** Spiegelt `ProfileType` aus `backend/app/schemas/application.py`
  * (`ApplicationGenerateRequest.profile_type`) - manuelle Profilwahl vor der

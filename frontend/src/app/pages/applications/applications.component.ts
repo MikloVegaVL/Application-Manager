@@ -112,6 +112,7 @@ export class ApplicationsComponent implements OnInit {
     rejected: 'Rejection',
     accepted: 'Offer',
     interview: 'Interview',
+    webform: 'Sent via website form',
   };
 
   ngOnInit(): void {
@@ -148,9 +149,10 @@ export class ApplicationsComponent implements OnInit {
     this.filter.set(filter);
   }
 
-  /** Speichert eine per selektierbarem Label gewählte Zusage/Absage sofort im Backend. */
+  /** Speichert eine per selektierbarem Label gewählte Zusage/Absage bzw. den
+   * Web-Formular-Versand sofort im Backend. */
   onStatusChange(application: Application, status: ApplicationStatus | null | undefined): void {
-    if (status !== 'accepted' && status !== 'rejected') {
+    if (status !== 'accepted' && status !== 'rejected' && status !== 'webform') {
       return;
     }
     if (application.status === status || this.updatingStatusId() !== null) {
@@ -372,6 +374,9 @@ export class ApplicationsComponent implements OnInit {
       case 'mark-rejected':
         this.onStatusChange(application, 'rejected');
         break;
+      case 'mark-sent-webform':
+        this.onStatusChange(application, 'webform');
+        break;
       case 'apply-via-linkedin':
         this.onApplyViaLinkedIn(application);
         break;
@@ -391,6 +396,7 @@ export class ApplicationsComponent implements OnInit {
       },
       { id: 'mark-accepted', label: 'Mark accepted', icon: 'check' },
       { id: 'mark-rejected', label: 'Mark rejected', icon: 'close' },
+      { id: 'mark-sent-webform', label: 'Mark sent via website form', icon: 'language' },
     ];
 
     if (application.cover_letter_text) {

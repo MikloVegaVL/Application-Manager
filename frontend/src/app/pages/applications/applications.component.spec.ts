@@ -210,6 +210,21 @@ describe('ApplicationsComponent', () => {
     expect(component['updatingStatusId']()).toBeNull();
   });
 
+  it('updates the status via PUT when "sent via website form" is selected', () => {
+    flushList([sampleApplication]);
+
+    component.onStatusChange(sampleApplication, 'webform');
+
+    const updateReq = httpMock.expectOne(
+      (request) => request.url === `${environment.apiBaseUrl}/applications/1` && request.method === 'PUT',
+    );
+    expect(updateReq.request.body).toEqual({ status: 'webform' });
+    updateReq.flush({ ...sampleApplication, status: 'webform' });
+
+    expect(component['applications']()[0].status).toBe('webform');
+    expect(component['updatingStatusId']()).toBeNull();
+  });
+
   it('ignores deselecting the outcome toggle (undefined status)', () => {
     flushList([sampleApplication]);
 
@@ -233,6 +248,15 @@ describe('ApplicationsComponent', () => {
 
     component.onFilterChange('all');
     expect(component['filteredApplications']().length).toBe(2);
+  });
+
+  it('filters applications by the "sent via website form" status', () => {
+    const webformApplication: Application = { ...sampleApplication, id: 3, status: 'webform' };
+    flushList([sampleApplication, webformApplication]);
+
+    component.onFilterChange('webform');
+    expect(component['filteredApplications']().length).toBe(1);
+    expect(component['filteredApplications']()[0].id).toBe(3);
   });
 
   it('Covers AE6: narrows by company or job title, case-insensitive, combined (AND) with the status filter', () => {
@@ -328,6 +352,13 @@ describe('ApplicationsComponent', () => {
       expect(fixture.nativeElement.querySelector('.compact-card__inline-attention')).toBeNull();
     });
 
+    it('shows the "Sent via website form" chip for an application sent via the website form', () => {
+      flushList([{ ...sampleApplication, status: 'webform' }]);
+
+      const text = fixture.nativeElement.textContent as string;
+      expect(text).toContain(component.statusLabel('webform'));
+    });
+
     it('renders "Open application" as a native anchor to the existing editor route, unchanged', () => {
       flushList([sentApplication]);
 
@@ -381,6 +412,16 @@ describe('ApplicationsComponent', () => {
       await toggleCardMenu(fixture);
       menuItemByText('Mark rejected')!.click();
       expect(statusSpy).toHaveBeenCalledWith(sentApplication, 'rejected');
+    });
+
+    it('routes "Mark sent via website form" menu selection to onStatusChange with the webform status', async () => {
+      flushList([sentApplication]);
+      const statusSpy = vi.spyOn(component, 'onStatusChange').mockImplementation(() => {});
+
+      await toggleCardMenu(fixture);
+      menuItemByText('Mark sent via website form')!.click();
+
+      expect(statusSpy).toHaveBeenCalledWith(sentApplication, 'webform');
     });
 
     it('Covers R2: routes the "Delete" menu selection to onDelete (still behind window.confirm)', async () => {
