@@ -1,10 +1,11 @@
-"""Service zum Versand von Bewerbungs-E-Mails inkl. PDF-Anhang via SMTP."""
+"""Service zum Versand von Bewerbungs-E-Mails inkl. Anhängen via SMTP."""
 from __future__ import annotations
 
 import logging
 import smtplib
 from dataclasses import dataclass
 from email.mime.application import MIMEApplication
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -65,6 +66,36 @@ def _account_for(sender_email: str | None) -> _SmtpAccount | None:
     return None
 
 
+# Dateiendung -> `application/*`-Subtype für Word/PDF-Anhänge (Bilder laufen
+# separat über `MIMEImage`, siehe `_mime_attachment`).
+_APPLICATION_SUBTYPES: dict[str, str] = {
+    "doc": "msword",
+    "docx": "vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pdf": "pdf",
+}
+
+
+def _mime_attachment(data: bytes, filename: str):
+    """Baut einen MIME-Anhang mit korrektem Content-Type je Dateiendung.
+
+    Der Lebenslauf bleibt `application/pdf`; zusätzliche Profil-Anhänge
+    (`ProfileAttachment`) können seit der Erweiterung um weitere Dateitypen
+    auch JPEG/PNG-Bilder oder Word-Dokumente (DOC/DOCX) sein. Diese müssen
+    mit ihrem echten Media-Type angehängt werden - ein als `application/pdf`
+    deklariertes Bild/Dokument würde bei manchen Mail-Clients nicht korrekt
+    angezeigt. Unbekannte Endungen fallen auf `application/pdf` zurück
+    (bisheriges Verhalten)."""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext in ("jpg", "jpeg"):
+        part = MIMEImage(data, _subtype="jpeg")
+    elif ext == "png":
+        part = MIMEImage(data, _subtype="png")
+    else:
+        part = MIMEApplication(data, _subtype=_APPLICATION_SUBTYPES.get(ext, "pdf"))
+    part.add_header("Content-Disposition", "attachment", filename=filename)
+    return part
+
+
 def send_application_email(
     to_email: str,
     subject: str,
@@ -74,13 +105,15 @@ def send_application_email(
     extra_attachments: list[tuple[bytes, str]] | None = None,
     from_email: str | None = None,
 ) -> str:
-    """Versendet eine Bewerbungsmail inkl. PDF-Anhang via SMTP.
+    """Versendet eine Bewerbungsmail inkl. Lebenslauf-Anhang via SMTP.
 
     `attachment_bytes`/`attachment_filename` ist der Lebenslauf (Pflicht-
     Anhang). `extra_attachments` sind die zusätzlichen, im Profil hochgeladenen
-    PDF-Anhänge (siehe `ProfileAttachment`, `app.api.profile`) - jeweils
+    Anhänge (siehe `ProfileAttachment`, `app.api.profile`) - jeweils
     `(bytes, filename)`, optional und auf `MAX_PROFILE_ATTACHMENTS` begrenzt
-    (die Begrenzung erfolgt bereits beim Upload, nicht hier). `from_email` ist
+    (die Begrenzung erfolgt bereits beim Upload, nicht hier). Die Anhänge
+    können PDF, JPEG/PNG oder DOC/DOCX sein; der Content-Type wird je
+    Dateiendung korrekt gesetzt (siehe `_mime_attachment`). `from_email` ist
     die im Profil gewählte Absenderadresse (`MasterProfile.sender_email`) -
     sie bestimmt über `_account_for`, welcher SMTP-Account tatsächlich zum
     Versand genutzt wird, nicht nur den sichtbaren From-Header: nur so landet
@@ -111,9 +144,7 @@ def send_application_email(
     message.attach(MIMEText(body_text, "plain", "utf-8"))
 
     for attachment_data, filename in [(attachment_bytes, attachment_filename), *(extra_attachments or [])]:
-        attachment = MIMEApplication(attachment_data, _subtype="pdf")
-        attachment.add_header("Content-Disposition", "attachment", filename=filename)
-        message.attach(attachment)
+        message.attach(_mime_attachment(attachment_data, filename))
 
     smtp_cls = smtplib.SMTP_SSL if account.use_ssl else smtplib.SMTP
     try:

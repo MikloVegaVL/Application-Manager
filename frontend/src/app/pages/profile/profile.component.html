@@ -169,9 +169,9 @@
         <mat-tab label="Additional attachments">
           <div class="tab-content">
             <p class="cv-import__hint">
-              Upload up to {{ MAX_ATTACHMENTS }} additional PDF documents here (e.g. references,
-              certificates) - they are sent as extra email attachments in addition to your CV
-              when you send an application.
+              Upload up to {{ MAX_ATTACHMENTS }} additional documents here (PDF, JPG, PNG, DOC or
+              DOCX; e.g. references, certificates) - they are sent as extra email attachments in
+              addition to your CV when you send an application.
             </p>
 
             @if (attachments().length === 0) {
@@ -213,7 +213,7 @@
                 (click)="attachmentFileInput.click()"
               >
                 <mat-icon>upload_file</mat-icon>
-                <p>Drag a PDF here or click to select</p>
+                <p>Drag a PDF, JPG, PNG, DOC or DOCX here or click to select</p>
                 @if (selectedAttachmentFile(); as file) {
                   <p class="cv-dropzone__filename">
                     {{ file.name }}
@@ -226,7 +226,7 @@
               <input
                 #attachmentFileInput
                 type="file"
-                accept="application/pdf,.pdf"
+                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,application/pdf,image/jpeg,image/png,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 hidden
                 (change)="onAttachmentFileSelected($event)"
               />

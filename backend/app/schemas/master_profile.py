@@ -147,7 +147,7 @@ class MasterProfileRead(MasterProfileBase):
     Datei hochgeladen hat (siehe `POST /profile/cv-file`); `null` bedeutet
     "noch keine Datei hochgeladen" - das Frontend nutzt das, um den Upload-
     Status anzuzeigen und den Versand entsprechend zu warnen. `attachments`
-    listet die zusätzlichen PDF-Anhänge (siehe `ProfileAttachmentRead`,
+    listet die zusätzlichen Anhänge (siehe `ProfileAttachmentRead`,
     maximal `MAX_PROFILE_ATTACHMENTS` in `app.api.profile`).
     """
 

@@ -86,8 +86,8 @@ export interface MasterProfile {
 }
 
 /**
- * Entspricht `ProfileAttachmentRead`: ein zusätzlicher PDF-Anhang am
- * Stammprofil (max. 3, siehe `ProfileService.uploadAttachment`), der beim
+ * Entspricht `ProfileAttachmentRead`: ein zusätzlicher Anhang am
+ * Stammprofil (max. 5, siehe `ProfileService.uploadAttachment`), der beim
  * Versand einer Bewerbung neben dem Lebenslauf mitgeschickt wird.
  */
 export interface ProfileAttachment {

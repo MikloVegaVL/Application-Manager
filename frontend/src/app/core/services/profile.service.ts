@@ -103,7 +103,7 @@ export class ProfileService {
   }
 
   /**
-   * Lädt einen zusätzlichen PDF-Anhang hoch (max. 3, unabhängig vom
+   * Lädt einen zusätzlichen Anhang hoch (max. 5, unabhängig vom
    * Lebenslauf-Anhang), der beim Versand einer Bewerbung zusätzlich zum
    * Lebenslauf mitgeschickt wird.
    */

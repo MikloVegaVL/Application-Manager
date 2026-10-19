@@ -481,7 +481,7 @@ def test_upload_cv_file_it_and_full_life_produce_distinct_files(client, tmp_path
 
 # --- POST/GET/DELETE /profile/{profile_type}/attachments -----------------
 #
-# Zusätzliche PDF-Anhänge (max. 3, siehe `MAX_PROFILE_ATTACHMENTS` in
+# Zusätzliche Anhänge (max. 5, siehe `MAX_PROFILE_ATTACHMENTS` in
 # `app.api.profile`) - unabhängig vom Lebenslauf-Anhang oben, werden beim
 # Versand zusätzlich zum Lebenslauf mitgeschickt, nicht anstelle davon.
 
@@ -502,17 +502,52 @@ def test_upload_attachment_requires_existing_profile(client, tmp_path, monkeypat
     assert response.status_code == 404
 
 
-def test_upload_attachment_rejects_non_pdf(client, tmp_path, monkeypatch):
+def test_upload_attachment_rejects_unsupported_type(client, tmp_path, monkeypatch):
     test_client, session_local = client
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
     response = test_client.post(
         "/api/profile/it/attachments",
-        files={"file": ("zeugnis.docx", b"not a pdf", "application/octet-stream")},
+        files={"file": ("zeugnis.txt", b"not supported", "text/plain")},
     )
 
     assert response.status_code == 415
+
+
+@pytest.mark.parametrize(
+    ("filename", "content_type", "media_type"),
+    [
+        ("scan.jpg", "image/jpeg", "image/jpeg"),
+        ("scan.jpeg", "image/jpeg", "image/jpeg"),
+        ("scan.png", "image/png", "image/png"),
+        ("zeugnis.doc", "application/msword", "application/msword"),
+        (
+            "zeugnis.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+    ],
+)
+def test_upload_attachment_accepts_images_and_docs(client, tmp_path, monkeypatch, filename, content_type, media_type):
+    test_client, session_local = client
+    monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
+    _create_profile(session_local)
+
+    upload = test_client.post(
+        "/api/profile/it/attachments",
+        files={"file": (filename, b"fake attachment bytes", content_type)},
+    )
+
+    assert upload.status_code == 200
+    attachments = upload.json()["attachments"]
+    assert len(attachments) == 1
+    assert attachments[0]["filename"] == filename
+
+    download = test_client.get(f"/api/profile/it/attachments/{attachments[0]['id']}")
+    assert download.status_code == 200
+    assert download.content == b"fake attachment bytes"
+    assert download.headers["content-type"].startswith(media_type)
 
 
 def test_upload_attachment_stores_file_and_lists_it(client, tmp_path, monkeypatch):
@@ -534,18 +569,18 @@ def test_upload_attachment_stores_file_and_lists_it(client, tmp_path, monkeypatc
     assert 'filename="zeugnis.pdf"' in download_response.headers["content-disposition"]
 
 
-def test_upload_attachment_rejects_a_fourth_file(client, tmp_path, monkeypatch):
+def test_upload_attachment_rejects_a_sixth_file(client, tmp_path, monkeypatch):
     test_client, session_local = client
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    for index in range(3):
+    for index in range(5):
         assert _upload_attachment(test_client, filename=f"anhang-{index}.pdf").status_code == 200
 
-    response = _upload_attachment(test_client, filename="anhang-4.pdf")
+    response = _upload_attachment(test_client, filename="anhang-6.pdf")
 
     assert response.status_code == 400
-    assert "maximal 3" in response.json()["detail"]
+    assert "maximal 5" in response.json()["detail"]
 
 
 def test_delete_attachment_removes_it_and_frees_up_a_slot(client, tmp_path, monkeypatch):
@@ -553,7 +588,7 @@ def test_delete_attachment_removes_it_and_frees_up_a_slot(client, tmp_path, monk
     monkeypatch.setattr("app.core.config.settings.PROFILE_FILES_DIR", str(tmp_path / "profile"))
     _create_profile(session_local)
 
-    for index in range(3):
+    for index in range(5):
         assert _upload_attachment(test_client, filename=f"anhang-{index}.pdf").status_code == 200
 
     profile_attachments = test_client.get("/api/profile/it").json()["attachments"]
@@ -561,7 +596,7 @@ def test_delete_attachment_removes_it_and_frees_up_a_slot(client, tmp_path, monk
 
     assert delete_response.status_code == 200
     remaining = delete_response.json()["attachments"]
-    assert len(remaining) == 2
+    assert len(remaining) == 4
 
     # Nach dem Löschen ist wieder ein Slot frei.
     assert _upload_attachment(test_client, filename="ersatz.pdf").status_code == 200

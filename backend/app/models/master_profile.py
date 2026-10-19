@@ -102,8 +102,9 @@ class MasterProfile(Base):
     # `None` bedeutet "noch keine Vorlage gewählt".
     template_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
-    # Bis zu drei zusätzliche PDF-Anhänge (z. B. Zeugnisse, Zertifikate),
-    # die beim Versand einer Bewerbung neben dem Lebenslauf mitgeschickt
+    # Bis zu fünf zusätzliche Anhänge (PDF/JPEG/PNG/DOC/DOCX, z. B.
+    # Zeugnisse, Zertifikate), die beim Versand einer Bewerbung neben dem
+    # Lebenslauf mitgeschickt
     # werden (siehe `ProfileAttachment`, `app.api.profile`,
     # `app.api.applications.send_application`). `order_by` hält die
     # Reihenfolge stabil (Upload-Reihenfolge) unabhängig von DB-internem

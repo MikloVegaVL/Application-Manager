@@ -23,6 +23,21 @@ import {
 } from '../../core/models/master-profile.model';
 import { ProfileService, ProfileType } from '../../core/services/profile.service';
 
+/** Erlaubte Dateiendungen für zusätzliche Anhänge (Tab 3). */
+const ALLOWED_ATTACHMENT_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'];
+
+/** Erlaubte MIME-Typen für zusätzliche Anhänge (Tab 3) - für den Fall, dass
+ * ein Datei-Objekt keinen erkennbaren Dateinamen, aber einen korrekten
+ * `type` trägt. Spiegelt die Backend-Validierung (`ATTACHMENT_MEDIA_TYPES`
+ * in `backend/app/services/file_validation.py`). */
+const ALLOWED_ATTACHMENT_MIME_TYPES = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+];
+
 /**
  * U7: blockierender Erstlauf-Dialog (R8) - fragt, welchem der beiden
  * Profiltypen die untypisierte Alt-Zeile zugeordnet werden soll. Als
@@ -128,10 +143,11 @@ export class ProfileComponent implements OnInit {
   protected readonly uploadingCvFile = signal(false);
   protected readonly deletingCvFile = signal(false);
 
-  // --- Weitere Anhänge (Tab 3) - bis zu MAX_ATTACHMENTS zusätzliche PDFs,
+  // --- Weitere Anhänge (Tab 3) - bis zu MAX_ATTACHMENTS zusätzliche Dateien,
   // die beim Versand ZUSÄTZLICH zum Lebenslauf mitgeschickt werden (siehe
-  // `app.api.profile`, `app.api.applications.send_application`). ---
-  protected readonly MAX_ATTACHMENTS = 3;
+  // `app.api.profile`, `app.api.applications.send_application`). Neben PDF
+  // sind JPG/PNG-Bilder und Word-Dokumente (DOC/DOCX) erlaubt.
+  protected readonly MAX_ATTACHMENTS = 5;
   protected readonly attachments = signal<ProfileAttachment[]>([]);
   protected readonly selectedAttachmentFile = signal<File | null>(null);
   protected readonly isAttachmentDragOver = signal(false);
@@ -502,12 +518,22 @@ export class ProfileComponent implements OnInit {
       );
       return;
     }
-    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-    if (!isPdf) {
-      this.notify('Please select a PDF file.');
+    if (!this.isAllowedAttachmentType(file)) {
+      this.notify('Please select a PDF, JPG, PNG, DOC or DOCX file.');
       return;
     }
     this.selectedAttachmentFile.set(file);
+  }
+
+  /** Prüft, ob eine Datei ein erlaubter zusätzlicher Anhang ist (PDF, JPG/
+   * JPEG, PNG, DOC, DOCX). Spiegelt die serverseitige Validierung
+   * (`_require_attachment_file` in `backend/app/services/file_validation.py`). */
+  private isAllowedAttachmentType(file: File): boolean {
+    const ext = file.name.toLowerCase().split('.').pop() ?? '';
+    return (
+      ALLOWED_ATTACHMENT_EXTENSIONS.includes(ext) ||
+      ALLOWED_ATTACHMENT_MIME_TYPES.includes(file.type.toLowerCase())
+    );
   }
 
   clearSelectedAttachmentFile(): void {

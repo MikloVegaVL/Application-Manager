@@ -1,6 +1,6 @@
 """API-Router für das Master-Profil (Stammdaten, Werdegang, Skills), die
-Lebenslauf-Anhang-Datei, das Profilfoto sowie bis zu drei zusätzlichen
-PDF-Anhänge fürs E-Mail-Versenden.
+Lebenslauf-Anhang-Datei, das Profilfoto sowie bis zu fünf zusätzliche
+Anhänge (PDF/JPEG/PNG/DOC/DOCX) fürs E-Mail-Versenden.
 
 Der frühere KI-gestützte CV-Import (`POST /profile/upload-cv`) ist mit U3
 entfallen - sein Nachfolger ist der reine Parse-Vorschau-Endpunkt
@@ -24,7 +24,7 @@ from app.db.database import get_db
 from app.models.master_profile import MasterProfile
 from app.models.profile_attachment import ProfileAttachment
 from app.schemas.master_profile import MasterProfileCreate, MasterProfileRead, MasterProfileUpdate, ProfileType
-from app.services.file_validation import _iter_file, _require_pdf
+from app.services.file_validation import ATTACHMENT_MEDIA_TYPES, _iter_file, _require_attachment_file, _require_pdf
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
 
@@ -46,7 +46,7 @@ _NO_PROFILE_DETAIL_TEMPLATE = (
 # E-Mail-Anhänge beim Versand einer Bewerbung mitgeschickt
 # (`app.api.applications.send_application`), eine unbegrenzte Anzahl würde
 # dort unkontrolliert große Mails erzeugen.
-MAX_PROFILE_ATTACHMENTS = 3
+MAX_PROFILE_ATTACHMENTS = 5
 
 
 def _get_profile_or_404(db: Session, profile_type: ProfileType) -> MasterProfile:
@@ -75,10 +75,12 @@ def _cv_file_path_for(profile_id: int) -> Path:
     return Path(settings.PROFILE_FILES_DIR) / f"cv_{profile_id}.pdf"
 
 
-def _attachment_file_path_for(profile_id: int, attachment_id: int) -> Path:
+def _attachment_file_path_for(profile_id: int, attachment_id: int, ext: str) -> Path:
     # Eigener Dateiname je Anhang (statt eines gemeinsamen Präfixes), damit
-    # mehrere Anhänge desselben Profils nicht kollidieren.
-    return Path(settings.PROFILE_FILES_DIR) / f"attachment_{profile_id}_{attachment_id}.pdf"
+    # mehrere Anhänge desselben Profils nicht kollidieren. Die Endung folgt
+    # dem tatsächlichen Dateityp (PDF/JPEG/PNG/DOC/DOCX), damit der Download
+    # den korrekten Media-Type aus dem Suffix ableiten kann.
+    return Path(settings.PROFILE_FILES_DIR) / f"attachment_{profile_id}_{attachment_id}.{ext}"
 
 
 def _photo_path_for(profile_id: int, ext: str) -> Path:
@@ -456,22 +458,24 @@ def delete_photo(profile_type: ProfileType, db: Session = Depends(get_db)) -> Ma
     return profile
 
 
-# --- Zusätzliche Anhänge (bis zu MAX_PROFILE_ATTACHMENTS PDFs) ----------
+# --- Zusätzliche Anhänge (bis zu MAX_PROFILE_ATTACHMENTS Dateien) -------
 #
 # Getrennt vom Lebenslauf-Anhang oben: diese Dateien werden beim Versand
 # einer Bewerbung zusätzlich zum Lebenslauf angehängt (siehe
-# `app.api.applications.send_application`), nicht anstelle davon.
+# `app.api.applications.send_application`), nicht anstelle davon. Neben PDF
+# sind JPEG/PNG-Bilder und Word-Dokumente (DOC/DOCX) erlaubt.
 
 
 @router.post("/{profile_type}/attachments", response_model=MasterProfileRead)
 def upload_attachment(
     profile_type: ProfileType,
-    file: UploadFile = File(..., description="Zusätzlicher Anhang als PDF-Datei"),
+    file: UploadFile = File(..., description="Zusätzlicher Anhang als PDF-, JPG-, PNG-, DOC- oder DOCX-Datei"),
     db: Session = Depends(get_db),
 ) -> MasterProfile:
-    """Fügt dem Profil einen weiteren PDF-Anhang hinzu (z. B. Arbeitszeugnis,
+    """Fügt dem Profil einen weiteren Anhang hinzu (z. B. Arbeitszeugnis,
     Zertifikat), der beim Versand einer Bewerbung zusätzlich zum Lebenslauf
-    mitgeschickt wird. Auf `MAX_PROFILE_ATTACHMENTS` begrenzt - ein bereits
+    mitgeschickt wird. Erlaubt sind PDF, JPEG/PNG-Bilder sowie Word-Dokumente
+    (DOC/DOCX). Auf `MAX_PROFILE_ATTACHMENTS` begrenzt - ein bereits
     existierendes Profil dieses Typs ist Voraussetzung, da die Anhänge am
     Profil hängen."""
     profile = _get_profile_or_404(db, profile_type)
@@ -482,13 +486,15 @@ def upload_attachment(
             detail=f"Es können maximal {MAX_PROFILE_ATTACHMENTS} zusätzliche Anhänge hochgeladen werden.",
         )
 
-    file_bytes = _require_pdf(file)
+    file_bytes, ext, _ = _require_attachment_file(file)
 
-    attachment = ProfileAttachment(profile_id=profile.id, filename=file.filename or "anhang.pdf", file_path="")
+    attachment = ProfileAttachment(
+        profile_id=profile.id, filename=file.filename or f"anhang.{ext}", file_path=""
+    )
     db.add(attachment)
     db.flush()  # vergibt attachment.id, ohne die Transaktion schon zu committen
 
-    attachment_path = _attachment_file_path_for(profile.id, attachment.id)
+    attachment_path = _attachment_file_path_for(profile.id, attachment.id, ext)
     attachment_path.parent.mkdir(parents=True, exist_ok=True)
     attachment_path.write_bytes(file_bytes)
     attachment.file_path = str(attachment_path)
@@ -519,9 +525,12 @@ def download_attachment(
     if not attachment_path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Anhang-Datei wurde nicht gefunden.")
 
+    media_type = ATTACHMENT_MEDIA_TYPES.get(
+        attachment_path.suffix.lstrip("."), "application/octet-stream"
+    )
     return StreamingResponse(
         _iter_file(attachment_path),
-        media_type="application/pdf",
+        media_type=media_type,
         headers={"Content-Disposition": f'inline; filename="{attachment.filename}"'},
     )
 

@@ -187,11 +187,29 @@ describe('ProfileComponent', () => {
       updated_at: new Date().toISOString(),
     };
 
-    it('rejects a non-PDF file without uploading', () => {
-      const input = { files: [new File(['x'], 'zeugnis.docx')] } as unknown as HTMLInputElement;
+    it('rejects an unsupported file type without uploading', () => {
+      const input = { files: [new File(['x'], 'zeugnis.txt')] } as unknown as HTMLInputElement;
       component.onAttachmentFileSelected({ target: input } as unknown as Event);
 
       expect(component['selectedAttachmentFile']()).toBeNull();
+    });
+
+    it('accepts JPG, PNG, DOC and DOCX in addition to PDF', () => {
+      const files = [
+        new File(['\u00ff\u00d8\u00ff'], 'scan.jpg', { type: 'image/jpeg' }),
+        new File(['\u0089PNG'], 'scan.png', { type: 'image/png' }),
+        new File(['x'], 'zeugnis.doc', { type: 'application/msword' }),
+        new File(['x'], 'zeugnis.docx', {
+          type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        }),
+      ];
+
+      for (const file of files) {
+        const input = { files: [file] } as unknown as HTMLInputElement;
+        component.onAttachmentFileSelected({ target: input } as unknown as Event);
+        expect(component['selectedAttachmentFile']()).toBe(file);
+        component['selectedAttachmentFile'].set(null);
+      }
     });
 
     it('refuses to select a file once the maximum is reached', () => {
@@ -199,6 +217,8 @@ describe('ProfileComponent', () => {
         { id: 1, filename: 'a.pdf', created_at: new Date().toISOString() },
         { id: 2, filename: 'b.pdf', created_at: new Date().toISOString() },
         { id: 3, filename: 'c.pdf', created_at: new Date().toISOString() },
+        { id: 4, filename: 'd.pdf', created_at: new Date().toISOString() },
+        { id: 5, filename: 'e.pdf', created_at: new Date().toISOString() },
       ]);
 
       const input = { files: [pdfFile] } as unknown as HTMLInputElement;

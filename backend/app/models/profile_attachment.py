@@ -2,10 +2,10 @@
 
 Getrennt von `MasterProfile.cv_file_path`/`cv_filename` (der eine
 Lebenslauf-Anhang-Datei): hier können bis zu `MAX_PROFILE_ATTACHMENTS`
-(siehe `app.api.profile`) zusätzliche PDF-Dokumente (z. B. Zeugnisse,
-Zertifikate) hinterlegt werden, die beim Versand einer Bewerbung als
-zusätzliche E-Mail-Anhänge neben dem Lebenslauf verschickt werden (siehe
-`app.api.applications.send_application`).
+(siehe `app.api.profile`) zusätzliche Dateien (PDF, JPEG/PNG-Bilder oder
+Word-Dokumente; z. B. Zeugnisse, Zertifikate) hinterlegt werden, die beim
+Versand einer Bewerbung als zusätzliche E-Mail-Anhänge neben dem Lebenslauf
+verschickt werden (siehe `app.api.applications.send_application`).
 """
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 
 class ProfileAttachment(Base):
-    """Eine einzelne zusätzliche Anhang-Datei (PDF) am Stammprofil."""
+    """Eine einzelne zusätzliche Anhang-Datei am Stammprofil."""
 
     __tablename__ = "profile_attachments"
 

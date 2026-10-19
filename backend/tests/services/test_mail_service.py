@@ -94,3 +94,30 @@ def test_send_raises_on_smtp_failure_without_a_return_value(monkeypatch) -> None
 
     with pytest.raises(MailSendError):
         _send(from_email="primary@example.com")
+
+
+def test_send_uses_correct_content_type_for_image_and_doc_attachments(monkeypatch) -> None:
+    """Zusätzliche Anhänge (seit der Erweiterung um JPEG/PNG/DOC/DOCX) müssen
+    mit ihrem echten Media-Type angehängt werden, nicht pauschal als
+    `application/pdf` - sonst würden Bild-/Word-Anhänge bei manchen
+    Mail-Clients nicht korrekt angezeigt."""
+    smtp_cls = _mock_smtp_cls(monkeypatch, "SMTP")
+
+    _send(
+        extra_attachments=[
+            (b"\xff\xd8\xff fake-jpeg", "foto.jpg"),
+            (b"\x89PNG fake-png", "scan.png"),
+            (b"fake-doc", "zeugnis.doc"),
+            (b"fake-docx", "zeugnis.docx"),
+        ],
+    )
+
+    server = smtp_cls.return_value.__enter__.return_value
+    raw_message = server.sendmail.call_args[0][2]
+
+    # Der Lebenslauf bleibt PDF, die zusätzlichen Anhänge tragen ihren echten Typ.
+    assert "application/pdf" in raw_message
+    assert "image/jpeg" in raw_message
+    assert "image/png" in raw_message
+    assert "application/msword" in raw_message
+    assert "application/vnd.openxmlformats-officedocument.wordprocessingml.document" in raw_message
