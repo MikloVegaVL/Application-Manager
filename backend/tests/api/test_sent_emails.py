@@ -320,6 +320,40 @@ def test_entry_with_deleted_application_returns_null_ad_url(client, db_session_l
     assert response.json()[0]["ad_url"] is None
 
 
+def test_webform_entry_exposes_channel_and_null_recipient(client, db_session_local) -> None:
+    """`Mark sent via website form` legt einen Eintrag mit `channel="webform"`
+    und ohne Empfänger an - die API muss beides unverändert liefern."""
+    session = db_session_local()
+    try:
+        _insert_sent_email(
+            session, application_id=None, channel="webform", recipient_email=None
+        )
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails")
+
+    assert response.status_code == 200
+    entry = response.json()[0]
+    assert entry["channel"] == "webform"
+    assert entry["recipient_email"] is None
+
+
+def test_email_entry_exposes_channel_email(client, db_session_local) -> None:
+    """Alt-/E-Mail-Einträge (ohne explizites `channel`) werden als "email"
+    ausgeliefert - der Modell-Default muss durchschlagen."""
+    session = db_session_local()
+    try:
+        _insert_sent_email(session, application_id=None)
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails")
+
+    assert response.status_code == 200
+    assert response.json()[0]["channel"] == "email"
+
+
 # --- outcome (U2, R3/R4) ------------------------------------------------
 
 

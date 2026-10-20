@@ -117,6 +117,12 @@ export class SentEmailsComponent implements OnInit {
     return SentEmailsComponent.OUTCOME_LABELS[outcome];
   }
 
+  /** Menschenlesbares "Empfänger"-Indiz für den Lösch-Dialog - bei einem
+   * Webform-Eintrag gibt es keinen Empfänger, dann "website form" statt `null`. */
+  private recipientLabel(entry: SentEmail): string {
+    return entry.recipient_email ?? (entry.channel === 'webform' ? 'website form' : 'unknown recipient');
+  }
+
   protected exportCurrent(): void {
     if (this.exportingCurrent()) {
       return;
@@ -166,7 +172,7 @@ export class SentEmailsComponent implements OnInit {
       return;
     }
     const confirmed = window.confirm(
-      `Permanently delete this log entry (${entry.recipient_email}, ${entry.company ?? 'unknown company'})?`,
+      `Permanently delete this log entry (${this.recipientLabel(entry)}, ${entry.company ?? 'unknown company'})?`,
     );
     if (!confirmed) {
       return;

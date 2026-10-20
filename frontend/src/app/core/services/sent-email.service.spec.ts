@@ -20,6 +20,7 @@ describe('SentEmailService', () => {
     company: 'Acme GmbH',
     job_title: 'Backend Engineer',
     source_platform: 'linkedin',
+    channel: 'email',
     recipient_email: 'recruiter@example.com',
     sent_at: '2026-09-01T10:00:00Z',
     sender_email: 'absender@example.com',

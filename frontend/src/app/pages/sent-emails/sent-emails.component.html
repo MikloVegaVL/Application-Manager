@@ -121,6 +121,9 @@
               @if (entry.job_title) {
                 <span class="sent-emails__job-title">{{ entry.job_title }}</span>
               }
+              @if (entry.channel === 'webform') {
+                <span class="sent-emails__channel">Website form</span>
+              }
             </ng-template>
             @if (entry.job_offer_id !== null) {
               <a [routerLink]="['/editor', entry.job_offer_id]">
@@ -181,7 +184,10 @@
                 <div class="sent-emails__menu-details">
                   <div class="sent-emails__menu-detail-row">
                     <span class="sent-emails__menu-detail-label">Recipient</span>
-                    <span class="sent-emails__menu-detail-value">{{ entry.recipient_email }}</span>
+                    <span
+                      class="sent-emails__menu-detail-value"
+                      [class.sent-emails__unknown]="!entry.recipient_email"
+                    >{{ entry.recipient_email ?? '—' }}</span>
                   </div>
                   <div class="sent-emails__menu-detail-row">
                     <span class="sent-emails__menu-detail-label">Subject</span>

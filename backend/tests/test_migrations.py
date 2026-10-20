@@ -73,7 +73,7 @@ def test_alembic_has_a_single_head() -> None:
     heads = ScriptDirectory.from_config(alembic_cfg).get_heads()
 
     assert len(heads) == 1, f"Erwartet genau einen Alembic-Head, gefunden: {heads}"
-    assert "f71a8d3d7876" in heads
+    assert "e4c9a1b2d3f6" in heads
 
 
 def test_automation_column_drop_migration_upgrades_and_downgrades() -> None:

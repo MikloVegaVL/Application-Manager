@@ -25,7 +25,10 @@ if TYPE_CHECKING:
 
 
 class SentEmail(Base):
-    """Ein einzelner, tatsächlich erfolgter Bewerbungsmail-Versand."""
+    """Ein einzelner protokollierter Bewerbungs-"Versand": entweder ein echter
+    Mailversand (`channel="email"`) oder ein Direkt-Versand über das
+    Firmenwebsite-Formular (`channel="webform"`, siehe `ApplicationStatus.
+    WEBFORM`)."""
 
     __tablename__ = "sent_emails"
 
@@ -43,7 +46,15 @@ class SentEmail(Base):
     job_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_platform: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
-    recipient_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    # Wie die Bewerbung "versendet" wurde: "email" (echter Mailversand über
+    # `send_application_email`) oder "webform" (direkt über das Firmenwebsite-
+    # Formular abgeschickt - kein tatsächlicher Mailversand, daher bleibt
+    # `recipient_email`/`sender_email`/`subject` leer und
+    # `attachment_filenames` eine leere Liste). Default "email" hält
+    # Altbestand (Backfill) und alle bestehenden Versand-Einträge kompatibel.
+    channel: Mapped[str] = mapped_column(String(20), nullable=False, default="email")
+
+    recipient_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
 
     # Nullable: bei Altbestand-Backfill (bereits vor diesem Feature

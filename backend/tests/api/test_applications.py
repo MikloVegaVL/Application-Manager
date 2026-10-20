@@ -406,6 +406,97 @@ def test_update_application_accepts_the_webform_status(
     assert response.json()["status"] == "webform"
 
 
+def test_marking_webform_creates_one_sent_email_log_entry(
+    client: TestClient, db_session_local
+) -> None:
+    """"Mark sent via website form" protokolliert den Direkt-Versand als
+    SentEmail-Log-Eintrag (channel="webform"), damit er in der Sent-Emails-
+    Übersicht erscheint - ohne echtes Mail bleiben recipient/sender/subject/
+    attachments leer."""
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/webform-log"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+    finally:
+        session.close()
+
+    response = client.put(
+        f"/api/applications/{application_id}",
+        json={"status": "webform"},
+    )
+    assert response.status_code == 200
+
+    session = db_session_local()
+    try:
+        rows = session.query(SentEmail).filter_by(application_id=application_id).all()
+    finally:
+        session.close()
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.channel == "webform"
+    assert row.recipient_email is None
+    assert row.sender_email is None
+    assert row.subject is None
+    assert row.attachment_filenames == []
+    assert row.company == "Acme GmbH"
+    assert row.job_title == "Backend Engineer"
+    assert row.source_platform == "arbeitsagentur"
+    assert row.sent_at is not None
+
+
+def test_remark_marking_webform_does_not_duplicate_the_log_entry(
+    client: TestClient, db_session_local
+) -> None:
+    """Ein erneuter PUT desselben `webform`-Status darf keinen zweiten Log-
+    Eintrag erzeugen (der Übergang ist bereits erfolgt)."""
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/webform-remark"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+    finally:
+        session.close()
+
+    first = client.put(f"/api/applications/{application_id}", json={"status": "webform"})
+    second = client.put(f"/api/applications/{application_id}", json={"status": "webform"})
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+    session = db_session_local()
+    try:
+        assert session.query(SentEmail).filter_by(application_id=application_id).count() == 1
+    finally:
+        session.close()
+
+
+def test_marking_a_non_webform_status_creates_no_log_entry(
+    client: TestClient, db_session_local
+) -> None:
+    """Zusage/Absage (accepted/rejected) sind Entscheidungs-Status, keine
+    "Versand"-Aktionen - sie dürfen keinen SentEmail-Log-Eintrag erzeugen."""
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(
+            session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/accepted"
+        )
+        application_id = _create_application(session, job_offer_id=job_offer.id).id
+    finally:
+        session.close()
+
+    response = client.put(f"/api/applications/{application_id}", json={"status": "accepted"})
+    assert response.status_code == 200
+
+    session = db_session_local()
+    try:
+        assert session.query(SentEmail).filter_by(application_id=application_id).count() == 0
+    finally:
+        session.close()
+
+
 def test_generate_application_returns_409_for_an_overlapping_request_on_the_same_job_offer(
     client: TestClient, db_session_local, monkeypatch
 ) -> None:

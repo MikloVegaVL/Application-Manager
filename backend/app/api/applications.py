@@ -313,9 +313,35 @@ def update_application(
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bewerbung wurde nicht gefunden.")
 
+    previous_status = application.status
     data = payload.model_dump(exclude_unset=True)
     for field, value in data.items():
         setattr(application, field, value)
+
+    # "Mark sent via website form" (ApplicationStatus.WEBFORM) protokolliert
+    # den Direkt-Versand als SentEmail-Log-Eintrag, damit er in der Sent-
+    # Emails-Übersicht erscheint - dort ist kein echtes Mail, also bleiben
+    # recipient/sender/subject/attachments leer (channel="webform"). Nur beim
+    # tatsächlichen Übergang zu `webform` (nicht bei jedem erneuten PUT
+    # desselben Status), sonst entstünden Dubletten - das Pendant zu
+    # `send_application` unten, das pro echtem Versand einen Eintrag anlegt.
+    if application.status == ApplicationStatus.WEBFORM and previous_status != ApplicationStatus.WEBFORM:
+        job_offer = db.get(JobOffer, application.job_offer_id)
+        db.add(
+            SentEmail(
+                application_id=application.id,
+                company=job_offer.company if job_offer else None,
+                job_title=job_offer.title if job_offer else None,
+                source_platform=job_offer.source_platform if job_offer else None,
+                channel="webform",
+                recipient_email=None,
+                sent_at=datetime.now(timezone.utc),
+                sender_email=None,
+                subject=None,
+                attachment_filenames=[],
+            )
+        )
+
     db.commit()
     db.refresh(application)
 

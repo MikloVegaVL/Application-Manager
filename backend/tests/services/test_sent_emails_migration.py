@@ -139,6 +139,7 @@ def test_upgrade_creates_sent_emails_table_with_expected_columns(migration_db) -
         "company",
         "job_title",
         "source_platform",
+        "channel",
         "recipient_email",
         "sent_at",
         "sender_email",

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 __all__ = ["SentEmailRead"]
 
 SentEmailOutcome = Literal["offer", "rejection", "pending"]
+SentEmailChannel = Literal["email", "webform"]
 
 
 class SentEmailRead(BaseModel):
@@ -31,7 +32,8 @@ class SentEmailRead(BaseModel):
     company: str | None
     job_title: str | None
     source_platform: str | None
-    recipient_email: str
+    channel: SentEmailChannel
+    recipient_email: str | None
     sent_at: datetime
     sender_email: str | None
     subject: str | None

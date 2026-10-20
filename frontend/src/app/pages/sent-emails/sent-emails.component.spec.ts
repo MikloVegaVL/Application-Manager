@@ -24,6 +24,7 @@ describe('SentEmailsComponent', () => {
     company: 'Acme GmbH',
     job_title: 'Backend Engineer',
     source_platform: 'linkedin',
+    channel: 'email',
     recipient_email: 'recruiter@example.com',
     sent_at: new Date('2026-09-01T10:00:00Z').toISOString(),
     sender_email: 'absender@example.com',
@@ -40,8 +41,26 @@ describe('SentEmailsComponent', () => {
     company: 'Globex',
     job_title: 'QA Engineer',
     source_platform: null,
+    channel: 'email',
     recipient_email: 'jobs@globex.example',
     sent_at: new Date('2026-08-01T10:00:00Z').toISOString(),
+    sender_email: null,
+    subject: null,
+    attachment_filenames: [],
+  };
+
+  const webformEntry: SentEmail = {
+    id: 3,
+    application_id: 3,
+    job_offer_id: 7,
+    ad_url: 'https://example.com/job/7',
+    outcome: 'pending',
+    company: 'Initech',
+    job_title: 'Frontend Developer',
+    source_platform: 'arbeitsagentur',
+    channel: 'webform',
+    recipient_email: null,
+    sent_at: new Date('2026-09-02T10:00:00Z').toISOString(),
     sender_email: null,
     subject: null,
     attachment_filenames: [],
@@ -153,6 +172,25 @@ describe('SentEmailsComponent', () => {
     expect(
       rows.map((row) => row.querySelector('.sent-emails__menu-detail-value')?.textContent),
     ).toEqual(['recruiter@example.com', 'Bewerbung', 'absender@example.com']);
+  });
+
+  it('renders a "Website form" marker for a webform entry', () => {
+    flushList([webformEntry]);
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Website form');
+  });
+
+  it('renders an em dash for the recipient of a webform entry in the details dropdown', async () => {
+    flushList([webformEntry]);
+
+    await openRowMenu('Show email details');
+
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('.sent-emails__menu-detail-row'));
+    const recipientRow = rows.find(
+      (row) => row.querySelector('.sent-emails__menu-detail-label')?.textContent === 'Recipient',
+    );
+    expect(recipientRow?.querySelector('.sent-emails__menu-detail-value')?.textContent).toBe('—');
   });
 
   it('shows "No attachments" in the attachments dropdown when there are none', async () => {

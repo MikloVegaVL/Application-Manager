@@ -162,6 +162,19 @@
     font-size: 0.8125rem;
   }
 
+  // "Website form" marker for entries that were submitted via a company's
+  // online form instead of an actual email send.
+  &__channel {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--app-accent, #3f51b5);
+    border: 1px solid currentColor;
+  }
+
   &__unknown {
     color: var(--app-muted-text);
     font-style: italic;

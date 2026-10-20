@@ -1,4 +1,6 @@
 /** Entspricht `SentEmailRead` (siehe `backend/app/schemas/sent_email.py`). */
+export type SentEmailChannel = 'email' | 'webform';
+
 export interface SentEmail {
   id: number;
   application_id: number | null;
@@ -12,11 +14,14 @@ export interface SentEmail {
   company: string | null;
   job_title: string | null;
   source_platform: string | null;
-  recipient_email: string;
+  /** "email" für echte Mailversände, "webform" für Direkt-Versände über das Firmenwebsite-Formular. */
+  channel: SentEmailChannel;
+  /** `null` bei "webform"-Einträgen - ein Website-Formular hat keinen E-Mail-Empfänger. */
+  recipient_email: string | null;
   sent_at: string;
   sender_email: string | null;
   subject: string | null;
-  /** Alle tatsächlich mitgeschickten Anhänge in Versandreihenfolge (Lebenslauf zuerst); leer für Altbestand. */
+  /** Alle tatsächlich mitgeschickten Anhänge in Versandreihenfolge (Lebenslauf zuerst); leer für Altbestand und "webform". */
   attachment_filenames: string[];
 }
 

@@ -611,7 +611,10 @@ def test_migration_downgrade_cleanly_reverses_both_column_additions(previous_hea
     alembic_cfg, engine = previous_head_db
 
     upgrade(alembic_cfg, "head")
-    downgrade(alembic_cfg, "-1")
+    # Bis zur Eltern-Revision von `f71a8d3d7876` zurücksetzen (statt `-1`,
+    # das nur die jeweils jüngste Migration - aktuell `e4c9a1b2d3f6` -
+    # zurücknimmt und damit die profile_type-Spalten fälschlich stehen ließe).
+    downgrade(alembic_cfg, "d1a2b3c4e5f6")
 
     profile_columns = {col["name"] for col in sa.inspect(engine).get_columns("master_profiles")}
     application_columns = {col["name"] for col in sa.inspect(engine).get_columns("applications")}
