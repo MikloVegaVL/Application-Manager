@@ -51,3 +51,4 @@ class SentEmailFilter(BaseModel):
     date_from: date | None = None
     date_to: date | None = None
     outcome: SentEmailOutcome | None = None
+    channel: SentEmailChannel | None = None

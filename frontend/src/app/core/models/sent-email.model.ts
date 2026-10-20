@@ -32,4 +32,6 @@ export interface SentEmailFilterParams {
   date_from?: string | null;
   date_to?: string | null;
   outcome?: SentEmail['outcome'] | null;
+  /** Versandart: "email" (Mailversand) oder "webform" (Website-Formular). */
+  channel?: SentEmailChannel | null;
 }

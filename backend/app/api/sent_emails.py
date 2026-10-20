@@ -30,6 +30,8 @@ def _apply_filters(query: Query, filters: SentEmailFilter) -> Query:
         query = query.filter(SentEmail.company.ilike(f"%{filters.company}%"))
     if filters.sender_email:
         query = query.filter(SentEmail.sender_email == filters.sender_email)
+    if filters.channel:
+        query = query.filter(SentEmail.channel == filters.channel)
     if filters.date_from:
         query = query.filter(func.date(SentEmail.sent_at) >= filters.date_from)
     if filters.date_to:
@@ -88,9 +90,10 @@ def list_sent_emails(
     filters: SentEmailFilter = Depends(), db: Session = Depends(get_db)
 ) -> list[SentEmail]:
     """Listet alle protokollierten Bewerbungsmail-Versände, neueste zuerst,
-    optional gefiltert nach Firma, Absender-Account, Zeitraum (R4/R7) und
-    Outcome (R5) - Outcome wird live über die verknüpfte Application ermittelt,
-    nicht aus einer Spalte auf `SentEmail`."""
+    optional gefiltert nach Firma, Absender-Account, Zeitraum (R4/R7), Outcome
+    (R5) und Versandart/`channel` (Mail vs. Website-Formular) - Outcome wird
+    live über die verknüpfte Application ermittelt, nicht aus einer Spalte auf
+    `SentEmail`."""
     return _query_entries_for_list(db, filters)
 
 

@@ -93,6 +93,7 @@ export class SentEmailsComponent implements OnInit {
   protected readonly dateFromFilter = signal('');
   protected readonly dateToFilter = signal('');
   protected readonly outcomeFilter = signal<SentEmail['outcome'] | null>(null);
+  protected readonly channelFilter = signal<SentEmail['channel'] | null>(null);
 
   protected readonly exportingCurrent = signal(false);
   protected readonly exportingAll = signal(false);
@@ -109,7 +110,7 @@ export class SentEmailsComponent implements OnInit {
   protected hasActiveFilter(): boolean {
     const filter = this.currentFilter();
     return Boolean(
-      filter.company || filter.sender_email || filter.date_from || filter.date_to || filter.outcome,
+      filter.company || filter.sender_email || filter.date_from || filter.date_to || filter.outcome || filter.channel,
     );
   }
 
@@ -201,6 +202,7 @@ export class SentEmailsComponent implements OnInit {
       date_from: this.dateFromFilter() || null,
       date_to: this.dateToFilter() || null,
       outcome: this.outcomeFilter(),
+      channel: this.channelFilter(),
     };
   }
 

@@ -336,6 +336,25 @@ describe('SentEmailsComponent', () => {
     expect(component['hasActiveFilter']()).toBeTrue();
   });
 
+  it('selecting a Type filter re-requests the list with that channel param', () => {
+    flushList([sampleEntry]);
+
+    component['channelFilter'].set('webform');
+    component['onFilterChange']();
+
+    const req = httpMock.expectOne((request) => request.url === baseUrl && request.method === 'GET');
+    expect(req.request.params.get('channel')).toBe('webform');
+    req.flush([webformEntry]);
+  });
+
+  it('treats an active Type filter as an active filter for hasActiveFilter()', () => {
+    flushList([sampleEntry]);
+
+    expect(component['hasActiveFilter']()).toBeFalse();
+    component['channelFilter'].set('email');
+    expect(component['hasActiveFilter']()).toBeTrue();
+  });
+
   it('shows an error message when the list request fails', () => {
     const req = httpMock.expectOne((request) => request.url === baseUrl && request.method === 'GET');
     req.flush('server error', { status: 500, statusText: 'Internal Server Error' });

@@ -44,6 +44,18 @@
       </mat-form-field>
 
       <mat-form-field appearance="outline" subscriptSizing="dynamic">
+        <mat-label>Type</mat-label>
+        <mat-select
+          [value]="channelFilter()"
+          (selectionChange)="channelFilter.set($event.value); onFilterChange()"
+        >
+          <mat-option [value]="null">All types</mat-option>
+          <mat-option value="email">Email</mat-option>
+          <mat-option value="webform">Website form</mat-option>
+        </mat-select>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
         <mat-label>From</mat-label>
         <input
           matInput

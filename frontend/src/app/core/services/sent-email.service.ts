@@ -62,6 +62,9 @@ export class SentEmailService {
     if (filter.outcome) {
       params = params.set('outcome', filter.outcome);
     }
+    if (filter.channel) {
+      params = params.set('channel', filter.channel);
+    }
     return params;
   }
 }

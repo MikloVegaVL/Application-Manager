@@ -64,6 +64,14 @@ describe('SentEmailService', () => {
     req.flush([]);
   });
 
+  it('list() includes the channel param when a channel filter is supplied', () => {
+    service.list({ channel: 'webform' }).subscribe();
+
+    const req = httpMock.expectOne((request) => request.url === baseUrl);
+    expect(req.request.params.get('channel')).toBe('webform');
+    req.flush([]);
+  });
+
   it('exportCurrent() requests the export URL with the same filter params and blob response type', () => {
     let received: unknown;
     service

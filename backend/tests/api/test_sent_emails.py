@@ -354,6 +354,69 @@ def test_email_entry_exposes_channel_email(client, db_session_local) -> None:
     assert response.json()[0]["channel"] == "email"
 
 
+# --- channel filter (Mail vs. Website-Formular) --------------------------
+
+
+def test_filter_by_channel_email_returns_only_email_entries(client, db_session_local) -> None:
+    session = db_session_local()
+    try:
+        _insert_sent_email(session, application_id=1, channel="email", recipient_email="a@example.com")
+        _insert_sent_email(session, application_id=2, channel="webform", recipient_email=None)
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails", params={"channel": "email"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["channel"] == "email"
+    assert body[0]["recipient_email"] == "a@example.com"
+
+
+def test_filter_by_channel_webform_returns_only_webform_entries(client, db_session_local) -> None:
+    session = db_session_local()
+    try:
+        _insert_sent_email(session, application_id=1, channel="email", recipient_email="a@example.com")
+        _insert_sent_email(session, application_id=2, channel="webform", recipient_email=None)
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails", params={"channel": "webform"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["channel"] == "webform"
+    assert body[0]["recipient_email"] is None
+
+
+def test_filter_by_invalid_channel_value_returns_422(client) -> None:
+    """Regression: `channel` ist `Literal["email", "webform"]` - unbekannte
+    Werte müssen von FastAPI/Pydantic abgelehnt werden statt still zu leerem
+    Ergebnis zu führen."""
+    response = client.get("/api/sent-emails", params={"channel": "bogus"})
+
+    assert response.status_code == 422
+
+
+def test_channel_filter_combines_with_company_filter(client, db_session_local) -> None:
+    session = db_session_local()
+    try:
+        _insert_sent_email(session, application_id=1, channel="webform", company="Acme GmbH", recipient_email=None)
+        _insert_sent_email(session, application_id=2, channel="email", company="Acme GmbH", recipient_email="a@example.com")
+        _insert_sent_email(session, application_id=3, channel="webform", company="Globex", recipient_email=None)
+    finally:
+        session.close()
+
+    response = client.get("/api/sent-emails", params={"channel": "webform", "company": "Acme GmbH"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["application_id"] == 1
+
+
 # --- outcome (U2, R3/R4) ------------------------------------------------
 
 
