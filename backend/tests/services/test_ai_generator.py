@@ -81,6 +81,18 @@ VALID_FIT_ASSESSMENT = CoverLetterFitAssessment(
     ]
 )
 
+VALID_FIELD_MISMATCH_ASSESSMENT = CoverLetterFitAssessment(
+    field_mismatch=True,
+    requirements=[
+        RequirementAssessment(
+            requirement="Python",
+            is_core=True,
+            matched=True,
+            evidence="5 Jahre Python",
+        ),
+    ],
+)
+
 
 class TestGenerateApplicationContentHappyPath:
     def test_returns_cover_letter_text_and_calls_both_steps_in_order(self, mocker):
@@ -277,6 +289,11 @@ class TestBuildUserPrompt:
         assert "NICHT VERTRAUENSWÜRDIGE DATEN" in prompt[
             previous_block_start:previous_block_end
         ]
+        # The Regenerate directive must sit outside the untrusted region.
+        divergence_index = prompt.index(
+            "Verfasse eine davon DEUTLICH unterschiedliche neue Version"
+        )
+        assert previous_block_end < divergence_index
 
     def test_no_fit_assessment_produces_no_assessment_block(self):
         """Regression: default (no assessment passed) keeps today's shape."""
@@ -397,8 +414,11 @@ class TestBuildUserPrompt:
         )
 
         assert '"mismatch_case"' not in without
+        assert '"field_mismatch"' not in without
         assert '"mismatch_case": true' in with_true
+        assert '"field_mismatch": false' in with_true
         assert '"mismatch_case": false' in with_false
+        assert '"field_mismatch": false' in with_false
 
 
 class TestSystemPromptStyleAndHonestyRules:
@@ -543,6 +563,7 @@ class TestMatchAnalysisSystemPrompt:
 
         assert "vorherige version" in prompt_lower
         assert "übereinstimm" in prompt_lower
+        assert "field_mismatch-urteil" in prompt_lower
 
     def test_contains_injection_hardening_instruction(self):
         prompt_lower = ai_generator._MATCH_ANALYSIS_SYSTEM_PROMPT.lower()
@@ -647,19 +668,37 @@ class TestMismatchCaseDerivation:
             is False
         )
 
+    def test_whitespace_only_description_is_degenerate(self):
+        assessment = self._assessment(field_mismatch=True)
+
+        assert (
+            ai_generator._derive_mismatch_case(
+                "full_life", _job_offer(description_text="   " * 100), assessment
+            )
+            is False
+        )
+
+    def test_exact_threshold_is_not_degenerate(self):
+        assessment = self._assessment(field_mismatch=True)
+
+        assert (
+            ai_generator._derive_mismatch_case(
+                "full_life",
+                _job_offer(
+                    description_text="x" * ai_generator._MIN_JOB_DESCRIPTION_CHARS
+                ),
+                assessment,
+            )
+            is True
+        )
+
 
 class TestGenerateApplicationContentMismatchWiring:
     def test_full_life_mismatch_case_reaches_the_writing_prompt(self, mocker):
-        assessment = CoverLetterFitAssessment(
-            field_mismatch=True,
-            requirements=[
-                RequirementAssessment(requirement="Python", is_core=True, matched=True, evidence="5 Jahre Python")
-            ],
-        )
         mock_generate = mocker.patch.object(
             ai_generator.llm_client,
             "generate_structured",
-            side_effect=[assessment, VALID_RESULT],
+            side_effect=[VALID_FIELD_MISMATCH_ASSESSMENT, VALID_RESULT],
         )
 
         ai_generator.generate_application_content(
@@ -671,16 +710,10 @@ class TestGenerateApplicationContentMismatchWiring:
         assert '"mismatch_case": true' in write_messages[1]["content"]
 
     def test_it_never_receives_mismatch_case(self, mocker):
-        assessment = CoverLetterFitAssessment(
-            field_mismatch=True,
-            requirements=[
-                RequirementAssessment(requirement="Python", is_core=True, matched=True, evidence="5 Jahre Python")
-            ],
-        )
         mock_generate = mocker.patch.object(
             ai_generator.llm_client,
             "generate_structured",
-            side_effect=[assessment, VALID_RESULT],
+            side_effect=[VALID_FIELD_MISMATCH_ASSESSMENT, VALID_RESULT],
         )
 
         ai_generator.generate_application_content(

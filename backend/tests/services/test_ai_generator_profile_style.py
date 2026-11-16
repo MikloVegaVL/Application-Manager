@@ -106,6 +106,17 @@ class TestFullLifeMismatchPrompt:
 
         assert "ohne eine transferfähigkeit zu erfinden" in prompt_lower
 
+    def test_full_life_prompt_contains_same_field_core_gap_framing(self):
+        prompt_lower = ai_generator._build_system_prompt("full_life").lower()
+
+        assert "rollen-/kompetenzlücke" in prompt_lower
+        assert "nicht den eindruck eines feldwechsels" in prompt_lower
+
+    def test_full_life_prompt_allows_skills_as_transfer_source(self):
+        prompt = ai_generator._build_system_prompt("full_life")
+
+        assert "projects, languages oder skills" in prompt
+
     def test_it_prompt_does_not_contain_full_life_mismatch_instructions(self):
         prompt_lower = ai_generator._build_system_prompt("it").lower()
 

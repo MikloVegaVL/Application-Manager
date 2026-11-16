@@ -83,7 +83,7 @@ Cover-letter generation already runs a match analysis and grounds every claimed 
 
 ### Scope Boundaries
 
-- The IT profile is unchanged and keeps the current short gap note (R8).
+- The IT letter behavior is unchanged and keeps the current short gap note (R8).
 - The field-mismatch judgment is internal generation input; it is neither stored on the application nor shown in the UI.
 - Already-generated or stored letters are not retroactively rechecked or rewritten; the change applies to new generations, including Regenerate.
 - No explicit retraining or further-education offer is promised (see R5, R6).
@@ -121,7 +121,7 @@ Cover-letter generation already runs a match analysis and grounds every claimed 
 - KTD1. **Add one top-level scalar `field_mismatch: bool` defaulting to `False` to the existing fit assessment; do not add a third LLM call and do not add a new nested list.** (session-settled: user-directed — inherits KD1's choice of the extended fit assessment over a manual trigger: the scalar keeps the two-call pipeline, avoids the repo's known Ollama `list[SubModel]` schema failure, and keeps IT/legacy and existing test fixtures valid.) Governs R1, R2.
 - KTD2. **Keep the short gap note in the base system prompt and have the Full-life style block explicitly override it.** Moving the note out of the base would change IT and legacy behavior; the Full-life block states that its paragraph replaces the note, uses field-transfer framing only when the field differs, and uses role/skill framing for a same-field core gap. Governs R3, R5, R7, R8.
 - KTD3. **Ground transferable claims in the full profile content through an explicit transfer exception, not a new structured strengths list.** A cross-field strength often has no requirement row, so the Full-life block may cite a real skill or experience from the profile even without a `matched` requirement, but never invent one. Add `berufsbezeichnung`, `projects`, and `languages` to the profile payload so this grounding is available. Governs R4, R6.
-- KTD4. **Derive a single `mismatch_case` boolean in Python and serialize only that derived value into the Full-life writing prompt.** Compute `mismatch_case = Full-life AND not degenerate AND (field_mismatch OR any unmet core requirement)`; pass the resolved profile type into `_build_user_prompt`. This keeps IT's writing prompt unchanged, makes the field-mismatch-only case (AE2) explicit, and stops the base "no core gap means no note" rule from competing with the Full-life paragraph. Governs R2, R3, R7, R8.
+- KTD4. **Derive a single `mismatch_case` boolean in Python and serialize both `field_mismatch` and `mismatch_case` into the Full-life writing prompt.** Compute `mismatch_case = Full-life AND not degenerate AND (field_mismatch OR any unmet core requirement)`; pass the resolved profile type into `_build_user_prompt`. The writer needs `field_mismatch` to choose field-transfer versus role/skill framing, while IT receives neither key. This keeps IT's writing prompt unchanged, makes the field-mismatch-only case (AE2) explicit, and stops the base "no core gap means no note" rule from competing with the Full-life paragraph. Governs R2, R3, R7, R8.
 - KTD5. **Extend Regenerate verdict stability to `field_mismatch` through the match-analysis prompt; do not persist the verdict.** This mirrors the existing per-requirement mechanism and the prior plan's KTD5. R9/AE6 remain prompt-enforced best effort; a model flip is an accepted risk. Governs R9.
 - KTD6. **Use conservative defaults only for genuinely ambiguous input: no credible field signal means `field_mismatch=False`, while a broad or mixed profile is compared against the ad rather than treated as ambiguous.** Empty or whitespace-only descriptions, or ones shorter than a named module constant, set `mismatch_case=False` deterministically before writing. This avoids an unrequested career-change paragraph on degenerate ads without silently excluding adjacent-field career changers. Governs R1, R2, R7.
 - KTD7. **Wrap the previous-letter block in the existing untrusted-data framing in both prompt builders.** KTD5 makes that stored, user-editable, ad-derived text an authority anchor for the field verdict, so it must be labeled as data rather than instructions. Update the tests that currently assert the block sits outside the delimiting. Governs R9.
@@ -151,7 +151,8 @@ flowchart TB
 - R9/AE6 are prompt-enforced best effort; the verdict is not persisted, and a model flip between generations is an accepted risk.
 - The field verdict and trigger components are logged as booleans for diagnosis; no ad or profile text is logged, and nothing is persisted or shown in the UI.
 - A same-field core gap for Full-life triggers the dedicated paragraph per R2; its wording adapts per KTD2.
-- IT and legacy/unknown profile types keep the existing short note and receive no new key in the writing prompt.
+- IT and legacy/unknown profile types keep the existing short note and receive neither new key in the writing prompt.
+- The additional profile fields are part of the shared match/write payload, so IT's match analysis can see richer profile facts; the IT letter behavior and its short note are unchanged.
 - Profile edits between generations are not detected; R9 stability applies to an unchanged profile/job pair.
 - The 6,000-character job-description cap is unchanged; the untruncated title, company, and location still help identify the field.
 - Profile fields (`berufsbezeichnung`, `projects`, `languages`) are applicant-authored data; parsed-CV provenance is out of scope.
@@ -235,7 +236,7 @@ flowchart TB
   - `backend/tests/services/test_ai_generator.py`
   - `backend/tests/services/test_ai_generator_profile_style.py`
 - **Approach:**
-  1. `_build_user_prompt` accepts `mismatch_case: bool | None = None`; when it is not `None`, include it in the assessment block. The caller passes it only for Full-life, so IT and legacy receive no new key.
+  1. `_build_user_prompt` accepts `mismatch_case: bool | None = None`; when it is not `None`, include both `field_mismatch` and `mismatch_case` in the assessment block. The caller passes it only for Full-life, so IT and legacy receive neither key.
   2. Add a Full-life block to `_STYLE_FULL_LIFE` keyed on `mismatch_case`. It requires exactly one paragraph, open naming of the mismatch, field-transfer framing when the field differs, role/skill framing for a same-field core gap, a grounded transferable skill or the no-overlap fallback, soft learning willingness rather than explicit Umschulung/Weiterbildung wording (per R5, R6, KD3), and no claim that an unmet core requirement is met (per R6).
   3. State explicitly that when `mismatch_case` is true the dedicated paragraph is required even if no requirement is unmatched (the field-mismatch-only case), and that the base "no core gap means no note" rule does not apply. This overrides the base note rather than competing with it.
   4. State that the paragraph counts within the existing 3-5 paragraphs and that its presence and role stay invariant on Regenerate.
@@ -243,7 +244,7 @@ flowchart TB
   6. Add a continuity test that the existing base and style rules still hold, so R10 cannot drift silently.
 - **Patterns to follow:** additive `_STYLE_IT` / `_STYLE_FULL_LIFE` blocks; `TestBuildSystemPromptStyleBranches`' leakage-guard style; `TestBuildUserPrompt`'s assessment-block assertions.
 - **Test scenarios:**
-  - `_build_user_prompt` with `mismatch_case=True` includes the key in the assessment block; with `mismatch_case=None` it does not.
+  - `_build_user_prompt` with `mismatch_case=True` includes both `field_mismatch` and `mismatch_case` in the assessment block; with `mismatch_case=None` it includes neither.
   - `_build_system_prompt("full_life")` contains the dedicated-paragraph instruction, the open-naming rule, the no-overlap rule, the forbidden "Umschulung"/"Weiterbildung" wording, the exactly-one-paragraph rule, and the Regenerate invariance rule.
   - `_build_system_prompt("full_life")` states that the paragraph is required when `mismatch_case` is true even with no unmatched core requirement (AE2 override).
   - `_build_system_prompt("it")` contains the existing short note and no Full-life override text.

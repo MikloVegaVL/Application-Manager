@@ -478,6 +478,7 @@ class TestCoverLetterFitAssessmentStructuralFallback:
             ],
         }
         flat_payload = {
+            "field_mismatch": True,
             "requirements": json.dumps(
                 [
                     {
@@ -499,6 +500,7 @@ class TestCoverLetterFitAssessmentStructuralFallback:
         result = llm_client.generate_structured(CoverLetterFitAssessment, _messages())
 
         assert isinstance(result, CoverLetterFitAssessment)
+        assert result.field_mismatch is True
         assert len(result.requirements) == 1
         assert result.requirements[0].requirement == "Python-Kenntnisse"
         assert result.requirements[0].matched is True
