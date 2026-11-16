@@ -54,6 +54,15 @@ class RequirementAssessment(BaseModel):
 
 class CoverLetterFitAssessment(BaseModel):
     """Ergebnis des Match-Analyse-Aufrufs: pro Stellenanforderung ein
-    `RequirementAssessment` (R1)."""
+    `RequirementAssessment` (R1) plus ein Gesamturteil zum beruflichen Feld
+    (R1 der Full-life-Mismatch-Erweiterung).
 
+    `field_mismatch` ist bewusst unabhängig von den einzelnen Anforderungen:
+    Es kann true sein, obwohl jede Anforderung matched ist (reiner
+    Feldwechsel). Der Default false hält IT-/Legacy-Profile und bestehende
+    Fixtures gültig und behandelt ein fehlendes Urteil konservativ als
+    "kein Mismatch".
+    """
+
+    field_mismatch: bool = False
     requirements: list[RequirementAssessment]

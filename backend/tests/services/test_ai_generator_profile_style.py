@@ -76,6 +76,43 @@ class TestBuildSystemPromptStyleBranches:
         assert ai_generator._build_system_prompt("unknown") == ai_generator._SYSTEM_PROMPT
 
 
+class TestFullLifeMismatchPrompt:
+    """R3-R9: Full-life dedicated mismatch paragraph and its boundaries."""
+
+    def test_full_life_prompt_contains_dedicated_mismatch_paragraph(self):
+        prompt_lower = ai_generator._build_system_prompt("full_life").lower()
+
+        assert "mismatch_case" in prompt_lower
+        assert "genau einen zusammenhängenden absatz" in prompt_lower
+        assert "anstelle der kurzen lücken-notiz" in prompt_lower
+        assert "übertragbar" in prompt_lower
+        assert "regenerate" in prompt_lower
+
+    def test_full_life_prompt_overrides_base_note_for_field_mismatch_only(self):
+        prompt_lower = ai_generator._build_system_prompt("full_life").lower()
+
+        assert "auch dann, wenn keine kernanforderung unerfüllt ist" in prompt_lower
+        assert "greift in diesem fall nicht" in prompt_lower
+
+    def test_full_life_prompt_forbids_explicit_retraining_wording(self):
+        prompt = ai_generator._build_system_prompt("full_life")
+
+        assert '"Umschulung"' in prompt
+        assert '"Weiterbildung"' in prompt
+        assert "verwende dafür nicht die wörter" in prompt.lower()
+
+    def test_full_life_prompt_handles_no_grounded_overlap(self):
+        prompt_lower = ai_generator._build_system_prompt("full_life").lower()
+
+        assert "ohne eine transferfähigkeit zu erfinden" in prompt_lower
+
+    def test_it_prompt_does_not_contain_full_life_mismatch_instructions(self):
+        prompt_lower = ai_generator._build_system_prompt("it").lower()
+
+        assert "mismatch_case" not in prompt_lower
+        assert "anstelle der kurzen lücken-notiz" not in prompt_lower
+
+
 _VALID_FIT_ASSESSMENT = ai_generator.CoverLetterFitAssessment(requirements=[])
 _VALID_AI_RESULT = ai_generator.AiGenerationResult(
     cover_letter_text="Betreff: ...\n\nSehr geehrte Damen und Herren,\n\n...\n\nMit freundlichen Grüßen\nMax Mustermann"

@@ -510,6 +510,18 @@ class TestCoverLetterFitAssessmentStructuralFallback:
         assert first_format != fallback_format
 
 
+class TestCoverLetterFitAssessmentFieldMismatch:
+    """R1: overall field judgment, independent of per-requirement matches."""
+
+    def test_defaults_to_false(self):
+        result = CoverLetterFitAssessment(requirements=[])
+        assert result.field_mismatch is False
+
+    def test_accepts_true(self):
+        result = CoverLetterFitAssessment(field_mismatch=True, requirements=[])
+        assert result.field_mismatch is True
+
+
 class TestRequirementAssessmentEvidenceValidator:
     """KTD9: `matched=True` erfordert ein nicht-leeres `evidence` - sonst
     wäre ein "matched"-Urteil eine unbelegte Behauptung statt einer
