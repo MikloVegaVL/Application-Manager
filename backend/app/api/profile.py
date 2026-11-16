@@ -13,7 +13,7 @@ KTD1): die Anwendung unterhält jetzt zwei vollständig unabhängige Profile
 (R1/R2/R3) statt eines einzigen `MasterProfile`-Datensatzes."""
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
@@ -23,7 +23,13 @@ from app.core.config import settings
 from app.db.database import get_db
 from app.models.master_profile import MasterProfile
 from app.models.profile_attachment import ProfileAttachment
-from app.schemas.master_profile import MasterProfileCreate, MasterProfileRead, MasterProfileUpdate, ProfileType
+from app.schemas.master_profile import (
+    MasterProfileCreate,
+    MasterProfileRead,
+    MasterProfileUpdate,
+    ProfileLanguage,
+    ProfileType,
+)
 from app.services.file_validation import ATTACHMENT_MEDIA_TYPES, _iter_file, _require_attachment_file, _require_pdf
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
@@ -32,12 +38,14 @@ router = APIRouter(prefix="/profile", tags=["Profile"])
 # damit die Fehlermeldung das konkrete Profil benennt statt generisch zu
 # bleiben.
 _PROFILE_TYPE_LABELS: dict[str, str] = {"it": "IT", "full_life": "Full-life/Non-IT"}
+_PROFILE_LANGUAGE_LABELS: dict[str, str] = {"de": "Deutsch", "en": "English"}
 
 # Detail-Text-Vorlage für alle 404-Fälle "es existiert noch kein Profil
-# dieses Typs" (siehe `_get_profile_or_404` unten) - an einer Stelle
+# dieser Kombination" (siehe `_get_profile_or_404` unten) - an einer Stelle
 # gepflegt statt als mehrfach dupliziertes String-Literal.
 _NO_PROFILE_DETAIL_TEMPLATE = (
-    "Es wurde noch kein {label}-Profil angelegt. Bitte zunächst über PUT /api/profile/{profile_type} anlegen."
+    "Es wurde noch kein {label}-Profil ({language}) angelegt. Bitte zunächst über "
+    "PUT /api/profile/{profile_type} anlegen."
 )
 
 # Maximale Anzahl zusätzlicher PDF-Anhänge (siehe `ProfileAttachment`) - über
@@ -49,19 +57,27 @@ _NO_PROFILE_DETAIL_TEMPLATE = (
 MAX_PROFILE_ATTACHMENTS = 5
 
 
-def _get_profile_or_404(db: Session, profile_type: ProfileType) -> MasterProfile:
-    """Löst den `MasterProfile`-Datensatz für den gegebenen `profile_type`
-    auf (KTD6: ersetzt die zuvor zehnfach duplizierten
-    `db.query(MasterProfile).first()` + 404-Blöcke). Jedes Profil ist über
-    seinen `profile_type` eindeutig (siehe `uq_master_profiles_profile_type`
-    auf `MasterProfile`), daher genügt ein `filter_by` statt `.first()` auf
-    der gesamten Tabelle."""
-    profile = db.query(MasterProfile).filter_by(profile_type=profile_type).first()
+def _get_profile_or_404(
+    db: Session, profile_type: ProfileType, language: ProfileLanguage
+) -> MasterProfile:
+    """Löst den `MasterProfile`-Datensatz für `(profile_type, language)` auf
+    (KTD6: ersetzt die zuvor zehnfach duplizierten
+    `db.query(MasterProfile).first()` + 404-Blöcke). Zusammen bilden
+    `profile_type` und `language` den eindeutigen Schlüssel (siehe
+    `uq_master_profiles_profile_type_language` auf `MasterProfile`), daher
+    genügt ein `filter_by` statt `.first()` auf der gesamten Tabelle."""
+    profile = (
+        db.query(MasterProfile)
+        .filter_by(profile_type=profile_type, language=language)
+        .first()
+    )
     if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=_NO_PROFILE_DETAIL_TEMPLATE.format(
-                label=_PROFILE_TYPE_LABELS[profile_type], profile_type=profile_type
+                label=_PROFILE_TYPE_LABELS[profile_type],
+                language=_PROFILE_LANGUAGE_LABELS[language],
+                profile_type=profile_type,
             ),
         )
     return profile
@@ -205,25 +221,38 @@ def migrate_profile(payload: ProfileMigrationRequest, db: Session = Depends(get_
 
 
 @router.get("/{profile_type}", response_model=MasterProfileRead)
-def get_profile(profile_type: ProfileType, db: Session = Depends(get_db)) -> MasterProfile:
-    """Liefert eines der beiden unabhängigen Profile (R1/KTD1)."""
-    return _get_profile_or_404(db, profile_type)
+def get_profile(
+    profile_type: ProfileType,
+    language: ProfileLanguage = Query(..., description="Profilsprache (de/en)"),
+    db: Session = Depends(get_db),
+) -> MasterProfile:
+    """Liefert eines der vier unabhängigen Profile (R1/KTD1)."""
+    return _get_profile_or_404(db, profile_type, language)
 
 
 @router.put("/{profile_type}", response_model=MasterProfileRead)
-def upsert_profile(profile_type: ProfileType, payload: MasterProfileCreate, db: Session = Depends(get_db)) -> MasterProfile:
-    """Erstellt das Profil des gegebenen Typs beim ersten Aufruf oder
+def upsert_profile(
+    profile_type: ProfileType,
+    payload: MasterProfileCreate,
+    language: ProfileLanguage = Query(..., description="Profilsprache (de/en)"),
+    db: Session = Depends(get_db),
+) -> MasterProfile:
+    """Erstellt das Profil der gegebenen Kombination beim ersten Aufruf oder
     überschreibt es vollständig mit den übergebenen Daten (Upsert-Semantik).
-    Legt eine neue Zeile an, sofern für diesen `profile_type` noch keine
+    Legt eine neue Zeile an, sofern für `(profile_type, language)` noch keine
     existiert - auch wenn bereits eine untypisierte Alt-Zeile
     (`profile_type IS NULL`, Vor-Migrations-Daten) vorhanden ist, kollidiert
-    das nicht (die Abfrage filtert explizit auf `profile_type`, nicht auf die
+    das nicht (die Abfrage filtert explizit auf die Kombination, nicht auf die
     erste Zeile der Tabelle)."""
-    profile = db.query(MasterProfile).filter_by(profile_type=profile_type).first()
+    profile = (
+        db.query(MasterProfile)
+        .filter_by(profile_type=profile_type, language=language)
+        .first()
+    )
     data = payload.model_dump()
 
     if profile is None:
-        profile = MasterProfile(profile_type=profile_type, **data)
+        profile = MasterProfile(profile_type=profile_type, language=language, **data)
         db.add(profile)
     else:
         for field, value in data.items():
@@ -235,8 +264,94 @@ def upsert_profile(profile_type: ProfileType, payload: MasterProfileCreate, db: 
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Es existiert bereits ein {_PROFILE_TYPE_LABELS[profile_type]}-Profil - bitte erneut versuchen.",
+            detail=(
+                f"Es existiert bereits ein {_PROFILE_TYPE_LABELS[profile_type]}-Profil "
+                f"({_PROFILE_LANGUAGE_LABELS[language]}) - bitte erneut versuchen."
+            ),
         ) from None
+    db.refresh(profile)
+    return profile
+
+
+@router.post("/{profile_type}/ensure", response_model=MasterProfileRead)
+def ensure_profile_language(
+    profile_type: ProfileType,
+    language: ProfileLanguage = Query(..., description="Profilsprache (de/en)"),
+    db: Session = Depends(get_db),
+) -> MasterProfile:
+    """Stellt sicher, dass das Profil `(profile_type, language)` existiert.
+
+    Existiert es bereits, wird es unverändert zurückgegeben. Andernfalls wird
+    es aus der Schwester-Sprachvariante desselben `profile_type` geklont:
+    Identitätsfelder und Foto werden übernommen, damit ein Sprachwechsel nicht
+    bei einem leeren Formular beginnt. CV-Inhalte, die hochgeladene
+    Lebenslauf-Datei, Anhänge und `template_id` werden bewusst NICHT kopiert;
+    die Kopie ist ein einmaliger Snapshot. Existiert keine Schwester-Variante,
+    gibt es 404 - der Aufrufer zeigt dann das leere Formular, das der erste
+    PUT anlegt. Ein paralleler Doppel-Insert wird über den Unique-Constraint
+    abgefangen und auf die bereits angelegte Zeile aufgelöst."""
+    existing = (
+        db.query(MasterProfile)
+        .filter_by(profile_type=profile_type, language=language)
+        .first()
+    )
+    if existing is not None:
+        return existing
+
+    sibling_language: ProfileLanguage = "en" if language == "de" else "de"
+    sibling = (
+        db.query(MasterProfile)
+        .filter_by(profile_type=profile_type, language=sibling_language)
+        .first()
+    )
+    if sibling is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Es gibt noch keine {_PROFILE_TYPE_LABELS[profile_type]}-Variante in "
+                f"{_PROFILE_LANGUAGE_LABELS[sibling_language]}, aus der das "
+                f"{_PROFILE_LANGUAGE_LABELS[language]}-Profil kopiert werden könnte."
+            ),
+        )
+
+    profile = MasterProfile(
+        profile_type=profile_type,
+        language=language,
+        full_name=sibling.full_name,
+        email=sibling.email,
+        phone=sibling.phone,
+        address=sibling.address,
+        linkedin=sibling.linkedin,
+        website=sibling.website,
+        sender_email=sibling.sender_email,
+    )
+    db.add(profile)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        existing = (
+            db.query(MasterProfile)
+            .filter_by(profile_type=profile_type, language=language)
+            .first()
+        )
+        if existing is not None:
+            return existing
+        raise
+
+    # Das Foto liegt unter einem profil-id-abhängigen Pfad - deshalb erst
+    # nach dem Flush kopieren, wenn die neue Profil-ID vergeben ist.
+    if sibling.photo_path:
+        source = Path(sibling.photo_path)
+        if source.exists():
+            ext = source.suffix.lstrip(".") or "png"
+            target = _photo_path_for(profile.id, ext)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(source.read_bytes())
+            profile.photo_path = str(target)
+            profile.photo_filename = sibling.photo_filename
+
+    db.commit()
     db.refresh(profile)
     return profile
 
@@ -249,7 +364,10 @@ _IDENTITY_FIELDS = {"full_name", "email", "phone", "address", "linkedin", "websi
 
 @router.patch("/{profile_type}", response_model=MasterProfileRead)
 def update_profile_content(
-    profile_type: ProfileType, payload: MasterProfileUpdate, db: Session = Depends(get_db)
+    profile_type: ProfileType,
+    payload: MasterProfileUpdate,
+    language: ProfileLanguage = Query(..., description="Profilsprache (de/en)"),
+    db: Session = Depends(get_db),
 ) -> MasterProfile:
     """Partielles Update der CV-Builder-Inhaltsfelder (R2/R3/R4, KTD2).
 
@@ -267,8 +385,8 @@ def update_profile_content(
     ist in `MasterProfileUpdate` gar nicht erst enthalten - das schreiben
     ausschließlich die Foto-Endpunkte (`POST`/`DELETE /profile/{profile_type}/photo`).
 
-    Setzt ein bereits existierendes Profil dieses Typs voraus (KTD9): der
-    Builder legt kein neues Profil an, das bleibt weiterhin
+    Setzt ein bereits existierendes Profil dieser Kombination voraus (KTD9):
+    der Builder legt kein neues Profil an, das bleibt weiterhin
     `PUT /profile/{profile_type}` vorbehalten.
     """
     data = payload.model_dump(exclude_unset=True)
@@ -284,7 +402,7 @@ def update_profile_content(
             ),
         )
 
-    profile = _get_profile_or_404(db, profile_type)
+    profile = _get_profile_or_404(db, profile_type, language)
 
     for field, value in data.items():
         setattr(profile, field, value)
@@ -298,6 +416,7 @@ def update_profile_content(
 def upload_cv_file(
     profile_type: ProfileType,
     file: UploadFile = File(..., description="Lebenslauf als PDF-Datei"),
+    language: ProfileLanguage = Query(..., description="Profilsprache (de/en)"),
     db: Session = Depends(get_db),
 ) -> MasterProfile:
     """Speichert eine Lebenslauf-PDF unverändert (kein KI-Parsing, kein
@@ -309,7 +428,7 @@ def upload_cv_file(
     Ein bereits existierendes Profil dieses Typs ist Voraussetzung, da die
     Datei am Profil hängt.
     """
-    profile = _get_profile_or_404(db, profile_type)
+    profile = _get_profile_or_404(db, profile_type, language)
 
     file_bytes = _require_pdf(file)
 
@@ -325,10 +444,14 @@ def upload_cv_file(
 
 
 @router.get("/{profile_type}/cv-file")
-def download_cv_file(profile_type: ProfileType, db: Session = Depends(get_db)) -> StreamingResponse:
+def download_cv_file(
+    profile_type: ProfileType,
+    language: ProfileLanguage = Query(..., description="Profilsprache (de/en)"),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
     """Liefert die hochgeladene Lebenslauf-Anhang-Datei zurück (z. B. für
     eine Vorschau/Download-Prüfung im Profil-Frontend)."""
-    profile = db.query(MasterProfile).filter_by(profile_type=profile_type).first()
+    profile = _get_profile_or_404(db, profile_type, language)
     if profile is None or not profile.cv_file_path:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -348,10 +471,14 @@ def download_cv_file(profile_type: ProfileType, db: Session = Depends(get_db)) -
 
 
 @router.delete("/{profile_type}/cv-file", response_model=MasterProfileRead)
-def delete_cv_file(profile_type: ProfileType, db: Session = Depends(get_db)) -> MasterProfile:
+def delete_cv_file(
+    profile_type: ProfileType,
+    language: ProfileLanguage = Query(..., description="Profilsprache (de/en)"),
+    db: Session = Depends(get_db),
+) -> MasterProfile:
     """Entfernt die hochgeladene Lebenslauf-Anhang-Datei wieder (z. B. um sie
     durch eine andere zu ersetzen)."""
-    profile = db.query(MasterProfile).filter_by(profile_type=profile_type).first()
+    profile = _get_profile_or_404(db, profile_type, language)
     if profile is None or not profile.cv_file_path:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -381,6 +508,7 @@ def delete_cv_file(profile_type: ProfileType, db: Session = Depends(get_db)) -> 
 def upload_photo(
     profile_type: ProfileType,
     file: UploadFile = File(..., description="Profilfoto als JPEG- oder PNG-Datei"),
+    language: ProfileLanguage = Query(..., description="Profilsprache (de/en)"),
     db: Session = Depends(get_db),
 ) -> MasterProfile:
     """Speichert ein Profilfoto fürs Stammprofil (CV-Builder, R3).
@@ -392,7 +520,7 @@ def upload_photo(
     Re-Upload im selben Format überschreibt die vorhandene Datei einfach
     (wie bei `cv-file`).
     """
-    profile = _get_profile_or_404(db, profile_type)
+    profile = _get_profile_or_404(db, profile_type, language)
 
     file_bytes, ext = _require_image(file)
     photo_path = _photo_path_for(profile.id, ext)
@@ -413,10 +541,14 @@ def upload_photo(
 
 
 @router.get("/{profile_type}/photo")
-def download_photo(profile_type: ProfileType, db: Session = Depends(get_db)) -> StreamingResponse:
+def download_photo(
+    profile_type: ProfileType,
+    language: ProfileLanguage = Query(..., description="Profilsprache (de/en)"),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
     """Liefert das hochgeladene Profilfoto zurück (z. B. für die Vorschau im
     CV-Builder)."""
-    profile = db.query(MasterProfile).filter_by(profile_type=profile_type).first()
+    profile = _get_profile_or_404(db, profile_type, language)
     if profile is None or not profile.photo_path:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -437,10 +569,14 @@ def download_photo(profile_type: ProfileType, db: Session = Depends(get_db)) -> 
 
 
 @router.delete("/{profile_type}/photo", response_model=MasterProfileRead)
-def delete_photo(profile_type: ProfileType, db: Session = Depends(get_db)) -> MasterProfile:
+def delete_photo(
+    profile_type: ProfileType,
+    language: ProfileLanguage = Query(..., description="Profilsprache (de/en)"),
+    db: Session = Depends(get_db),
+) -> MasterProfile:
     """Entfernt das hochgeladene Profilfoto wieder (z. B. um es durch ein
     anderes zu ersetzen)."""
-    profile = db.query(MasterProfile).filter_by(profile_type=profile_type).first()
+    profile = _get_profile_or_404(db, profile_type, language)
     if profile is None or not profile.photo_path:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -470,6 +606,7 @@ def delete_photo(profile_type: ProfileType, db: Session = Depends(get_db)) -> Ma
 def upload_attachment(
     profile_type: ProfileType,
     file: UploadFile = File(..., description="Zusätzlicher Anhang als PDF-, JPG-, PNG-, DOC- oder DOCX-Datei"),
+    language: ProfileLanguage = Query(..., description="Profilsprache (de/en)"),
     db: Session = Depends(get_db),
 ) -> MasterProfile:
     """Fügt dem Profil einen weiteren Anhang hinzu (z. B. Arbeitszeugnis,
@@ -478,7 +615,7 @@ def upload_attachment(
     (DOC/DOCX). Auf `MAX_PROFILE_ATTACHMENTS` begrenzt - ein bereits
     existierendes Profil dieses Typs ist Voraussetzung, da die Anhänge am
     Profil hängen."""
-    profile = _get_profile_or_404(db, profile_type)
+    profile = _get_profile_or_404(db, profile_type, language)
 
     if len(profile.attachments) >= MAX_PROFILE_ATTACHMENTS:
         raise HTTPException(
@@ -506,7 +643,10 @@ def upload_attachment(
 
 @router.get("/{profile_type}/attachments/{attachment_id}")
 def download_attachment(
-    profile_type: ProfileType, attachment_id: int, db: Session = Depends(get_db)
+    profile_type: ProfileType,
+    attachment_id: int,
+    language: ProfileLanguage = Query(..., description="Profilsprache (de/en)"),
+    db: Session = Depends(get_db),
 ) -> StreamingResponse:
     """Liefert einen einzelnen zusätzlichen Anhang zurück (z. B. für eine
     Vorschau/Download-Prüfung im Profil-Frontend).
@@ -515,7 +655,7 @@ def download_attachment(
     dieses `profile_type` gehört (R1/R3) - sonst ließe sich ein Anhang des
     IT-Profils über eine `full_life`-URL abrufen, nur weil dessen
     `attachment_id` bekannt/erraten ist."""
-    profile = _get_profile_or_404(db, profile_type)
+    profile = _get_profile_or_404(db, profile_type, language)
 
     attachment = db.get(ProfileAttachment, attachment_id)
     if attachment is None or attachment.profile_id != profile.id:
@@ -536,13 +676,18 @@ def download_attachment(
 
 
 @router.delete("/{profile_type}/attachments/{attachment_id}", response_model=MasterProfileRead)
-def delete_attachment(profile_type: ProfileType, attachment_id: int, db: Session = Depends(get_db)) -> MasterProfile:
+def delete_attachment(
+    profile_type: ProfileType,
+    attachment_id: int,
+    language: ProfileLanguage = Query(..., description="Profilsprache (de/en)"),
+    db: Session = Depends(get_db),
+) -> MasterProfile:
     """Entfernt einen zusätzlichen Anhang wieder (z. B. um Platz für einen
     anderen zu schaffen, da auf MAX_PROFILE_ATTACHMENTS begrenzt).
 
     Gleiche Ownership-Prüfung wie `download_attachment` oben (R1/R3): ein
     Anhang des IT-Profils lässt sich nicht über eine `full_life`-URL löschen."""
-    profile = _get_profile_or_404(db, profile_type)
+    profile = _get_profile_or_404(db, profile_type, language)
 
     attachment = db.get(ProfileAttachment, attachment_id)
     if attachment is None or attachment.profile_id != profile.id:
