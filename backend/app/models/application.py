@@ -98,5 +98,12 @@ class Application(Base):
         zugeordnet ist (noch nicht generiert)."""
         return self.profile.profile_type if self.profile else None
 
+    @property
+    def language(self) -> str | None:
+        """Für `ApplicationRead.language` (U5/KTD6) - abgeleitet aus der
+        verknüpften `MasterProfile.language`, `None` solange kein Profil
+        zugeordnet ist (noch nicht generiert)."""
+        return self.profile.language if self.profile else None
+
     def __repr__(self) -> str:  # pragma: no cover - Debug-Hilfe
         return f"<Application id={self.id} job_offer_id={self.job_offer_id} status={self.status}>"

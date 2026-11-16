@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.application import ApplicationStatus
 from app.schemas.job_offer import JobOfferRead
-from app.schemas.master_profile import ProfileType
+from app.schemas.master_profile import ProfileLanguage, ProfileType
 
 # Enum aus dem ORM-Modell wiederverwendet, damit API und DB immer denselben
 # Satz gültiger Status-Werte kennen
@@ -80,6 +80,10 @@ class ApplicationRead(ApplicationBase):
     # siehe `app.models.application`), das intern die verknüpfte
     # `MasterProfile.profile_type` auflöst.
     profile_type: str | None = None
+    # Sprache des gesperrten Profils (`de`/`en`, docs/plans/2026-11-16-001-
+    # feat-bilingual-cv-profiles-plan.md, U5/KTD6). `null`, solange kein Profil
+    # zugeordnet ist.
+    language: str | None = None
 
 
 class ApplicationGenerateRequest(BaseModel):
@@ -93,13 +97,22 @@ class ApplicationGenerateRequest(BaseModel):
     `for_new_application` ist R5's Ausweg (U9, KTD12): statt das für dieses
     Stellenangebot bereits gesperrte Profil zu überschreiben, legt es eine
     ZUSÄTZLICHE, unabhängige `Application`-Zeile für dasselbe Stellenangebot
-    an, gesperrt auf das hier mitgeschickte `profile_type`. Bewusst ein
+    an, gesperrt auf die hier mitgeschickte Kombination. Bewusst ein
     explizites Flag statt eines impliziten Nebeneffekts (z. B. beim erneuten
     Speichern des Jobs) - das verhindert, dass ein wiederholter/verdoppelter
-    Request stillschweigend weitere `Application`-Zeilen erzeugt."""
+    Request stillschweigend weitere `Application`-Zeilen erzeugt.
+
+    `language` ergänzt `profile_type` zur vollständigen Profil-Adresse
+    (`de`/`en`, docs/plans/2026-11-16-001-feat-bilingual-cv-profiles-plan.md,
+    R11/R12). Beide sind nur ohne `application_id` und ohne bereits
+    gesperrtes Profil Pflicht. `application_id` adressiert beim Regenerieren
+    exakt die geöffnete Bewerbung - ohne sie würde `.first()` pro Job bei
+    mehreren Profil-Bewerbungen die falsche Zeile überschreiben."""
 
     job_offer_id: int
     profile_type: ProfileType | None = None
+    language: ProfileLanguage | None = None
+    application_id: int | None = None
     for_new_application: bool = False
 
 

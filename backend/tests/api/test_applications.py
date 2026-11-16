@@ -115,6 +115,7 @@ def _create_profile(session, *, profile_type: str | None = "it") -> MasterProfil
     profile = MasterProfile(
         full_name="Max Mustermann",
         email="max.mustermann@example.com",
+        summary="Erfahrener Entwickler.",
         profile_type=profile_type,
         language="de",
     )
@@ -135,6 +136,7 @@ def _create_profile_with_cv_file(
     profile = MasterProfile(
         full_name="Max Mustermann",
         email="max.mustermann@example.com",
+        summary="Erfahrener Entwickler.",
         cv_file_path=str(cv_path),
         cv_filename=filename,
         profile_type=profile_type,
@@ -535,7 +537,7 @@ def test_generate_application_returns_409_for_an_overlapping_request_on_the_same
 
     def call_generate() -> None:
         first_response["response"] = client.post(
-            "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+            "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de"}
         )
 
     first_thread = threading.Thread(target=call_generate)
@@ -548,7 +550,7 @@ def test_generate_application_returns_409_for_an_overlapping_request_on_the_same
     # ohne `profile_type` würde die Profilauflösung mit 422 statt der hier
     # erwarteten 409 (Sperre) abbrechen.
     duplicate_response = client.post(
-        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de"}
     )
 
     release_first_call.set()
@@ -604,7 +606,7 @@ def test_generate_application_guard_is_scoped_per_job_offer_not_global(
 
     def call_generate_for_a() -> None:
         first_response["response"] = client.post(
-            "/api/applications/generate", json={"job_offer_id": job_offer_a_id, "profile_type": "it"}
+            "/api/applications/generate", json={"job_offer_id": job_offer_a_id, "profile_type": "it", "language": "de"}
         )
 
     first_thread = threading.Thread(target=call_generate_for_a)
@@ -618,7 +620,7 @@ def test_generate_application_guard_is_scoped_per_job_offer_not_global(
         lambda profile, job_offer, previous_cover_letter_text=None: "Betreff: Bewerbung als Frontend Engineer\n\nSehr geehrte Damen und Herren,...",
     )
     other_job_response = client.post(
-        "/api/applications/generate", json={"job_offer_id": job_offer_b_id, "profile_type": "it"}
+        "/api/applications/generate", json={"job_offer_id": job_offer_b_id, "profile_type": "it", "language": "de"}
     )
 
     release_first_call.set()
@@ -651,7 +653,7 @@ def test_generate_application_releases_the_lock_when_generation_fails(
     monkeypatch.setattr("app.api.applications.generate_application_content", failing_generate)
 
     failed_response = client.post(
-        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de"}
     )
     assert failed_response.status_code == 502
 
@@ -664,7 +666,7 @@ def test_generate_application_releases_the_lock_when_generation_fails(
     # dieser Retry ist also weiterhin eine "erste" Generierung und braucht
     # `profile_type` erneut.
     retry_response = client.post(
-        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de"}
     )
     assert retry_response.status_code == 200
 
@@ -704,7 +706,7 @@ def test_generate_application_passes_existing_cover_letter_as_previous_version(
     monkeypatch.setattr("app.api.applications.generate_application_content", capturing_generate)
 
     response = client.post(
-        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de"}
     )
 
     assert response.status_code == 200
@@ -734,7 +736,7 @@ def test_generate_application_passes_no_previous_version_on_first_generation(
     monkeypatch.setattr("app.api.applications.generate_application_content", capturing_generate)
 
     response = client.post(
-        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de"}
     )
 
     assert response.status_code == 200
@@ -759,7 +761,7 @@ def test_generate_application_locks_the_selected_profile_and_generates_from_its_
         job_offer_id = job_offer.id
         it_profile = _create_profile(session, profile_type="it")
         it_profile_id = it_profile.id
-        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life", language="de"))
+        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", summary="Erfahrene Entwicklerin.", profile_type="full_life", language="de"))
         session.commit()
     finally:
         session.close()
@@ -774,7 +776,7 @@ def test_generate_application_locks_the_selected_profile_and_generates_from_its_
     monkeypatch.setattr("app.api.applications.generate_application_content", capturing_generate)
 
     response = client.post(
-        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de"}
     )
 
     assert response.status_code == 200
@@ -806,7 +808,7 @@ def test_regenerate_keeps_the_locked_profile_even_with_a_different_profile_type_
         job_offer_id = job_offer.id
         it_profile = _create_profile(session, profile_type="it")
         it_profile_id = it_profile.id
-        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life", language="de"))
+        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", summary="Erfahrene Entwicklerin.", profile_type="full_life", language="de"))
         session.commit()
     finally:
         session.close()
@@ -816,7 +818,7 @@ def test_regenerate_keeps_the_locked_profile_even_with_a_different_profile_type_
         lambda profile, job_offer, previous_cover_letter_text=None: "Erste Version",
     )
     first_response = client.post(
-        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de"}
     )
     assert first_response.status_code == 200
     assert first_response.json()["profile_type"] == "it"
@@ -830,7 +832,7 @@ def test_regenerate_keeps_the_locked_profile_even_with_a_different_profile_type_
     monkeypatch.setattr("app.api.applications.generate_application_content", capturing_generate)
 
     second_response = client.post(
-        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "full_life"}
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "full_life", "language": "de"}
     )
 
     assert second_response.status_code == 200
@@ -855,7 +857,7 @@ def test_for_new_application_creates_a_second_row_locked_to_the_other_profile(
         )
         job_offer_id = job_offer.id
         _create_profile(session, profile_type="it")
-        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life", language="de"))
+        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", summary="Erfahrene Entwicklerin.", profile_type="full_life", language="de"))
         session.commit()
     finally:
         session.close()
@@ -865,7 +867,7 @@ def test_for_new_application_creates_a_second_row_locked_to_the_other_profile(
         lambda profile, job_offer, previous_cover_letter_text=None: "IT-Version",
     )
     first_response = client.post(
-        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de"}
     )
     assert first_response.status_code == 200
     first_application_id = first_response.json()["id"]
@@ -877,7 +879,7 @@ def test_for_new_application_creates_a_second_row_locked_to_the_other_profile(
     )
     second_response = client.post(
         "/api/applications/generate",
-        json={"job_offer_id": job_offer_id, "profile_type": "full_life", "for_new_application": True},
+        json={"job_offer_id": job_offer_id, "profile_type": "full_life", "language": "de", "for_new_application": True},
     )
     assert second_response.status_code == 200
     second_application_id = second_response.json()["id"]
@@ -906,7 +908,7 @@ def test_by_job_offer_returns_a_list_with_both_applications(
         )
         job_offer_id = job_offer.id
         _create_profile(session, profile_type="it")
-        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life", language="de"))
+        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", summary="Erfahrene Entwicklerin.", profile_type="full_life", language="de"))
         session.commit()
     finally:
         session.close()
@@ -915,10 +917,10 @@ def test_by_job_offer_returns_a_list_with_both_applications(
         "app.api.applications.generate_application_content",
         lambda profile, job_offer, previous_cover_letter_text=None: "Version",
     )
-    client.post("/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"})
+    client.post("/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de"})
     client.post(
         "/api/applications/generate",
-        json={"job_offer_id": job_offer_id, "profile_type": "full_life", "for_new_application": True},
+        json={"job_offer_id": job_offer_id, "profile_type": "full_life", "language": "de", "for_new_application": True},
     )
 
     response = client.get(f"/api/applications/by-job-offer/{job_offer_id}")
@@ -951,7 +953,7 @@ def test_for_new_application_with_no_existing_application_behaves_like_a_normal_
     )
     response = client.post(
         "/api/applications/generate",
-        json={"job_offer_id": job_offer_id, "profile_type": "it", "for_new_application": True},
+        json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de", "for_new_application": True},
     )
 
     assert response.status_code == 200
@@ -1007,7 +1009,7 @@ def test_generate_application_returns_404_for_a_profile_type_with_no_profile_row
         session.close()
 
     response = client.post(
-        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "full_life"}
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "full_life", "language": "de"}
     )
 
     assert response.status_code == 404
@@ -1047,7 +1049,7 @@ def test_application_read_profile_type_is_none_before_generation_and_set_after(
         lambda profile, job_offer, previous_cover_letter_text=None: "Betreff: Bewerbung",
     )
     generate_response = client.post(
-        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de"}
     )
     assert generate_response.status_code == 200
     assert generate_response.json()["profile_type"] == "it"
@@ -1093,7 +1095,7 @@ def test_send_and_download_use_only_the_locked_profiles_data_not_the_other_profi
         ),
     )
     generate_response = client.post(
-        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it"}
+        "/api/applications/generate", json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de"}
     )
     assert generate_response.status_code == 200
     application_id = generate_response.json()["id"]
@@ -1611,3 +1613,166 @@ def test_deleting_application_sets_portal_submission_application_id_to_null_not_
         assert row.platform == "personio"
     finally:
         session.close()
+
+
+# --- U5/KTD6: application-id targeting, duplicate combination, empty guard --
+
+
+def test_regenerate_by_application_id_targets_exactly_that_row(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/app-id")
+        job_offer_id = job_offer.id
+        _create_profile(session, profile_type="it")
+        session.add(
+            MasterProfile(
+                full_name="Erika Mustermann",
+                email="erika@example.com",
+                summary="Erfahrene Entwicklerin.",
+                profile_type="full_life",
+                language="de",
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer, previous_cover_letter_text=None: "IT-Version",
+    )
+    it_response = client.post(
+        "/api/applications/generate",
+        json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de"},
+    )
+    assert it_response.status_code == 200
+    it_id = it_response.json()["id"]
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Full-life-Version",
+    )
+    fl_response = client.post(
+        "/api/applications/generate",
+        json={
+            "job_offer_id": job_offer_id,
+            "profile_type": "full_life",
+            "language": "de",
+            "for_new_application": True,
+        },
+    )
+    assert fl_response.status_code == 200
+    fl_id = fl_response.json()["id"]
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Regenerated Full-life",
+    )
+    regenerated = client.post(
+        "/api/applications/generate",
+        json={"job_offer_id": job_offer_id, "application_id": fl_id},
+    )
+
+    assert regenerated.status_code == 200
+    assert regenerated.json()["id"] == fl_id
+    assert regenerated.json()["cover_letter_text"] == "Regenerated Full-life"
+    assert client.get(f"/api/applications/{it_id}").json()["cover_letter_text"] == "IT-Version"
+
+
+def test_for_new_application_with_an_existing_combination_opens_it_without_regenerating(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/duplicate")
+        job_offer_id = job_offer.id
+        _create_profile(session, profile_type="it")
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Erste Version",
+    )
+    first = client.post(
+        "/api/applications/generate",
+        json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de"},
+    )
+    assert first.status_code == 200
+    first_id = first.json()["id"]
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not regenerate")),
+    )
+    second = client.post(
+        "/api/applications/generate",
+        json={
+            "job_offer_id": job_offer_id,
+            "profile_type": "it",
+            "language": "de",
+            "for_new_application": True,
+        },
+    )
+
+    assert second.status_code == 200
+    assert second.json()["id"] == first_id
+
+    session = db_session_local()
+    try:
+        assert session.query(Application).filter_by(job_offer_id=job_offer_id).count() == 1
+    finally:
+        session.close()
+
+
+def test_generate_rejects_a_profile_without_cv_content(client: TestClient, db_session_local) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/empty-profile")
+        job_offer_id = job_offer.id
+        session.add(
+            MasterProfile(
+                full_name="Leeres Profil",
+                email="leer@example.com",
+                profile_type="it",
+                language="de",
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    response = client.post(
+        "/api/applications/generate",
+        json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de"},
+    )
+
+    assert response.status_code == 422
+    assert "keine CV-Inhalte" in response.json()["detail"]
+
+
+def test_application_read_exposes_the_locked_language(
+    client: TestClient, db_session_local, monkeypatch
+) -> None:
+    session = db_session_local()
+    try:
+        job_offer = _create_job_offer(session, title="Backend Engineer", company="Acme GmbH", source_url="https://example.com/job/language-read")
+        job_offer_id = job_offer.id
+        _create_profile(session, profile_type="it")
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "app.api.applications.generate_application_content",
+        lambda profile, job_offer, previous_cover_letter_text=None: "Anschreiben",
+    )
+    response = client.post(
+        "/api/applications/generate",
+        json={"job_offer_id": job_offer_id, "profile_type": "it", "language": "de"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["language"] == "de"
+    assert response.json()["profile_type"] == "it"

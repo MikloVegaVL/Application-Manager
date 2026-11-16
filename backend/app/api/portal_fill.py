@@ -220,7 +220,10 @@ def _build_document_packets(request: Request, profile: MasterProfile) -> list[Po
                 kind="cv",
                 id=None,
                 filename=profile.cv_filename or "lebenslauf.pdf",
-                download_url=f"{base_url}/api/profile/{profile.profile_type}/cv-file",
+                download_url=(
+                    f"{base_url}/api/profile/{profile.profile_type}/cv-file"
+                    f"?language={profile.language}"
+                ),
             )
         )
 
@@ -230,7 +233,10 @@ def _build_document_packets(request: Request, profile: MasterProfile) -> list[Po
                 kind="attachment",
                 id=attachment.id,
                 filename=attachment.filename,
-                download_url=f"{base_url}/api/profile/{profile.profile_type}/attachments/{attachment.id}",
+                download_url=(
+                    f"{base_url}/api/profile/{profile.profile_type}/attachments/{attachment.id}"
+                    f"?language={profile.language}"
+                ),
             )
         )
 
@@ -397,9 +403,12 @@ def record_portal_submission(
 
     _validate_submitted_url(payload.portal_url, fill_request)
 
-    application = (
-        db.query(Application).filter(Application.job_offer_id == job_offer.id).first()
-    )
+    # U5/KTD6: die Zuordnung kommt aus dem TATSÄCHLICH konsumierten
+    # Fill-Request, nicht aus `.first()` pro Stellenangebot - bei mehreren
+    # Profil-Bewerbungen für denselben Job würde `.first()` sonst den falschen
+    # Eintrag als "beworben" markieren. Ist die Bewerbung inzwischen gelöscht,
+    # bleibt `application_id` None (der Report wird weiterhin protokolliert).
+    application = db.get(Application, fill_request.application_id)
 
     submission = PortalSubmission(
         application_id=application.id if application is not None else None,
