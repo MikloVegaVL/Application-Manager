@@ -21,6 +21,11 @@ The domain a skill belongs to, used to group skills into compact sections in a r
 ### Profile language
 The German or English dimension of a profile. Together with the profile domain (IT / Full-life) it identifies one of four independent profiles, each with its own content, contact data, files, and rendered CV language.
 
+## Cover Letter
+
+### Mismatch case
+A Full-life cover-letter generation case where the job ad lies outside the profile's field or at least one core requirement stays unmet. It is derived internally from the fit assessment, drives the dedicated transfer paragraph instead of the short gap note, and is not persisted on the application.
+
 ## Job Search
 
 ### Applied
