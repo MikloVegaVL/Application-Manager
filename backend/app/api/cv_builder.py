@@ -16,7 +16,7 @@ repariert - dieser Router ist sein vollständiger Ersatz.
 import io
 import re
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -29,6 +29,7 @@ from app.schemas.master_profile import (
     EducationEntry,
     ExperienceEntry,
     LanguageEntry,
+    ProfileLanguage,
     ProjectEntry,
     SkillEntry,
 )
@@ -79,15 +80,21 @@ def _sanitize_filename_component(value: str) -> str:
 
 
 def _render_cv_for_current_profile(
-    payload: CvRenderRequest, db: Session, profile_type: ProfileType, *, preview: bool
+    payload: CvRenderRequest,
+    db: Session,
+    profile_type: ProfileType,
+    language: ProfileLanguage,
+    *,
+    preview: bool,
 ) -> tuple[bytes, MasterProfile]:
     """Gemeinsame Implementierung für `preview`/`export` (KTD11): lädt das
-    Profil des gegebenen `profile_type` (U5, R6 - NIE ein beliebiges
-    `MasterProfile` mehr, siehe `_get_profile_or_404`), mergt dessen
-    Identitätsfelder und Foto mit dem Request-Body und rendert das PDF. Das
-    keyword-only `preview` steuert den Render-Modus (KTD1): `True` füllt leere
-    Felder mit Beispiel-Inhalt (R8), `False` lässt sie leer (R9)."""
-    profile = _get_profile_or_404(db, profile_type)
+    Profil der Kombination `(profile_type, language)` (U5, R6 - NIE ein
+    beliebiges `MasterProfile` mehr, siehe `_get_profile_or_404`), mergt
+    dessen Identitätsfelder und Foto mit dem Request-Body und rendert das PDF
+    in der Profilsprache. Das keyword-only `preview` steuert den Render-Modus
+    (KTD1): `True` füllt leere Felder mit sprachpassendem Beispiel-Inhalt
+    (R7), `False` lässt sie leer (R9)."""
+    profile = _get_profile_or_404(db, profile_type, language)
 
     try:
         pdf_bytes = render_cv_pdf(
@@ -106,6 +113,7 @@ def _render_cv_for_current_profile(
             languages=payload.languages_json,
             projects=payload.projects_json,
             photo_path=profile.photo_path,
+            language=language,
             preview=preview,
         )
     except PdfRenderError as exc:
@@ -159,7 +167,10 @@ def list_templates() -> list[dict[str, str]]:
 
 @router.post("/preview")
 def preview_cv(
-    payload: CvRenderRequest, profile_type: ProfileType, db: Session = Depends(get_db)
+    payload: CvRenderRequest,
+    profile_type: ProfileType,
+    language: ProfileLanguage = Query(..., description="Profilsprache (de/en)"),
+    db: Session = Depends(get_db),
 ) -> StreamingResponse:
     """Rendert den Lebenslauf aus dem aktuellen (ggf. ungespeicherten)
     Formularinhalt als PDF und liefert es inline zur Anzeige im Browser
@@ -170,23 +181,32 @@ def preview_cv(
     gemergt werden - ein Query-Parameter statt eines Body-Felds, da er die
     Profil-IDENTITÄT wählt, nicht editierbaren CV-Inhalt (siehe
     `CvRenderRequest`)."""
-    pdf_bytes, _profile = _render_cv_for_current_profile(payload, db, profile_type, preview=True)
+    pdf_bytes, _profile = _render_cv_for_current_profile(
+        payload, db, profile_type, language, preview=True
+    )
+    preview_filename = "lebenslauf-preview.pdf" if language == "de" else "resume-preview.pdf"
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": 'inline; filename="resume-preview.pdf"'},
+        headers={"Content-Disposition": f'inline; filename="{preview_filename}"'},
     )
 
 
 @router.post("/export")
 def export_cv(
-    payload: CvRenderRequest, profile_type: ProfileType, db: Session = Depends(get_db)
+    payload: CvRenderRequest,
+    profile_type: ProfileType,
+    language: ProfileLanguage = Query(..., description="Profilsprache (de/en)"),
+    db: Session = Depends(get_db),
 ) -> StreamingResponse:
     """Rendert den Lebenslauf aus dem aktuellen Formularinhalt als PDF und
     liefert es als Download (R11). `profile_type` siehe `preview_cv` oben
     (U5, R6)."""
-    pdf_bytes, profile = _render_cv_for_current_profile(payload, db, profile_type, preview=False)
-    filename = f"resume_{_sanitize_filename_component(profile.full_name)}.pdf"
+    pdf_bytes, profile = _render_cv_for_current_profile(
+        payload, db, profile_type, language, preview=False
+    )
+    prefix = "lebenslauf" if language == "de" else "resume"
+    filename = f"{prefix}_{_sanitize_filename_component(profile.full_name)}.pdf"
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",

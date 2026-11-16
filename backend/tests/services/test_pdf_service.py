@@ -56,6 +56,7 @@ def _full_content() -> dict:
             )
         ],
         photo_path=None,
+        language="en",
     )
 
 
@@ -72,6 +73,7 @@ def _empty_content() -> dict:
         languages=[],
         projects=[],
         photo_path=None,
+        language="en",
     )
 
 
@@ -276,11 +278,10 @@ class TestSkillLevelBlocksAndLanguageLevelDots:
 
 
 class TestFixedEnglishChrome:
-    """R4/R5/R8: die feste Dokument-Chrome und das Vorschau-Skeleton sind
-    fest Englisch (Global Language Unification, 2026-09-13) - es gibt keine
-    Dokumentsprache mehr zu wählen. Nutzerinhalte werden nie übersetzt (R6)."""
+    """R5/R6/R7: die feste Dokument-Chrome und das Vorschau-Skeleton folgen
+    der Profilsprache (Deutsch/Englisch); Nutzerinhalte werden nie übersetzt."""
 
-    def test_doc_chrome_defines_every_key(self):
+    def test_doc_chrome_defines_every_key_for_each_language(self):
         expected = {
             "lang",
             "title",
@@ -297,13 +298,50 @@ class TestFixedEnglishChrome:
             "projects",
         }
 
-        assert set(pdf_service._DOC_CHROME) == expected
-        assert pdf_service._DOC_CHROME["lang"] == "en"
+        assert set(pdf_service._DOC_CHROME) == {"de", "en"}
+        for language in ("de", "en"):
+            assert set(pdf_service._DOC_CHROME[language]) == expected
+        assert pdf_service._DOC_CHROME["en"]["lang"] == "en"
+        assert pdf_service._DOC_CHROME["de"]["lang"] == "de"
 
-    def test_format_date_range_uses_english_open_ended_wording(self):
-        assert pdf_service._format_date_range("2021", None) == "2021 – present"
-        assert pdf_service._format_date_range("2020", "2022") == "2020 – 2022"
-        assert pdf_service._format_date_range(None, None) == ""
+    def test_format_date_range_uses_language_specific_open_ended_wording(self):
+        assert pdf_service._format_date_range("2021", None, "en") == "2021 – present"
+        assert pdf_service._format_date_range("2020", "2022", "en") == "2020 – 2022"
+        assert pdf_service._format_date_range(None, None, "en") == ""
+        assert pdf_service._format_date_range("2021", None, "de") == "seit 2021"
+
+    @pytest.mark.parametrize("template_id", TEMPLATE_IDS)
+    def test_render_uses_german_chrome(self, mocker, template_id):
+        content = _full_content()
+        content["language"] = "de"
+
+        rendered = _rendered_html(mocker, template_id=template_id, **content)
+
+        assert 'lang="de"' in rendered
+        assert "Lebenslauf -" in rendered
+        assert "Seite " in rendered
+        assert " von " in rendered
+        for heading in ("Profil", "Berufserfahrung", "Ausbildung", "Skills", "Sprachen", "Projekte"):
+            assert heading in rendered
+
+    def test_german_skill_labels_and_open_ended_wording(self, mocker):
+        content = _full_content()
+        content["language"] = "de"
+        content["skills"] = [SkillEntry(name="Python", level="Sehr gut")]
+        content["experiences"] = [
+            ExperienceEntry(
+                company="Acme GmbH",
+                role="Entwickler",
+                start_date="2021",
+                end_date=None,
+                description=None,
+            )
+        ]
+
+        rendered = _rendered_html(mocker, template_id="classic", **content)
+
+        assert "&mdash; Sehr gut" in rendered
+        assert "seit 2021" in rendered
 
     def test_english_skill_level_labels_are_used(self, mocker):
         content = _full_content()
