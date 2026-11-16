@@ -98,6 +98,7 @@ def _parse(test_client: TestClient, mocker, parsed: ParsedCvProfile | None = Non
     return test_client.post(
         "/api/cv-builder/parse",
         files={"file": ("cv.pdf", b"%PDF-1.4 fake content", "application/pdf")},
+        data={"language": "en"},
     )
 
 
@@ -192,6 +193,7 @@ def test_parse_cv_rejects_non_pdf_upload(client, mocker):
     response = client.post(
         "/api/cv-builder/parse",
         files={"file": ("cv.docx", b"not a pdf", "application/octet-stream")},
+        data={"language": "en"},
     )
 
     assert response.status_code == 415
@@ -483,23 +485,22 @@ def test_preview_requires_the_profile_type_query_param(client_with_session):
     assert response.status_code == 422
 
 
-# --- POST /cv-builder/parse: fixed English import (Global Language
-# Unification, 2026-09-13) ---------------------------------------------
+# --- POST /cv-builder/parse: target-language import (R9) ------------------
 
 
-def test_parse_calls_the_parser_without_a_language_argument(client, mocker):
-    """Es gibt kein `language`-Form-Feld mehr - der Import ist fest
-    Englisch, gesteuert allein durch `parse_cv_pdf`s eigenen Default."""
+def test_parse_passes_the_target_language_to_the_parser(client, mocker):
+    """R9: der Import erhält die Zielsprache des adressierten Profils."""
     parsed = ParsedCvProfile(full_name="Max Mustermann", email="max@example.com")
     mock_parse = mocker.patch("app.api.cv_builder.parse_cv_pdf", return_value=parsed)
 
     response = client.post(
         "/api/cv-builder/parse",
         files={"file": ("cv.pdf", b"%PDF-1.4 fake content", "application/pdf")},
+        data={"language": "de"},
     )
 
     assert response.status_code == 200
-    mock_parse.assert_called_once_with(b"%PDF-1.4 fake content")
+    mock_parse.assert_called_once_with(b"%PDF-1.4 fake content", "de")
 
 
 # --- POST /cv-builder/translate: removed (U2, R2) --------------------------

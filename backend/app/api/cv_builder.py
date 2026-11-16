@@ -16,7 +16,7 @@ repariert - dieser Router ist sein vollständiger Ersatz.
 import io
 import re
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -128,11 +128,12 @@ def _render_cv_for_current_profile(
 @router.post("/parse", response_model=CvParseResponse)
 def parse_cv(
     file: UploadFile = File(..., description="Lebenslauf als PDF-Datei"),
+    language: ProfileLanguage = Form(..., description="Zielsprache (de/en)"),
 ) -> CvParseResponse:
     """Analysiert eine Lebenslauf-PDF per KI und liefert das Ergebnis
     ausschließlich als Vorschlag für das Builder-Formular zurück. Die
-    extrahierten Textwerte gibt die KI immer auf Englisch aus (die App ist
-    fest englischsprachig).
+    extrahierten Textwerte gibt die KI in der Zielsprache `language` aus und
+    übersetzt bei abweichender Quellsprache.
 
     Kein Datenbankzugriff: Weder wird ein bestehendes Profil gelesen noch
     geschrieben (R6) - das Ergebnis befüllt im Frontend nur die Formularfelder,
@@ -148,7 +149,7 @@ def parse_cv(
     file_bytes = _require_pdf(file)
 
     try:
-        parsed = parse_cv_pdf(file_bytes)
+        parsed = parse_cv_pdf(file_bytes, language)
     except PdfParsingError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except CvAnalysisError as exc:
