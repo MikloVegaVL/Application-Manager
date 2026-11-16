@@ -361,7 +361,7 @@ def test_put_profile_bogus_profile_type_returns_422(client, tmp_path, monkeypatc
 
 def _create_profile(session_local, profile_type: str = "it", **overrides) -> MasterProfile:
     db = session_local()
-    defaults = {"full_name": "Max Mustermann", "email": "max@example.com"}
+    defaults = {"language": "de", "full_name": "Max Mustermann", "email": "max@example.com"}
     defaults.update(overrides)
     profile = MasterProfile(profile_type=profile_type, **defaults)
     db.add(profile)

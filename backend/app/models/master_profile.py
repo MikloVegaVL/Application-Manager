@@ -1,7 +1,8 @@
 """ORM-Modell für das persönliche Bewerber-Stammprofil.
 
-Da die Anwendung für den persönlichen Gebrauch konzipiert ist, existiert in
-der Regel genau ein `MasterProfile`-Datensatz. Er dient als Quelle für das
+Da die Anwendung für den persönlichen Gebrauch konzipiert ist, existiert je
+Domäne (`profile_type`) und Sprache (`language`) genau ein
+`MasterProfile`-Datensatz. Zusammen dienen sie als Quelle für das
 automatisierte Zuschneiden ("Tailoring") von Anschreiben und Lebenslauf auf
 ein konkretes Stellenangebot.
 """
@@ -21,7 +22,13 @@ class MasterProfile(Base):
     """Stammdaten, Werdegang und Skills des Bewerbers."""
 
     __tablename__ = "master_profiles"
-    __table_args__ = (UniqueConstraint("profile_type", name="uq_master_profiles_profile_type"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "profile_type",
+            "language",
+            name="uq_master_profiles_profile_type_language",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     # Welche der zwei unabhängigen Profile das ist (R1) - `None` heißt "noch
@@ -32,6 +39,17 @@ class MasterProfile(Base):
     profile_type: Mapped[str | None] = mapped_column(
         Enum("it", "full_life", name="profile_type", native_enum=False, length=20, validate_strings=True),
         nullable=True,
+    )
+    # Sprache dieses Profils (de/en). Zusammen mit `profile_type` bildet sie
+    # den adressierbaren Schlüssel eines der vier unabhängigen Profile
+    # (docs/plans/2026-11-16-001-feat-bilingual-cv-profiles-plan.md, U1/KTD1).
+    # Bewusst KEIN Python-/Server-Default: jeder Anlegepfad muss die Sprache
+    # explizit setzen, damit eine vergessene Zuweisung fehlschlägt statt still
+    # Deutsch anzunehmen. Die Migration nutzt nur temporär einen Server-Default
+    # zum Backfill bestehender (deutscher) Zeilen.
+    language: Mapped[str] = mapped_column(
+        Enum("de", "en", name="profile_language", native_enum=False, length=2, validate_strings=True),
+        nullable=False,
     )
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     # Nicht mehr `unique=True` (U1, docs/plans/2026-09-23-001-feat-profile-

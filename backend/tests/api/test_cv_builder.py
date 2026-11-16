@@ -77,7 +77,9 @@ def client_with_session():
 
 def _create_profile(session_local, **overrides) -> MasterProfile:
     db = session_local()
-    defaults = dict(profile_type="it", full_name="Max Mustermann", email="max@example.com")
+    defaults = dict(
+        profile_type="it", language="de", full_name="Max Mustermann", email="max@example.com"
+    )
     defaults.update(overrides)
     profile = MasterProfile(**defaults)
     db.add(profile)

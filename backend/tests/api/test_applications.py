@@ -113,7 +113,10 @@ def _create_application(
 
 def _create_profile(session, *, profile_type: str | None = "it") -> MasterProfile:
     profile = MasterProfile(
-        full_name="Max Mustermann", email="max.mustermann@example.com", profile_type=profile_type
+        full_name="Max Mustermann",
+        email="max.mustermann@example.com",
+        profile_type=profile_type,
+        language="de",
     )
     session.add(profile)
     session.commit()
@@ -135,6 +138,7 @@ def _create_profile_with_cv_file(
         cv_file_path=str(cv_path),
         cv_filename=filename,
         profile_type=profile_type,
+        language="de",
     )
     session.add(profile)
     session.commit()
@@ -755,7 +759,7 @@ def test_generate_application_locks_the_selected_profile_and_generates_from_its_
         job_offer_id = job_offer.id
         it_profile = _create_profile(session, profile_type="it")
         it_profile_id = it_profile.id
-        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life"))
+        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life", language="de"))
         session.commit()
     finally:
         session.close()
@@ -802,7 +806,7 @@ def test_regenerate_keeps_the_locked_profile_even_with_a_different_profile_type_
         job_offer_id = job_offer.id
         it_profile = _create_profile(session, profile_type="it")
         it_profile_id = it_profile.id
-        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life"))
+        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life", language="de"))
         session.commit()
     finally:
         session.close()
@@ -851,7 +855,7 @@ def test_for_new_application_creates_a_second_row_locked_to_the_other_profile(
         )
         job_offer_id = job_offer.id
         _create_profile(session, profile_type="it")
-        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life"))
+        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life", language="de"))
         session.commit()
     finally:
         session.close()
@@ -902,7 +906,7 @@ def test_by_job_offer_returns_a_list_with_both_applications(
         )
         job_offer_id = job_offer.id
         _create_profile(session, profile_type="it")
-        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life"))
+        session.add(MasterProfile(full_name="Erika Mustermann", email="erika@example.com", profile_type="full_life", language="de"))
         session.commit()
     finally:
         session.close()
@@ -1073,6 +1077,7 @@ def test_send_and_download_use_only_the_locked_profiles_data_not_the_other_profi
                 full_name="Erika Mustermann",
                 email="erika@example.com",
                 profile_type="full_life",
+                language="de",
                 cv_file_path=str(full_life_cv_path),
                 cv_filename="erika-lebenslauf.pdf",
             )

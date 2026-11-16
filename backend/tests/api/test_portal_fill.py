@@ -98,7 +98,11 @@ def _seed(
         application = Application(job_offer_id=job_offer.id, cover_letter_text="Sehr geehrte Damen und Herren,")
         db.add(application)
         profile = MasterProfile(
-            profile_type=profile_type, full_name=full_name, email=email, phone="+49 30 1234"
+            profile_type=profile_type,
+            language="de",
+            full_name=full_name,
+            email=email,
+            phone="+49 30 1234",
         )
         db.add(profile)
         db.flush()
@@ -207,7 +211,9 @@ def test_context_uses_the_locked_profile_not_an_arbitrary_one(client, db_session
     db = db_session_local()
     try:
         db.add(
-            MasterProfile(profile_type="it", full_name="IT Person", email="it@example.com")
+            MasterProfile(
+                profile_type="it", language="de", full_name="IT Person", email="it@example.com"
+            )
         )
         db.commit()
     finally:
