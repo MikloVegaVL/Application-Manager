@@ -13,6 +13,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatTabsModule } from '@angular/material/tabs';
 
 import {
@@ -21,7 +22,7 @@ import {
   ProfileAttachment,
   SENDER_EMAIL_OPTIONS,
 } from '../../core/models/master-profile.model';
-import { ProfileService, ProfileType } from '../../core/services/profile.service';
+import { ProfileLanguage, ProfileService, ProfileType } from '../../core/services/profile.service';
 
 /** Erlaubte Dateiendungen für zusätzliche Anhänge (Tab 3). */
 const ALLOWED_ATTACHMENT_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'];
@@ -103,6 +104,7 @@ export class ProfileMigrationDialogComponent {
     MatInputModule,
     MatProgressSpinnerModule,
     MatSelectModule,
+    MatButtonToggleModule,
     MatTabsModule,
   ],
   templateUrl: './profile.component.html',
@@ -123,6 +125,8 @@ export class ProfileComponent implements OnInit {
   /** U7/R1: der aktuell gewählte Profiltyp - Reihenfolge entspricht den
    * Tab-Indizes im Template (`profileTypeOrder`). */
   protected readonly profileType = signal<ProfileType>('it');
+  /** Profilsprache (`de`/`en`) - eigene Dimension neben dem Profiltyp. */
+  protected readonly language = signal<ProfileLanguage>('de');
   /** ce-simplify-code-Fund: abgeleitet statt separat gepflegt - vorher
    * mussten beide Signale an jeder Änderungsstelle synchron gesetzt werden,
    * ein stiller Invarianten-Bruch bei einer künftigen Änderung war so nur
@@ -249,14 +253,52 @@ export class ProfileComponent implements OnInit {
   private switchProfileType(newIndex: number): void {
     const newType = this.profileTypeOrder[newIndex];
     this.profileType.set(newType);
-    this.loadProfile(newType);
+    this.ensureAndLoadProfile(newType, this.language());
+  }
+
+  protected onLanguageChange(newLanguage: ProfileLanguage): void {
+    if (newLanguage === this.language()) {
+      return;
+    }
+    if (this.profileForm.dirty) {
+      const discard = window.confirm(
+        'You have unsaved changes on this profile. Switching the language will discard them.',
+      );
+      if (!discard) {
+        return;
+      }
+    }
+    this.language.set(newLanguage);
+    this.ensureAndLoadProfile(this.profileType(), newLanguage);
+  }
+
+  /**
+   * Stellt sicher, dass `(profileType, language)` existiert (klont sonst die
+   * Schwester-Sprachvariante) und lädt es. Liefert der Server 404 (keine
+   * Schwester-Variante), zeigt die Seite das leere Formular für die Neuanlage.
+   */
+  private ensureAndLoadProfile(profileType: ProfileType, language: ProfileLanguage): void {
+    this.loading.set(true);
+    this.profileService.ensureProfileLanguage(profileType, language).subscribe({
+      next: (profile) => {
+        this.applyProfileToForm(profile);
+        this.loading.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.loading.set(false);
+        this.resetProfileState();
+        if (error.status !== 404) {
+          this.notify('Could not load the profile. Please try again.', 4000);
+        }
+      },
+    });
   }
 
   // --- Tab 1: Laden & Speichern -------------------------------------------
 
   private loadProfile(profileType: ProfileType): void {
     this.loading.set(true);
-    this.profileService.getProfile(profileType).subscribe({
+    this.profileService.getProfile(profileType, this.language()).subscribe({
       next: (profile) => {
         this.applyProfileToForm(profile);
         this.loading.set(false);
@@ -315,7 +357,7 @@ export class ProfileComponent implements OnInit {
     // zurücksetzen. Stattdessen wird das Profil unmittelbar vor dem PUT frisch
     // geladen, damit der Payload garantiert den aktuellen Stand aller
     // Builder-Felder enthält.
-    this.profileService.getProfile(profileType).subscribe({
+    this.profileService.getProfile(profileType, this.language()).subscribe({
       next: (base) => this.submitWithBase(raw, base, profileType),
       error: (error: HttpErrorResponse) => {
         // 404 = es existiert noch kein Profil dieses Typs -> Neuanlage, kein
@@ -362,7 +404,7 @@ export class ProfileComponent implements OnInit {
       template_id: base?.template_id ?? null,
     };
 
-    this.profileService.saveProfile(profileType, payload).subscribe({
+    this.profileService.saveProfile(profileType, this.language(), payload).subscribe({
       next: (profile) => {
         this.saving.set(false);
         this.applyProfileToForm(profile);
@@ -445,7 +487,7 @@ export class ProfileComponent implements OnInit {
     }
 
     this.uploadingCvFile.set(true);
-    this.profileService.uploadCvFile(this.profileType(), file).subscribe({
+    this.profileService.uploadCvFile(this.profileType(), this.language(), file).subscribe({
       next: (profile) => {
         this.uploadingCvFile.set(false);
         this.selectedCvFile.set(null);
@@ -467,7 +509,7 @@ export class ProfileComponent implements OnInit {
     }
 
     this.deletingCvFile.set(true);
-    this.profileService.deleteCvFile(this.profileType()).subscribe({
+    this.profileService.deleteCvFile(this.profileType(), this.language()).subscribe({
       next: (profile) => {
         this.deletingCvFile.set(false);
         this.cvFilename.set(profile.cv_filename);
@@ -547,7 +589,7 @@ export class ProfileComponent implements OnInit {
     }
 
     this.uploadingAttachment.set(true);
-    this.profileService.uploadAttachment(this.profileType(), file).subscribe({
+    this.profileService.uploadAttachment(this.profileType(), this.language(), file).subscribe({
       next: (profile) => {
         this.uploadingAttachment.set(false);
         this.selectedAttachmentFile.set(null);
@@ -569,7 +611,7 @@ export class ProfileComponent implements OnInit {
     }
 
     this.deletingAttachmentId.set(attachmentId);
-    this.profileService.deleteAttachment(this.profileType(), attachmentId).subscribe({
+    this.profileService.deleteAttachment(this.profileType(), this.language(), attachmentId).subscribe({
       next: (profile) => {
         this.deletingAttachmentId.set(null);
         this.attachments.set(profile.attachments);

@@ -451,7 +451,7 @@ describe('ProfileComponent - U7: two independent profile types', () => {
 
     component['onTopTabIndexChange'](1);
 
-    const req = httpMock.expectOne((r) => r.url.endsWith('/profile/full_life') && r.method === 'GET');
+    const req = httpMock.expectOne((r) => r.url.endsWith('/profile/full_life/ensure') && r.method === 'POST');
     req.flush(fullLifeProfile);
     fixture.detectChanges();
 
@@ -543,7 +543,7 @@ describe('ProfileComponent - U7: two independent profile types', () => {
 
     component['onTopTabIndexChange'](1);
 
-    const req = httpMock.expectOne((r) => r.url.endsWith('/profile/full_life') && r.method === 'GET');
+    const req = httpMock.expectOne((r) => r.url.endsWith('/profile/full_life/ensure') && r.method === 'POST');
     req.flush(fullLifeProfile);
     fixture.detectChanges();
 

@@ -44,6 +44,7 @@ function buildApplication(
     submission: null,
     created_at: '2026-08-11T00:00:00',
     profile_type: profileType,
+    language: profileType === 'it' || profileType === 'full_life' ? 'de' : null,
     job_offer: defaultJobOffer,
   };
 }
@@ -148,7 +149,7 @@ describe('ApplicationEditorComponent', () => {
     // Dialog wird hier per Spy sofort mit einer Wahl geschlossen, damit dieser
     // Test weiterhin nur den Generierungs-Hinweis selbst prüft.
     const dialogOpenSpy = spyOn(component['dialog'], 'open').and.returnValue({
-      afterClosed: () => of('it'),
+      afterClosed: () => of({ profileType: 'it', language: 'de' }),
     } as unknown as MatDialogRef<unknown, unknown>);
 
     const jobReq = httpMock.expectOne((req) => req.url.endsWith('/jobs/1'));
@@ -198,7 +199,7 @@ describe('ApplicationEditorComponent', () => {
 
   it('U8: a 404 for the chosen profile type shows a message naming that profile with a link to /profile', () => {
     spyOn(component['dialog'], 'open').and.returnValue({
-      afterClosed: () => of('it'),
+      afterClosed: () => of({ profileType: 'it', language: 'de' }),
     } as unknown as MatDialogRef<unknown, unknown>);
 
     const jobReq = httpMock.expectOne((req) => req.url.endsWith('/jobs/1'));
@@ -610,6 +611,10 @@ describe('ApplicationEditorComponent', () => {
       const router = TestBed.inject(Router);
       const navigateSpy = spyOn(router, 'navigate');
 
+      spyOn(component['dialog'], 'open').and.returnValue({
+        afterClosed: () => of({ profileType: 'full_life', language: 'de' }),
+      } as unknown as MatDialogRef<unknown, unknown>);
+
       component.onStartNewApplicationWithOtherProfile();
 
       expect(component['startingNewApplication']()).toBeTrue();
@@ -618,6 +623,7 @@ describe('ApplicationEditorComponent', () => {
       expect(req.request.body).toEqual({
         job_offer_id: 1,
         profile_type: 'full_life',
+        language: 'de',
         for_new_application: true,
       });
 
@@ -630,6 +636,10 @@ describe('ApplicationEditorComponent', () => {
     it('shows a snackbar and resets the flag when starting the new application fails', () => {
       loadApplication(httpMock, { coverLetterText: 'Sehr geehrte Damen und Herren,', profileType: 'it' });
       const snackBarSpy = spyOn(component['snackBar'], 'open');
+
+      spyOn(component['dialog'], 'open').and.returnValue({
+        afterClosed: () => of({ profileType: 'full_life', language: 'de' }),
+      } as unknown as MatDialogRef<unknown, unknown>);
 
       component.onStartNewApplicationWithOtherProfile();
 

@@ -340,7 +340,7 @@ describe('CvBuilderComponent', () => {
 
       component['onProfileTypeChange']('full_life');
 
-      const req = httpMock.expectOne((r) => r.url.endsWith('/profile/full_life') && r.method === 'GET');
+      const req = httpMock.expectOne((r) => r.url.endsWith('/profile/full_life/ensure') && r.method === 'POST');
       req.flush({ ...baseProfileResponse, summary: 'Full-life summary', template_id: 'classic' });
       fixture.detectChanges();
       flushDependentRequests('full_life', { includeTemplates: false });
@@ -374,7 +374,7 @@ describe('CvBuilderComponent', () => {
       component['onProfileTypeChange']('full_life');
 
       expect(window.confirm).toHaveBeenCalled();
-      const req = httpMock.expectOne((r) => r.url.endsWith('/profile/full_life') && r.method === 'GET');
+      const req = httpMock.expectOne((r) => r.url.endsWith('/profile/full_life/ensure') && r.method === 'POST');
       req.flush({ ...baseProfileResponse, summary: 'Full-life summary', template_id: 'classic' });
       fixture.detectChanges();
       flushDependentRequests('full_life', { includeTemplates: false });

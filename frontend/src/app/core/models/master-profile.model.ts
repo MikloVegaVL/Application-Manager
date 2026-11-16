@@ -1,4 +1,5 @@
 /** Spiegelt `backend/app/schemas/master_profile.py` wider. */
+import { ProfileLanguage } from './application.model';
 
 export interface ExperienceEntry {
   company: string;
@@ -99,6 +100,8 @@ export interface ProfileAttachment {
 /** Entspricht `MasterProfileRead`: das persistierte Profil inkl. Metadaten. */
 export interface MasterProfileRead extends MasterProfile {
   id: number;
+  /** Sprache dieses Profils (`de`/`en`, docs/plans/2026-11-16-001-feat-bilingual-cv-profiles-plan.md). */
+  language: ProfileLanguage;
   /** Name der hochgeladenen Lebenslauf-Anhang-Datei, `null` = noch keine hochgeladen. */
   cv_filename: string | null;
   /** Zusätzliche PDF-Anhänge, unabhängig vom Lebenslauf - siehe `ProfileAttachment`. */

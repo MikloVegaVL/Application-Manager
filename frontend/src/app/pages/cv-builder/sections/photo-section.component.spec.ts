@@ -40,6 +40,7 @@ describe('PhotoSectionComponent', () => {
     component = fixture.componentInstance;
     httpMock = TestBed.inject(HttpTestingController);
     fixture.componentRef.setInput('profileType', 'it');
+    fixture.componentRef.setInput('language', 'de');
     fixture.detectChanges();
 
     // Initialer GET /profile/it/photo-Aufruf aus dem Konstruktor-`effect()`

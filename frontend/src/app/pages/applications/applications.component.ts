@@ -433,7 +433,7 @@ export class ApplicationsComponent implements OnInit {
       ],
       primaryAction: {
         label: 'Open application',
-        link: { routerLink: ['/editor', application.job_offer.id] },
+        link: { routerLink: ['/editor', application.job_offer.id, application.id] },
       },
       menuItems,
       detailRowItems,

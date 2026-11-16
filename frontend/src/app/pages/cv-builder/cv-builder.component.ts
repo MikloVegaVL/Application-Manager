@@ -25,7 +25,7 @@ import {
   ProjectEntry,
   SkillEntry,
 } from '../../core/models/master-profile.model';
-import { ProfileService, ProfileType } from '../../core/services/profile.service';
+import { ProfileLanguage, ProfileService, ProfileType } from '../../core/services/profile.service';
 import {
   createEducationGroup,
   createExperienceGroup,
@@ -114,6 +114,14 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
           <mat-button-toggle value="it">IT</mat-button-toggle>
           <mat-button-toggle value="full_life">Full-life/Non-IT</mat-button-toggle>
         </mat-button-toggle-group>
+        <mat-button-toggle-group
+          [value]="language()"
+          (change)="onLanguageChange($event.value)"
+          aria-label="CV language"
+        >
+          <mat-button-toggle value="de">Deutsch</mat-button-toggle>
+          <mat-button-toggle value="en">English</mat-button-toggle>
+        </mat-button-toggle-group>
       </div>
 
       @switch (state()) {
@@ -200,12 +208,13 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
             </mat-tab>
             <mat-tab label="Photo">
               <div class="tab-content">
-                <app-photo-section [profileType]="profileType()" />
+                <app-photo-section [profileType]="profileType()" [language]="language()" />
               </div>
             </mat-tab>
             <mat-tab label="Import">
               <div class="tab-content">
                 <app-cv-import
+                  [language]="language()"
                   [summaryControl]="summaryControl"
                   [experiencesArray]="experiencesArray"
                   [educationArray]="educationArray"
@@ -219,6 +228,7 @@ type CvBuilderState = 'loading' | 'empty' | 'error' | 'ready';
               <div class="tab-content">
                 <app-cv-preview-export
                   [profileType]="profileType()"
+                  [language]="language()"
                   [summaryControl]="summaryControl"
                   [berufsbezeichnungControl]="berufsbezeichnungControl"
                   [experiencesArray]="experiencesArray"
@@ -302,6 +312,8 @@ export class CvBuilderComponent implements OnInit {
 
   /** U7/R1: welches der zwei unabhängigen Profile gerade bearbeitet wird. */
   protected readonly profileType = signal<ProfileType>('it');
+  /** Profilsprache (`de`/`en`) - eigene Dimension neben dem Profiltyp. */
+  protected readonly language = signal<ProfileLanguage>('de');
 
   /** R14/KTD13/R13: Vergleichsbasis für `hasUnsavedChanges()` und den
    * Re-Import-Konfliktcheck in `CvImportComponent` - der zuletzt vom Server
@@ -351,7 +363,37 @@ export class CvBuilderComponent implements OnInit {
     }
 
     this.profileType.set(newType);
-    this.loadProfile();
+    this.ensureAndLoadProfile();
+  }
+
+  protected onLanguageChange(newLanguage: ProfileLanguage): void {
+    if (newLanguage === this.language()) {
+      return;
+    }
+    if (
+      this.hasUnsavedChanges() &&
+      !window.confirm('You have unsaved CV changes. Switch language and discard them?')
+    ) {
+      return;
+    }
+    this.language.set(newLanguage);
+    this.ensureAndLoadProfile();
+  }
+
+  /** Wie `loadProfile`, aber Stellt die Kombination zuerst sicher (klont die
+   * Schwester-Sprachvariante); 404 -> leeres Formular. */
+  private ensureAndLoadProfile(): void {
+    this.state.set('loading');
+    this.profileService.ensureProfileLanguage(this.profileType(), this.language()).subscribe({
+      next: (profile) => {
+        this.applyProfileToArrays(profile);
+        this.lastSavedProfile.set(normalizeProfileSections(profile));
+        this.state.set('ready');
+      },
+      error: (error: HttpErrorResponse) => {
+        this.state.set(error.status === 404 ? 'empty' : 'error');
+      },
+    });
   }
 
   /** Speichert die aktuellen Inhaltsfelder per `PATCH /profile` (R2-R4, KTD2)
@@ -378,7 +420,7 @@ export class CvBuilderComponent implements OnInit {
       template_id: this.templateIdControl.value,
     };
 
-    this.profileService.patchProfile(this.profileType(), payload).subscribe({
+    this.profileService.patchProfile(this.profileType(), this.language(), payload).subscribe({
       next: (profile) => {
         this.saving.set(false);
         this.lastSavedProfile.set(normalizeProfileSections(profile));
@@ -427,7 +469,7 @@ export class CvBuilderComponent implements OnInit {
 
   private loadProfile(): void {
     this.state.set('loading');
-    this.profileService.getProfile(this.profileType()).subscribe({
+    this.profileService.getProfile(this.profileType(), this.language()).subscribe({
       next: (profile) => {
         this.applyProfileToArrays(profile);
         // fix(review): `lastSavedProfile` must carry the same []-defaulted

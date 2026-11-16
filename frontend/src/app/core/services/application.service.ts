@@ -8,6 +8,7 @@ import {
   ApplicationSendPayload,
   ApplicationUpdatePayload,
   FillRequestResponse,
+  ProfileLanguage,
   ProfileType,
 } from '../models/application.model';
 
@@ -43,11 +44,15 @@ export class ApplicationService {
   generate(
     jobOfferId: number,
     profileType?: ProfileType,
+    language?: ProfileLanguage,
+    applicationId?: number,
     forNewApplication = false,
   ): Observable<Application> {
     return this.http.post<Application>(`${this.baseUrl}/generate`, {
       job_offer_id: jobOfferId,
       ...(profileType ? { profile_type: profileType } : {}),
+      ...(language ? { language } : {}),
+      ...(applicationId !== undefined ? { application_id: applicationId } : {}),
       ...(forNewApplication ? { for_new_application: true } : {}),
     });
   }

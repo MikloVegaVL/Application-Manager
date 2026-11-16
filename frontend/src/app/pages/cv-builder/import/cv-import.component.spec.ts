@@ -9,6 +9,7 @@ import { CvImportComponent } from './cv-import.component';
 
 const baseProfile: MasterProfileRead = {
   id: 1,
+  language: 'de',
   full_name: 'Max Mustermann',
   email: 'max@example.com',
   phone: null,
@@ -68,6 +69,7 @@ describe('CvImportComponent', () => {
   let summaryControl: ReturnType<FormBuilder['nonNullable']['control']>;
 
   const setInputs = (lastSavedProfile: MasterProfileRead | null): void => {
+    fixture.componentRef.setInput('language', 'de');
     fixture.componentRef.setInput('summaryControl', summaryControl);
     fixture.componentRef.setInput('experiencesArray', experiencesArray);
     fixture.componentRef.setInput('educationArray', educationArray);
@@ -113,7 +115,7 @@ describe('CvImportComponent', () => {
 
     const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/parse') && r.method === 'POST');
     expect(req.request.body instanceof FormData).toBeTrue();
-    expect((req.request.body as FormData).get('language')).toBeNull();
+    expect((req.request.body as FormData).get('language')).toBe('de');
     req.flush({ parsed: parsedFixture, warnings: ['phone'] });
     fixture.detectChanges();
 
@@ -137,13 +139,13 @@ describe('CvImportComponent', () => {
     httpMock.expectNone((r) => r.url.endsWith('/profile') && r.method === 'PATCH');
   });
 
-  it('does not send a language field when parsing (R4)', () => {
+  it('sends the target language field when parsing (R9)', () => {
     setInputs(baseProfile);
 
     component.onFileSelected({ target: { files: [pdfFile()] } } as unknown as Event);
 
     const req = httpMock.expectOne((r) => r.url.endsWith('/cv-builder/parse') && r.method === 'POST');
-    expect((req.request.body as FormData).get('language')).toBeNull();
+    expect((req.request.body as FormData).get('language')).toBe('de');
     req.flush({ parsed: parsedFixture, warnings: [] });
   });
 

@@ -7,7 +7,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
 import { MasterProfileRead, ParsedCvProfile, SkillEntry } from '../../../core/models/master-profile.model';
-import { ProfileService } from '../../../core/services/profile.service';
+import { ProfileLanguage, ProfileService } from '../../../core/services/profile.service';
 import {
   createEducationGroup,
   createExperienceGroup,
@@ -228,6 +228,7 @@ export class CvImportComponent {
   private readonly profileService = inject(ProfileService);
   private readonly formBuilder = inject(FormBuilder);
 
+  @Input({ required: true }) language!: ProfileLanguage;
   @Input({ required: true }) summaryControl!: FormControl<string>;
   @Input({ required: true }) experiencesArray!: FormArray<FormGroup>;
   @Input({ required: true }) educationArray!: FormArray<FormGroup>;
@@ -315,7 +316,7 @@ export class CvImportComponent {
     this.lastFile = file;
     this.errorMessage.set(null);
     this.uploading.set(true);
-    this.profileService.parseCv(file).subscribe({
+    this.profileService.parseCv(file, this.language).subscribe({
       next: (response) => {
         this.uploading.set(false);
         this.parsedResult.set(response.parsed);
