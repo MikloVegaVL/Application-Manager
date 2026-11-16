@@ -18,6 +18,9 @@ The optional job title shown beneath the profile name in a CV template, set inde
 ### Skill category
 The domain a skill belongs to, used to group skills into compact sections in a rendered CV instead of listing every skill individually. A skill without a category falls into a catch-all group, so grouping never drops a skill.
 
+### Profile language
+The German or English dimension of a profile. Together with the profile domain (IT / Full-life) it identifies one of four independent profiles, each with its own content, contact data, files, and rendered CV language.
+
 ## Job Search
 
 ### Applied

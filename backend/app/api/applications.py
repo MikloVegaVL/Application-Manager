@@ -34,6 +34,21 @@ from app.services.pdf_service import PdfRenderError, render_cover_letter_pdf
 router = APIRouter(prefix="/applications", tags=["Applications"])
 
 
+def _profile_has_cv_content(profile: MasterProfile) -> bool:
+    """Ein Profil ohne jeden CV-Inhalt würde ein leeres Anschreiben erzeugen -
+    die Generierung wird deshalb mit einer klaren Meldung abgelehnt
+    (docs/plans/2026-11-16-001-feat-bilingual-cv-profiles-plan.md, U5/KTD6)."""
+    return bool(
+        (profile.summary or "").strip()
+        or (profile.berufsbezeichnung or "").strip()
+        or profile.experiences_json
+        or profile.education_json
+        or profile.skills_json
+        or profile.languages_json
+        or profile.projects_json
+    )
+
+
 def _get_locked_profile_or_422(db: Session, application: Application) -> MasterProfile:
     """Löst das GESPERRTE Profil einer Bewerbung auf (R5/R6, U3) - 422, falls
     noch keins zugeordnet ist (vor der ersten Generierung gibt es nichts zu
@@ -138,38 +153,82 @@ def generate_application(payload: ApplicationGenerateRequest, db: Session = Depe
     # statt ein zweites Mal abgefragt zu werden. Wird jetzt außerdem VOR der
     # Profilauflösung gebraucht, um ein bereits gesperrtes Profil zu erkennen
     # (R5, U3, siehe unten).
-    existing_application = db.query(Application).filter(Application.job_offer_id == job_offer.id).first()
+    # Regenerieren adressiert exakt die geöffnete Bewerbung (U5/KTD6): ohne
+    # `application_id` würde `.first()` pro Job bei mehreren Profil-
+    # Bewerbungen die falsche Zeile überschreiben.
+    if payload.application_id is not None:
+        application = db.get(Application, payload.application_id)
+        if application is None or application.job_offer_id != job_offer.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Bewerbung wurde nicht gefunden oder gehört nicht zu diesem Stellenangebot.",
+            )
+        existing_application = application
+    else:
+        existing_application = (
+            db.query(Application).filter(Application.job_offer_id == job_offer.id).first()
+        )
 
     # R5/KTD12 (U9): `for_new_application` greift nur, wenn tatsächlich schon
     # eine Bewerbung existiert UND diese bereits ein gesperrtes Profil hat -
     # sonst bleibt `application` unverändert `existing_application` und der
     # Aufruf läuft als ganz normale Erstgenerierung durch (füllt die noch
     # leere, ungesperrte Zeile statt eine zusätzliche Dublette anzulegen).
-    # Existiert bereits eine GESPERRTE Bewerbung, wird sie HIER bewusst NICHT
-    # als `application` übernommen - der `else`-Zweig unten legt dadurch eine
-    # neue, unabhängige Zeile an statt die gefundene zu überschreiben.
-    if payload.for_new_application and existing_application is not None and existing_application.profile_id is not None:
-        application = None
-        previous_cover_letter_text = None
-    else:
+    if payload.application_id is not None or not (
+        payload.for_new_application
+        and existing_application is not None
+        and existing_application.profile_id is not None
+    ):
         application = existing_application
         previous_cover_letter_text = application.cover_letter_text if application else None
+    else:
+        application = None
+        previous_cover_letter_text = None
 
     # Profil auflösen (R4/R5/R6, U3): ist bereits ein Profil gesperrt, wird
     # AUSSCHLIESSLICH dieses wiederverwendet - ein im Body mitgeschicktes
-    # `profile_type` wird dann ignoriert (KTD3). Ohne Sperre ist
-    # `profile_type` Pflicht (422) und wird über die U2-Hilfsfunktion
-    # `_get_profile_or_404` aufgelöst (404, falls für diesen Typ noch kein
-    # `MasterProfile` existiert).
+    # `profile_type`/`language` wird dann ignoriert (KTD3). Ohne Sperre sind
+    # beide Pflicht (422) und werden über die U2-Hilfsfunktion
+    # `_get_profile_or_404` aufgelöst (404, falls die Kombination fehlt).
     if application is not None and application.profile_id is not None:
         profile = db.get(MasterProfile, application.profile_id)
-    else:
-        if payload.profile_type is None:
+        if profile is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="profile_type ist erforderlich (erste Generierung für dieses Stellenangebot).",
+                detail="Das zugeordnete Profil wurde nicht gefunden.",
             )
-        profile = _get_profile_or_404(db, payload.profile_type)
+    else:
+        if payload.profile_type is None or payload.language is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "profile_type und language sind erforderlich "
+                    "(erste Generierung für dieses Stellenangebot)."
+                ),
+            )
+        profile = _get_profile_or_404(db, payload.profile_type, payload.language)
+
+    # Pro Kombination höchstens eine Bewerbung: existiert sie bereits, wird
+    # sie geöffnet statt eine Dublette anzulegen (U5/KTD6).
+    duplicate = (
+        db.query(Application)
+        .filter(
+            Application.job_offer_id == job_offer.id,
+            Application.profile_id == profile.id,
+        )
+        .first()
+    )
+    if duplicate is not None and (application is None or duplicate.id != application.id):
+        return duplicate
+
+    if not _profile_has_cv_content(profile):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Das gewählte Profil enthält noch keine CV-Inhalte. Bitte zuerst das "
+                "Profil ausfüllen oder eine CV-Datei importieren."
+            ),
+        )
 
     with _generating_lock:
         if job_offer.id in _generating_job_offer_ids:

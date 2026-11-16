@@ -17,7 +17,7 @@ import {
   ProjectEntry,
   SkillEntry,
 } from '../../../core/models/master-profile.model';
-import { ProfileService, ProfileType } from '../../../core/services/profile.service';
+import { ProfileLanguage, ProfileService, ProfileType } from '../../../core/services/profile.service';
 import { downloadBlobResponse } from '../../../core/utils/download-blob-response.util';
 
 const DEFAULT_EXPORT_FILENAME = 'resume.pdf';
@@ -205,6 +205,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
    * setzt ihn immer explizit.
    */
   @Input() profileType: ProfileType = 'it';
+  @Input() language: ProfileLanguage = 'de';
 
   @Input({ required: true }) summaryControl!: FormControl<string>;
   @Input({ required: true }) berufsbezeichnungControl!: FormControl<string>;
@@ -275,7 +276,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
 
     this.previewLoading.set(true);
     this.previewError.set(null);
-    this.profileService.previewCv(this.profileType, payload).subscribe({
+    this.profileService.previewCv(this.profileType, this.language, payload).subscribe({
       next: (response) => {
         this.previewLoading.set(false);
         this.revokePreviewUrl();
@@ -306,7 +307,7 @@ export class CvPreviewExportComponent implements OnInit, OnDestroy {
 
     this.exporting.set(true);
     this.exportError.set(null);
-    this.profileService.exportCv(this.profileType, payload).subscribe({
+    this.profileService.exportCv(this.profileType, this.language, payload).subscribe({
       next: (response) => {
         this.exporting.set(false);
         if (!downloadBlobResponse(response, DEFAULT_EXPORT_FILENAME)) {

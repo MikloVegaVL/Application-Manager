@@ -18,7 +18,7 @@ import { catchError, filter, of, switchMap, take, takeUntil, timer } from 'rxjs'
 import { TextFieldModule } from '@angular/cdk/text-field';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
-import { MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -29,7 +29,7 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { HttpErrorResponse } from '@angular/common/http';
-import { Application, ProfileType } from '../../core/models/application.model';
+import { Application, ProfileLanguage, ProfileType } from '../../core/models/application.model';
 import { JobOfferRead, toApplicationEmailLookupRequest } from '../../core/models/job-offer.model';
 import { ApplicationService } from '../../core/services/application.service';
 import { JobSearchStateService } from '../../core/services/job-search-state.service';
@@ -43,6 +43,11 @@ import {
   SendApplicationDialogData,
   SendApplicationDialogResult,
 } from './send-application-dialog/send-application-dialog.component';
+
+interface ProfileChoice {
+  profileType: ProfileType;
+  language: ProfileLanguage;
+}
 
 @Component({
   selector: 'app-application-editor',
@@ -151,6 +156,8 @@ export class ApplicationEditorComponent implements OnInit {
   /** Aktuell im Profilwahl-Dialog markierte Option (R4) - `null`, solange
    * noch nichts ausgewählt wurde (sperrt den "Continue"-Button). */
   protected readonly selectedProfileType = signal<ProfileType | null>(null);
+  /** Sprache der Profilwahl (`de`/`en`) - eigene Dimension (R12). */
+  protected readonly selectedLanguage = signal<ProfileLanguage>('de');
   /** Gesetzt, wenn die letzte Generierung an einem fehlenden Profil
    * scheiterte (404 von `POST /applications/generate`, U3) - steuert den
    * "Go to profile"-Link im Fehlerblock (statt der generischen Meldung). */
@@ -231,26 +238,50 @@ export class ApplicationEditorComponent implements OnInit {
    * erst NACH dem Schließen des Dialogs startet - ein erneutes Öffnen
    * während einer laufenden Anfrage ist aus diesem Ablauf heraus nicht
    * erreichbar). */
-  private promptForProfileType(jobOfferId: number): void {
-    this.selectedProfileType.set(null);
+  private promptForProfileType(
+    jobOfferId: number,
+    options: {
+      initialProfileType?: ProfileType;
+      initialLanguage?: ProfileLanguage;
+      forNewApplication?: boolean;
+    } = {},
+  ): void {
+    this.selectedProfileType.set(options.initialProfileType ?? null);
+    this.selectedLanguage.set(options.initialLanguage ?? 'de');
     this.dialog
-      .open<unknown, unknown, ProfileType>(this.profileTypeDialogTemplate, {
+      .open<unknown, unknown, ProfileChoice>(this.profileTypeDialogTemplate, {
         disableClose: true,
         width: '480px',
       })
       .afterClosed()
-      .subscribe((profileType) => {
-        if (!profileType) {
+      .subscribe((choice) => {
+        if (!choice) {
           return;
         }
-        this.generateForFirstTime(jobOfferId, profileType);
+        if (options.forNewApplication) {
+          this.startNewApplicationForProfile(jobOfferId, choice);
+          return;
+        }
+        this.generateForFirstTime(jobOfferId, choice.profileType, choice.language);
       });
   }
 
-  private generateForFirstTime(jobOfferId: number, profileType?: ProfileType): void {
+  protected confirmProfileChoice(dialogRef: MatDialogRef<unknown>): void {
+    const profileType = this.selectedProfileType();
+    if (!profileType) {
+      return;
+    }
+    dialogRef.close({ profileType, language: this.selectedLanguage() } satisfies ProfileChoice);
+  }
+
+  private generateForFirstTime(
+    jobOfferId: number,
+    profileType?: ProfileType,
+    language?: ProfileLanguage,
+  ): void {
     this.isFirstGeneration.set(true);
     this.tabTitleService.markGenerationStarted();
-    this.applicationService.generate(jobOfferId, profileType).subscribe({
+    this.applicationService.generate(jobOfferId, profileType, language).subscribe({
       next: (application) => {
         this.isFirstGeneration.set(false);
         this.tabTitleService.markGenerationSettled();
@@ -470,7 +501,12 @@ export class ApplicationEditorComponent implements OnInit {
 
     this.regenerating.set(true);
     this.tabTitleService.markGenerationStarted();
-    this.applicationService.generate(application.job_offer_id).subscribe({
+    this.applicationService.generate(
+      application.job_offer_id,
+      undefined,
+      undefined,
+      application.id,
+    ).subscribe({
       next: (updated) => {
         this.regenerating.set(false);
         this.tabTitleService.markGenerationSettled();
@@ -505,21 +541,30 @@ export class ApplicationEditorComponent implements OnInit {
     if (!application || !otherProfileType || this.busy()) {
       return;
     }
-
-    this.startingNewApplication.set(true);
-    this.applicationService.generate(application.job_offer_id, otherProfileType, true).subscribe({
-      next: (newApplication) => {
-        this.startingNewApplication.set(false);
-        void this.router.navigate(['/editor', application.job_offer_id, newApplication.id]);
-      },
-      error: (error: HttpErrorResponse) => {
-        this.startingNewApplication.set(false);
-        const message =
-          (error.error?.detail as string | undefined) ??
-          'A new application for the other profile could not be started.';
-        this.snackBar.open(message, 'OK', { duration: 4000 });
-      },
+    this.promptForProfileType(application.job_offer_id, {
+      initialProfileType: otherProfileType,
+      initialLanguage: application.language ?? 'de',
+      forNewApplication: true,
     });
+  }
+
+  private startNewApplicationForProfile(jobOfferId: number, choice: ProfileChoice): void {
+    this.startingNewApplication.set(true);
+    this.applicationService
+      .generate(jobOfferId, choice.profileType, choice.language, undefined, true)
+      .subscribe({
+        next: (newApplication) => {
+          this.startingNewApplication.set(false);
+          void this.router.navigate(['/editor', jobOfferId, newApplication.id]);
+        },
+        error: (error: HttpErrorResponse) => {
+          this.startingNewApplication.set(false);
+          const message =
+            (error.error?.detail as string | undefined) ??
+            'A new application for the other profile could not be started.';
+          this.snackBar.open(message, 'OK', { duration: 4000 });
+        },
+      });
   }
 
   onOpenSendDialog(): void {

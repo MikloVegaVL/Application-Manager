@@ -15,8 +15,8 @@ import {
 // eine einzige Quelle (`application.model.ts`, wo es zuerst für
 // `ApplicationGenerateRequest.profile_type` gebraucht wurde). Re-exportiert,
 // damit bestehende Importe von dieser Datei unverändert bleiben.
-import { ProfileType } from '../models/application.model';
-export type { ProfileType };
+import { ProfileLanguage, ProfileType } from '../models/application.model';
+export type { ProfileLanguage, ProfileType };
 
 /** Antwort von `GET /profile/migration-status` (U6, R8). */
 export interface MigrationStatusResponse {
@@ -53,14 +53,30 @@ export class ProfileService {
     return `${this.baseUrl}/${profileType}`;
   }
 
-  /** Lädt das Master-Profil des gegebenen Typs. Löst mit HTTP 404, falls noch keines angelegt wurde. */
-  getProfile(profileType: ProfileType): Observable<MasterProfileRead> {
-    return this.http.get<MasterProfileRead>(this.profileUrl(profileType));
+  /** Lädt das Master-Profil der Kombination `(profileType, language)`. Löst mit HTTP 404, falls noch keines angelegt wurde. */
+  getProfile(profileType: ProfileType, language: ProfileLanguage): Observable<MasterProfileRead> {
+    return this.http.get<MasterProfileRead>(this.profileUrl(profileType), { params: { language } });
   }
 
-  /** Legt das Profil des gegebenen Typs an (Erstaufruf) oder überschreibt es vollständig (Upsert). */
-  saveProfile(profileType: ProfileType, profile: MasterProfile): Observable<MasterProfileRead> {
-    return this.http.put<MasterProfileRead>(this.profileUrl(profileType), profile);
+  /** Stellt sicher, dass `(profileType, language)` existiert; klont sonst die Schwester-Sprachvariante. */
+  ensureProfileLanguage(
+    profileType: ProfileType,
+    language: ProfileLanguage,
+  ): Observable<MasterProfileRead> {
+    return this.http.post<MasterProfileRead>(`${this.profileUrl(profileType)}/ensure`, null, {
+      params: { language },
+    });
+  }
+
+  /** Legt das Profil der Kombination an (Erstaufruf) oder überschreibt es vollständig (Upsert). */
+  saveProfile(
+    profileType: ProfileType,
+    language: ProfileLanguage,
+    profile: MasterProfile,
+  ): Observable<MasterProfileRead> {
+    return this.http.put<MasterProfileRead>(this.profileUrl(profileType), profile, {
+      params: { language },
+    });
   }
 
   /**
@@ -69,8 +85,14 @@ export class ProfileService {
    * mit HTTP 422, falls doch ein nicht-null Identitätsfeld mitgeschickt
    * wird, bzw. HTTP 404, falls noch kein Profil dieses Typs existiert (KTD9).
    */
-  patchProfile(profileType: ProfileType, payload: ProfileContentUpdate): Observable<MasterProfileRead> {
-    return this.http.patch<MasterProfileRead>(this.profileUrl(profileType), payload);
+  patchProfile(
+    profileType: ProfileType,
+    language: ProfileLanguage,
+    payload: ProfileContentUpdate,
+  ): Observable<MasterProfileRead> {
+    return this.http.patch<MasterProfileRead>(this.profileUrl(profileType), payload, {
+      params: { language },
+    });
   }
 
   /**
@@ -81,9 +103,10 @@ export class ProfileService {
    * KI gibt die extrahierten Textwerte immer auf Englisch aus. Kein
    * `profile_type` nötig - dieser Endpunkt liest/schreibt kein Profil.
    */
-  parseCv(file: File): Observable<CvParseResponse> {
+  parseCv(file: File, language: ProfileLanguage): Observable<CvParseResponse> {
     const formData = new FormData();
     formData.append('file', file, file.name);
+    formData.append('language', language);
     return this.http.post<CvParseResponse>(`${this.cvBuilderBaseUrl}/parse`, formData);
   }
 
@@ -91,15 +114,23 @@ export class ProfileService {
    * Lädt die Lebenslauf-Anhang-Datei hoch, die (unverändert, ohne KI-
    * Analyse) beim Versand einer Bewerbung als E-Mail-Anhang verwendet wird.
    */
-  uploadCvFile(profileType: ProfileType, file: File): Observable<MasterProfileRead> {
+  uploadCvFile(
+    profileType: ProfileType,
+    language: ProfileLanguage,
+    file: File,
+  ): Observable<MasterProfileRead> {
     const formData = new FormData();
     formData.append('file', file, file.name);
-    return this.http.post<MasterProfileRead>(`${this.profileUrl(profileType)}/cv-file`, formData);
+    return this.http.post<MasterProfileRead>(`${this.profileUrl(profileType)}/cv-file`, formData, {
+      params: { language },
+    });
   }
 
   /** Entfernt die hochgeladene Lebenslauf-Anhang-Datei wieder. */
-  deleteCvFile(profileType: ProfileType): Observable<MasterProfileRead> {
-    return this.http.delete<MasterProfileRead>(`${this.profileUrl(profileType)}/cv-file`);
+  deleteCvFile(profileType: ProfileType, language: ProfileLanguage): Observable<MasterProfileRead> {
+    return this.http.delete<MasterProfileRead>(`${this.profileUrl(profileType)}/cv-file`, {
+      params: { language },
+    });
   }
 
   /**
@@ -107,15 +138,28 @@ export class ProfileService {
    * Lebenslauf-Anhang), der beim Versand einer Bewerbung zusätzlich zum
    * Lebenslauf mitgeschickt wird.
    */
-  uploadAttachment(profileType: ProfileType, file: File): Observable<MasterProfileRead> {
+  uploadAttachment(
+    profileType: ProfileType,
+    language: ProfileLanguage,
+    file: File,
+  ): Observable<MasterProfileRead> {
     const formData = new FormData();
     formData.append('file', file, file.name);
-    return this.http.post<MasterProfileRead>(`${this.profileUrl(profileType)}/attachments`, formData);
+    return this.http.post<MasterProfileRead>(`${this.profileUrl(profileType)}/attachments`, formData, {
+      params: { language },
+    });
   }
 
   /** Entfernt einen zusätzlichen PDF-Anhang wieder (per ID). */
-  deleteAttachment(profileType: ProfileType, attachmentId: number): Observable<MasterProfileRead> {
-    return this.http.delete<MasterProfileRead>(`${this.profileUrl(profileType)}/attachments/${attachmentId}`);
+  deleteAttachment(
+    profileType: ProfileType,
+    language: ProfileLanguage,
+    attachmentId: number,
+  ): Observable<MasterProfileRead> {
+    return this.http.delete<MasterProfileRead>(
+      `${this.profileUrl(profileType)}/attachments/${attachmentId}`,
+      { params: { language } },
+    );
   }
 
   /**
@@ -123,23 +167,34 @@ export class ProfileService {
    * KTD4 / `backend/app/api/profile.py:upload_photo`) - ersetzt ein bereits
    * vorhandenes Foto.
    */
-  uploadPhoto(profileType: ProfileType, file: File): Observable<MasterProfileRead> {
+  uploadPhoto(
+    profileType: ProfileType,
+    language: ProfileLanguage,
+    file: File,
+  ): Observable<MasterProfileRead> {
     const formData = new FormData();
     formData.append('file', file, file.name);
-    return this.http.post<MasterProfileRead>(`${this.profileUrl(profileType)}/photo`, formData);
+    return this.http.post<MasterProfileRead>(`${this.profileUrl(profileType)}/photo`, formData, {
+      params: { language },
+    });
   }
 
   /**
    * Lädt das aktuelle Profilfoto als Blob (für eine Bildvorschau im CV
    * Builder). Löst mit HTTP 404, falls noch kein Foto hochgeladen wurde.
    */
-  getPhoto(profileType: ProfileType): Observable<Blob> {
-    return this.http.get(`${this.profileUrl(profileType)}/photo`, { responseType: 'blob' });
+  getPhoto(profileType: ProfileType, language: ProfileLanguage): Observable<Blob> {
+    return this.http.get(`${this.profileUrl(profileType)}/photo`, {
+      responseType: 'blob',
+      params: { language },
+    });
   }
 
   /** Entfernt das hochgeladene Profilfoto wieder. */
-  deletePhoto(profileType: ProfileType): Observable<MasterProfileRead> {
-    return this.http.delete<MasterProfileRead>(`${this.profileUrl(profileType)}/photo`);
+  deletePhoto(profileType: ProfileType, language: ProfileLanguage): Observable<MasterProfileRead> {
+    return this.http.delete<MasterProfileRead>(`${this.profileUrl(profileType)}/photo`, {
+      params: { language },
+    });
   }
 
   /** Lädt die kleine, feste Auswahl wählbarer CV-Vorlagen (R9, KTD8). Kein `profile_type` nötig. */
@@ -156,11 +211,15 @@ export class ProfileService {
    * inkl. Headern - hier ungenutzt, aber symmetrisch zu `exportCv`, das den
    * `Content-Disposition`-Dateinamen daraus liest.
    */
-  previewCv(profileType: ProfileType, payload: CvRenderPayload): Observable<HttpResponse<Blob>> {
+  previewCv(
+    profileType: ProfileType,
+    language: ProfileLanguage,
+    payload: CvRenderPayload,
+  ): Observable<HttpResponse<Blob>> {
     return this.http.post(`${this.cvBuilderBaseUrl}/preview`, payload, {
       responseType: 'blob',
       observe: 'response',
-      params: { profile_type: profileType },
+      params: { profile_type: profileType, language },
     });
   }
 
@@ -168,11 +227,15 @@ export class ProfileService {
    * Rendert den aktuellen (ggf. ungespeicherten) CV-Builder-Formularinhalt
    * als PDF zum Download (`POST /cv-builder/export`, R11, KTD11). `profile_type` siehe `previewCv` oben.
    */
-  exportCv(profileType: ProfileType, payload: CvRenderPayload): Observable<HttpResponse<Blob>> {
+  exportCv(
+    profileType: ProfileType,
+    language: ProfileLanguage,
+    payload: CvRenderPayload,
+  ): Observable<HttpResponse<Blob>> {
     return this.http.post(`${this.cvBuilderBaseUrl}/export`, payload, {
       responseType: 'blob',
       observe: 'response',
-      params: { profile_type: profileType },
+      params: { profile_type: profileType, language },
     });
   }
 

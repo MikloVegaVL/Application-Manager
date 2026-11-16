@@ -4,10 +4,10 @@ Die Vorschau zeigt einen vollständigen Lebenslauf-Skeleton, damit eine Vorlage
 schon vor dem Ausfüllen beurteilt werden kann (R7). Leere Felder/Abschnitte
 werden dafür mit diesem Inhalt gefüllt; der Export enthält ihn nie (R9).
 
-`SAMPLE_EN` ist der einzige Beispiel-Inhalt - die App ist fest englischsprachig
-(Global Language Unification, 2026-09-13). Nutzerinhalte werden dabei nie
-übersetzt; das Skeleton betrifft ausschließlich die feste Dokument-Chrome und
-diesen Vorschau-Platzhalterinhalt.
+`SAMPLE_EN`/`SAMPLE_DE` sind die sprachabhängigen Beispiel-Inhalte der
+Vorschau (docs/plans/2026-11-16-001-feat-bilingual-cv-profiles-plan.md, R7).
+Nutzerinhalte werden dabei nie übersetzt; das Skeleton betrifft ausschließlich
+die feste Dokument-Chrome und diesen Vorschau-Platzhalterinhalt.
 
 Die Einträge sind bereits in Render-Form (inkl. `date_range`), damit die
 Templates sie ohne weitere Normalisierung wie echte Daten rendern können.
@@ -76,6 +76,58 @@ SAMPLE_EN: dict[str, Any] = {
             "description": "Personal portfolio site with a project overview.",
             "date_range": "2023",
             "link": "https://example.com/portfolio",
+        }
+    ],
+}
+
+SAMPLE_DE: dict[str, Any] = {
+    "summary": (
+        "Erfahrene Fachkraft mit Fokus auf moderne Webanwendungen und "
+        "strukturierte, wartbare Lösungen. Selbstständiges Arbeiten und die "
+        "Begleitung von Projekten von der Idee bis zur Lieferung gewohnt."
+    ),
+    "berufsbezeichnung": "Frontend-Entwickler",
+    "entry_description": "Beschreibung der Rolle …",
+    "project_description": "Kurze Projektbeschreibung …",
+    "education_description": "Schwerpunkte und besondere Leistungen …",
+    "phone": "+49 170 0000000",
+    "address": "Beispielstraße 1, 12345 Beispielstadt",
+    "linkedin": "linkedin.com/in/beispiel",
+    "website": "beispiel.de",
+    "experiences": [
+        {
+            "company": "Beispiel GmbH",
+            "role": "Frontend-Entwickler",
+            "date_range": "seit 2022",
+            "description": "Entwicklung und Wartung moderner Webanwendungen.",
+        },
+        {
+            "company": "Sample AG",
+            "role": "Junior-Entwickler",
+            "date_range": "2020 – 2022",
+            "description": "Mitarbeit an Frontend-Projekten und Qualitätssicherung.",
+        },
+    ],
+    "education": [
+        {
+            "institution": "Universität Beispielstadt",
+            "degree": "B.Sc. Informatik",
+            "field_of_study": "Informatik",
+            "date_range": "2017 – 2020",
+        }
+    ],
+    "skills": _SAMPLE_SKILLS,
+    "languages": [
+        {"name": "Deutsch", "level": "C2"},
+        {"name": "Englisch", "level": "B2"},
+    ],
+    "projects": [
+        {
+            "title": "Portfolio-Website",
+            "role": "Lead-Entwickler",
+            "description": "Persönliche Portfolio-Seite mit Projektübersicht.",
+            "date_range": "2023",
+            "link": "https://beispiel.de/portfolio",
         }
     ],
 }

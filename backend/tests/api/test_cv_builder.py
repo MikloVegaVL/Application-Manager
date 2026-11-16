@@ -77,7 +77,9 @@ def client_with_session():
 
 def _create_profile(session_local, **overrides) -> MasterProfile:
     db = session_local()
-    defaults = dict(profile_type="it", full_name="Max Mustermann", email="max@example.com")
+    defaults = dict(
+        profile_type="it", language="en", full_name="Max Mustermann", email="max@example.com"
+    )
     defaults.update(overrides)
     profile = MasterProfile(**defaults)
     db.add(profile)
@@ -96,6 +98,7 @@ def _parse(test_client: TestClient, mocker, parsed: ParsedCvProfile | None = Non
     return test_client.post(
         "/api/cv-builder/parse",
         files={"file": ("cv.pdf", b"%PDF-1.4 fake content", "application/pdf")},
+        data={"language": "en"},
     )
 
 
@@ -190,6 +193,7 @@ def test_parse_cv_rejects_non_pdf_upload(client, mocker):
     response = client.post(
         "/api/cv-builder/parse",
         files={"file": ("cv.docx", b"not a pdf", "application/octet-stream")},
+        data={"language": "en"},
     )
 
     assert response.status_code == 415
@@ -253,7 +257,7 @@ _RENDER_PAYLOAD = {
 def test_preview_requires_existing_profile(client_with_session):
     test_client, _ = client_with_session
 
-    response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD, params={"profile_type": "it"})
+    response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD, params={"profile_type": "it", "language": "en"})
 
     assert response.status_code == 404
 
@@ -261,7 +265,7 @@ def test_preview_requires_existing_profile(client_with_session):
 def test_export_requires_existing_profile(client_with_session):
     test_client, _ = client_with_session
 
-    response = test_client.post("/api/cv-builder/export", json=_RENDER_PAYLOAD, params={"profile_type": "it"})
+    response = test_client.post("/api/cv-builder/export", json=_RENDER_PAYLOAD, params={"profile_type": "it", "language": "en"})
 
     assert response.status_code == 404
 
@@ -277,7 +281,7 @@ def test_preview_returns_inline_pdf_with_merged_identity(client_with_session, mo
     )
     render_spy = mocker.spy(cv_builder_module, "render_cv_pdf")
 
-    response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD, params={"profile_type": "it"})
+    response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD, params={"profile_type": "it", "language": "en"})
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
@@ -297,7 +301,7 @@ def test_export_returns_attachment_disposition_with_sanitized_filename(client_wi
     test_client, session_local = client_with_session
     _create_profile(session_local, full_name="Max Müller/Mustermann", email="max@example.com")
 
-    response = test_client.post("/api/cv-builder/export", json=_RENDER_PAYLOAD, params={"profile_type": "it"})
+    response = test_client.post("/api/cv-builder/export", json=_RENDER_PAYLOAD, params={"profile_type": "it", "language": "en"})
 
     assert response.status_code == 200
     disposition = response.headers["content-disposition"]
@@ -314,26 +318,30 @@ def test_preview_and_export_use_the_same_renderer_with_different_modes(client_wi
     _create_profile(session_local)
     render_spy = mocker.spy(cv_builder_module, "render_cv_pdf")
 
-    preview_response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD, params={"profile_type": "it"})
+    preview_response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD, params={"profile_type": "it", "language": "en"})
     assert preview_response.status_code == 200
     assert render_spy.call_args.kwargs["preview"] is True
 
-    export_response = test_client.post("/api/cv-builder/export", json=_RENDER_PAYLOAD, params={"profile_type": "it"})
+    export_response = test_client.post("/api/cv-builder/export", json=_RENDER_PAYLOAD, params={"profile_type": "it", "language": "en"})
     assert export_response.status_code == 200
     assert render_spy.call_args.kwargs["preview"] is False
 
 
-def test_render_no_longer_accepts_a_document_language_kwarg(client_with_session, mocker):
-    """R4 (Global Language Unification, 2026-09-13): es gibt keine
-    Dokumentsprache mehr zu wählen - `render_cv_pdf` wird ohne
-    `document_language` aufgerufen und liefert fest Englisch."""
+def test_render_passes_profile_language_and_no_document_language_kwarg(client_with_session, mocker):
+    """R5: die Dokumentsprache kommt vom adressierten Profil - `render_cv_pdf`
+    erhält `language`, aber niemals ein separates `document_language`."""
     test_client, session_local = client_with_session
     _create_profile(session_local)
     render_spy = mocker.spy(cv_builder_module, "render_cv_pdf")
 
-    response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD, params={"profile_type": "it"})
+    response = test_client.post(
+        "/api/cv-builder/preview",
+        json=_RENDER_PAYLOAD,
+        params={"profile_type": "it", "language": "en"},
+    )
 
     assert response.status_code == 200
+    assert render_spy.call_args.kwargs["language"] == "en"
     assert "document_language" not in render_spy.call_args.kwargs
 
 
@@ -345,8 +353,8 @@ def test_preview_and_export_render_successfully_with_template_2(client_with_sess
     _create_profile(session_local)
     payload = {**_RENDER_PAYLOAD, "template_id": "template-2"}
 
-    preview_response = test_client.post("/api/cv-builder/preview", json=payload, params={"profile_type": "it"})
-    export_response = test_client.post("/api/cv-builder/export", json=payload, params={"profile_type": "it"})
+    preview_response = test_client.post("/api/cv-builder/preview", json=payload, params={"profile_type": "it", "language": "en"})
+    export_response = test_client.post("/api/cv-builder/export", json=payload, params={"profile_type": "it", "language": "en"})
 
     assert preview_response.status_code == 200
     assert preview_response.content.startswith(b"%PDF")
@@ -362,8 +370,8 @@ def test_preview_and_export_render_successfully_with_template_3(client_with_sess
     _create_profile(session_local)
     payload = {**_RENDER_PAYLOAD, "template_id": "template-3"}
 
-    preview_response = test_client.post("/api/cv-builder/preview", json=payload, params={"profile_type": "it"})
-    export_response = test_client.post("/api/cv-builder/export", json=payload, params={"profile_type": "it"})
+    preview_response = test_client.post("/api/cv-builder/preview", json=payload, params={"profile_type": "it", "language": "en"})
+    export_response = test_client.post("/api/cv-builder/export", json=payload, params={"profile_type": "it", "language": "en"})
 
     assert preview_response.status_code == 200
     assert preview_response.content.startswith(b"%PDF")
@@ -379,8 +387,8 @@ def test_preview_and_export_render_successfully_with_template_4(client_with_sess
     _create_profile(session_local)
     payload = {**_RENDER_PAYLOAD, "template_id": "template-4"}
 
-    preview_response = test_client.post("/api/cv-builder/preview", json=payload, params={"profile_type": "it"})
-    export_response = test_client.post("/api/cv-builder/export", json=payload, params={"profile_type": "it"})
+    preview_response = test_client.post("/api/cv-builder/preview", json=payload, params={"profile_type": "it", "language": "en"})
+    export_response = test_client.post("/api/cv-builder/export", json=payload, params={"profile_type": "it", "language": "en"})
 
     assert preview_response.status_code == 200
     assert preview_response.content.startswith(b"%PDF")
@@ -393,7 +401,7 @@ def test_render_rejects_legacy_modern_template_id(client_with_session):
     _create_profile(session_local)
     payload = {**_RENDER_PAYLOAD, "template_id": "modern"}
 
-    response = test_client.post("/api/cv-builder/preview", json=payload, params={"profile_type": "it"})
+    response = test_client.post("/api/cv-builder/preview", json=payload, params={"profile_type": "it", "language": "en"})
 
     assert response.status_code == 422
 
@@ -403,7 +411,7 @@ def test_render_rejects_unknown_template_id(client_with_session):
     _create_profile(session_local)
     payload = {**_RENDER_PAYLOAD, "template_id": "does-not-exist"}
 
-    response = test_client.post("/api/cv-builder/preview", json=payload, params={"profile_type": "it"})
+    response = test_client.post("/api/cv-builder/preview", json=payload, params={"profile_type": "it", "language": "en"})
 
     assert response.status_code == 422
 
@@ -415,7 +423,7 @@ def test_render_surfaces_pdf_render_error_as_http_error(client_with_session, moc
         pdf_service, "HTML"
     ).return_value.write_pdf.side_effect = RuntimeError("boom")
 
-    response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD, params={"profile_type": "it"})
+    response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD, params={"profile_type": "it", "language": "en"})
 
     assert response.status_code == 500
 
@@ -433,9 +441,9 @@ def test_preview_uses_only_the_selected_profile_type(client_with_session):
     _create_profile(session_local, profile_type="it", full_name="IT Person", email="it@example.com")
     _create_profile(session_local, profile_type="full_life", full_name="Full Life Person", email="fl@example.com")
 
-    it_response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD, params={"profile_type": "it"})
+    it_response = test_client.post("/api/cv-builder/preview", json=_RENDER_PAYLOAD, params={"profile_type": "it", "language": "en"})
     full_life_response = test_client.post(
-        "/api/cv-builder/preview", json=_RENDER_PAYLOAD, params={"profile_type": "full_life"}
+        "/api/cv-builder/preview", json=_RENDER_PAYLOAD, params={"profile_type": "full_life", "language": "en"}
     )
 
     assert it_response.status_code == 200
@@ -448,9 +456,9 @@ def test_export_uses_only_the_selected_profile_type(client_with_session):
     _create_profile(session_local, profile_type="it", full_name="IT Person", email="it@example.com")
     _create_profile(session_local, profile_type="full_life", full_name="Full Life Person", email="fl@example.com")
 
-    it_response = test_client.post("/api/cv-builder/export", json=_RENDER_PAYLOAD, params={"profile_type": "it"})
+    it_response = test_client.post("/api/cv-builder/export", json=_RENDER_PAYLOAD, params={"profile_type": "it", "language": "en"})
     full_life_response = test_client.post(
-        "/api/cv-builder/export", json=_RENDER_PAYLOAD, params={"profile_type": "full_life"}
+        "/api/cv-builder/export", json=_RENDER_PAYLOAD, params={"profile_type": "full_life", "language": "en"}
     )
 
     assert "IT_Person" in it_response.headers["content-disposition"]
@@ -462,7 +470,7 @@ def test_preview_returns_404_for_profile_type_without_a_row(client_with_session)
     _create_profile(session_local, profile_type="it")
 
     response = test_client.post(
-        "/api/cv-builder/preview", json=_RENDER_PAYLOAD, params={"profile_type": "full_life"}
+        "/api/cv-builder/preview", json=_RENDER_PAYLOAD, params={"profile_type": "full_life", "language": "en"}
     )
 
     assert response.status_code == 404
@@ -477,23 +485,22 @@ def test_preview_requires_the_profile_type_query_param(client_with_session):
     assert response.status_code == 422
 
 
-# --- POST /cv-builder/parse: fixed English import (Global Language
-# Unification, 2026-09-13) ---------------------------------------------
+# --- POST /cv-builder/parse: target-language import (R9) ------------------
 
 
-def test_parse_calls_the_parser_without_a_language_argument(client, mocker):
-    """Es gibt kein `language`-Form-Feld mehr - der Import ist fest
-    Englisch, gesteuert allein durch `parse_cv_pdf`s eigenen Default."""
+def test_parse_passes_the_target_language_to_the_parser(client, mocker):
+    """R9: der Import erhält die Zielsprache des adressierten Profils."""
     parsed = ParsedCvProfile(full_name="Max Mustermann", email="max@example.com")
     mock_parse = mocker.patch("app.api.cv_builder.parse_cv_pdf", return_value=parsed)
 
     response = client.post(
         "/api/cv-builder/parse",
         files={"file": ("cv.pdf", b"%PDF-1.4 fake content", "application/pdf")},
+        data={"language": "de"},
     )
 
     assert response.status_code == 200
-    mock_parse.assert_called_once_with(b"%PDF-1.4 fake content")
+    mock_parse.assert_called_once_with(b"%PDF-1.4 fake content", "de")
 
 
 # --- POST /cv-builder/translate: removed (U2, R2) --------------------------

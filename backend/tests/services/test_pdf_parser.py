@@ -35,13 +35,13 @@ class TestAnalyzeCvTextHappyPath:
             pdf_parser.llm_client, "generate_structured", return_value=VALID_PROFILE
         )
 
-        result = pdf_parser.analyze_cv_text("Lebenslauf-Text von Max Mustermann.")
+        result = pdf_parser.analyze_cv_text("Lebenslauf-Text von Max Mustermann.", "en")
 
         assert result is VALID_PROFILE
         mock_generate.assert_called_once()
         called_model_cls, called_messages = mock_generate.call_args[0]
         assert called_model_cls is ParsedCvProfile
-        assert called_messages[0] == {"role": "system", "content": pdf_parser._SYSTEM_PROMPT}
+        assert called_messages[0] == {"role": "system", "content": pdf_parser._system_prompt("en")}
         assert called_messages[1] == {
             "role": "user",
             "content": "Lebenslauf-Text von Max Mustermann.",
@@ -63,23 +63,23 @@ class TestAnalyzeCvTextHappyPath:
             pdf_parser.llm_client, "generate_structured", return_value=VALID_PROFILE
         )
 
-        pdf_parser.analyze_cv_text("Lebenslauf-Text von Max Mustermann.")
+        pdf_parser.analyze_cv_text("Lebenslauf-Text von Max Mustermann.", "en")
 
         assert mock_generate.call_args.kwargs["model"] == settings.OLLAMA_MODEL_CV_PARSING
 
 
-    def test_system_prompt_requests_english_output(self):
-        """Die App ist fest englischsprachig (Global Language Unification,
-        2026-09-13): der Prompt fordert immer Englisch, unabhängig von der
-        Quellsprache des CVs."""
-        assert "ENGLISH" in pdf_parser._SYSTEM_PROMPT
-        assert "GERMAN" not in pdf_parser._SYSTEM_PROMPT
+    def test_system_prompt_requests_the_target_language(self):
+        """R9: der Prompt fordert die Zielsprache des adressierten Profils."""
+        assert "ENGLISH" in pdf_parser._system_prompt("en")
+        assert "GERMAN" not in pdf_parser._system_prompt("en")
+        assert "GERMAN" in pdf_parser._system_prompt("de")
+        assert "ENGLISH" not in pdf_parser._system_prompt("de")
 
     def test_system_prompt_no_longer_mentions_skill_category(self):
         """Skill-Kategorien wurden aus dem Produkt entfernt (R8, Session-
         Entscheidung CV-Template-Erweiterungs-Plan 2026-09-13): die KI soll
         weder eine Kategorie zuordnen noch danach gefragt werden."""
-        assert "category" not in pdf_parser._SYSTEM_PROMPT
+        assert "category" not in pdf_parser._system_prompt("en")
 
 
 class TestAnalyzeCvTextValidationFailure:
@@ -91,7 +91,7 @@ class TestAnalyzeCvTextValidationFailure:
         )
 
         with pytest.raises(CvAnalysisError):
-            pdf_parser.analyze_cv_text("irrelevanter Text")
+            pdf_parser.analyze_cv_text("irrelevanter Text", "en")
 
 
 class TestAnalyzeCvTextUnavailable:
@@ -103,7 +103,7 @@ class TestAnalyzeCvTextUnavailable:
         )
 
         with pytest.raises(CvAnalysisError):
-            pdf_parser.analyze_cv_text("irrelevanter Text")
+            pdf_parser.analyze_cv_text("irrelevanter Text", "en")
 
 
 class TestAnalyzeCvTextTruncation:
@@ -113,7 +113,7 @@ class TestAnalyzeCvTextTruncation:
         )
         raw_text = "x" * (pdf_parser._MAX_INPUT_CHARS + 500)
 
-        pdf_parser.analyze_cv_text(raw_text)
+        pdf_parser.analyze_cv_text(raw_text, "en")
 
         _called_model_cls, called_messages = mock_generate.call_args[0]
         sent_content = called_messages[1]["content"]
@@ -126,7 +126,7 @@ class TestAnalyzeCvTextTruncation:
         )
         raw_text = "y" * pdf_parser._MAX_INPUT_CHARS
 
-        pdf_parser.analyze_cv_text(raw_text)
+        pdf_parser.analyze_cv_text(raw_text, "en")
 
         _called_model_cls, called_messages = mock_generate.call_args[0]
         assert called_messages[1]["content"] == raw_text
@@ -269,7 +269,7 @@ class TestAnalyzeCvTextProjectsStructuralFailureFallback:
         ]
         mocker.patch.object(pdf_parser.llm_client.ollama, "Client", return_value=client_instance)
 
-        result = pdf_parser.analyze_cv_text("Lebenslauf-Text von Max Mustermann.")
+        result = pdf_parser.analyze_cv_text("Lebenslauf-Text von Max Mustermann.", "en")
 
         assert isinstance(result, ParsedCvProfile)
         assert len(result.projects) == 1

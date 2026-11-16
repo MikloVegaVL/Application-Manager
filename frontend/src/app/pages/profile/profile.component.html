@@ -10,6 +10,17 @@
       <p>Loading profile ...</p>
     </div>
   } @else {
+    <div class="profile-page__language">
+      <span class="profile-page__language-label">CV language</span>
+      <mat-button-toggle-group
+        [value]="language()"
+        (change)="onLanguageChange($event.value)"
+        aria-label="CV language"
+      >
+        <mat-button-toggle value="de">Deutsch</mat-button-toggle>
+        <mat-button-toggle value="en">English</mat-button-toggle>
+      </mat-button-toggle-group>
+    </div>
     <!-- U7/R1: äußerer Umschalter zwischen den zwei unabhängigen Profilen -
          umschließt den bestehenden Feld-Tabs (`profile-page__field-tabs`)
          unten per `ng-template`/`ngTemplateOutlet`, damit dessen Markup nicht

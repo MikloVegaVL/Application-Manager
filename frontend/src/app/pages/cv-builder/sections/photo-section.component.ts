@@ -14,7 +14,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
-import { ProfileService, ProfileType } from '../../../core/services/profile.service';
+import { ProfileLanguage, ProfileService, ProfileType } from '../../../core/services/profile.service';
 
 /**
  * Foto-Sektion des CV Builders (KTD4/KTD10). Anders als die übrigen
@@ -154,6 +154,7 @@ export class PhotoSectionComponent implements OnChanges, OnDestroy {
    * Eltern-Toggles muss das Foto dieses (neuen) Profils laden, nicht das
    * alte weiter anzeigen (R3). */
   readonly profileType = input.required<ProfileType>();
+  readonly language = input.required<ProfileLanguage>();
 
   protected readonly photoUrl = signal<string | null>(null);
   protected readonly loading = signal(true);
@@ -208,7 +209,7 @@ export class PhotoSectionComponent implements OnChanges, OnDestroy {
     }
 
     this.deleting.set(true);
-    this.profileService.deletePhoto(this.profileType()).subscribe({
+    this.profileService.deletePhoto(this.profileType(), this.language()).subscribe({
       next: () => {
         this.deleting.set(false);
         this.revokeCurrentUrl();
@@ -232,7 +233,7 @@ export class PhotoSectionComponent implements OnChanges, OnDestroy {
 
     this.errorMessage.set(null);
     this.uploading.set(true);
-    this.profileService.uploadPhoto(this.profileType(), file).subscribe({
+    this.profileService.uploadPhoto(this.profileType(), this.language(), file).subscribe({
       next: () => {
         this.uploading.set(false);
         // Vorschau direkt aus der bereits im Browser vorhandenen Datei bauen,
@@ -256,7 +257,7 @@ export class PhotoSectionComponent implements OnChanges, OnDestroy {
     this.loading.set(true);
     this.revokeCurrentUrl();
     this.photoUrl.set(null);
-    this.profileService.getPhoto(profileType).subscribe({
+    this.profileService.getPhoto(profileType, this.language()).subscribe({
       next: (blob) => {
         this.loading.set(false);
         this.revokeCurrentUrl();

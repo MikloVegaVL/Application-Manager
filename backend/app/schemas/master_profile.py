@@ -20,6 +20,11 @@ LanguageLevel = Literal["A1", "A2", "B1", "B2", "C1", "C2"]
 # deklarieren.
 ProfileType = Literal["it", "full_life"]
 
+# U1 (docs/plans/2026-11-16-001-feat-bilingual-cv-profiles-plan.md, KTD1):
+# Sprache ist eine eigene Profil-Dimension. Zusammen mit `ProfileType` bildet
+# sie einen der vier adressierbaren Profile.
+ProfileLanguage = Literal["de", "en"]
+
 
 class SkillEntry(BaseModel):
     """Ein Skill mit Kompetenzgrad (siehe KTD3).
@@ -154,6 +159,7 @@ class MasterProfileRead(MasterProfileBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    language: ProfileLanguage
     cv_filename: str | None = None
     attachments: list[ProfileAttachmentRead] = Field(default_factory=list)
     created_at: datetime

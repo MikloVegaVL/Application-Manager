@@ -13,6 +13,7 @@ from app.services import ai_generator
 
 def _profile(**overrides) -> MasterProfile:
     defaults = dict(
+        language="de",
         full_name="Max Mustermann",
         email="max@example.com",
         phone="0123-456789",

@@ -8,6 +8,9 @@ export type ApplicationStatus = 'draft' | 'sent' | 'rejected' | 'accepted' | 'in
  * ersten Generierung (R4/U8). */
 export type ProfileType = 'it' | 'full_life';
 
+/** Sprache eines Profils (docs/plans/2026-11-16-001-feat-bilingual-cv-profiles-plan.md). */
+export type ProfileLanguage = 'de' | 'en';
+
 /**
  * Kompaktes "applied"-Indiz aus der jüngsten `PortalSubmission`-Zeile der
  * Bewerbung (`ApplicationRead.submission`, siehe U4/KTD3) - `null`, solange
@@ -34,6 +37,8 @@ export interface Application {
   /** Zugeordnetes Profil (`it`/`full_life`, U3/R4/R5) - `null`, solange noch
    * nicht generiert wurde; danach für diese Bewerbung gesperrt. */
   profile_type: ProfileType | null;
+  /** Sprache des gesperrten Profils - `null`, solange noch nicht generiert. */
+  language: ProfileLanguage | null;
   /** Stellenangebot, zu dem die Bewerbung gehört - für die Übersichtsliste. */
   job_offer: JobOfferRead;
 }

@@ -18,7 +18,7 @@ from io import BytesIO
 from pypdf import PdfReader
 
 from app.core.config import settings
-from app.schemas.master_profile import ParsedCvProfile
+from app.schemas.master_profile import ParsedCvProfile, ProfileLanguage
 from app.services import llm_client
 from app.services.llm_client import LlmUnavailableError, LlmValidationError
 
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # einen Lebenslauf sind mehrere zehntausend Zeichen bereits sehr großzügig.
 _MAX_INPUT_CHARS = 15_000
 
-_SYSTEM_PROMPT = """\
+_SYSTEM_PROMPT_TEMPLATE = """\
 You are a precise assistant that analyses résumés (CVs) and turns their \
 content into structured JSON.
 
@@ -80,9 +80,9 @@ Rules:
 - Do not invent information that is not in the text.
 - Missing fields are set to null (or an empty list for arrays).
 - ALWAYS write all generated text values (summary, descriptions, roles, \
-degrees, skill names, project titles) in ENGLISH, even if the source CV is \
-written in another language. Translate as needed; keep proper nouns \
-(company/institution names, product names, URLs) unchanged.
+degrees, skill names, project titles) in __TARGET_LANGUAGE__, even if the \
+source CV is written in another language. Translate as needed; keep proper \
+nouns (company/institution names, product names, URLs) unchanged.
 - "skills" contains both technical skills (e.g. programming languages, tools) \
 and language skills/certificates as individual short strings.
 - "projects" contains standalone projects (e.g. open-source, study, \
@@ -161,12 +161,24 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
     return text
 
 
-def analyze_cv_text(raw_text: str) -> ParsedCvProfile:
+_LANGUAGE_NAMES: dict[str, str] = {"de": "GERMAN", "en": "ENGLISH"}
+
+
+def _system_prompt(language: ProfileLanguage) -> str:
+    """Baut den Extraktions-Prompt für die Zielsprache des adressierten
+    Profils. Die Schema-/Regel-Struktur bleibt identisch; nur die
+    Ausgabesprache wechselt (docs/plans/2026-11-16-001-feat-bilingual-cv-
+    profiles-plan.md, R9)."""
+    return _SYSTEM_PROMPT_TEMPLATE.replace("__TARGET_LANGUAGE__", _LANGUAGE_NAMES[language])
+
+
+def analyze_cv_text(raw_text: str, language: ProfileLanguage) -> ParsedCvProfile:
     """Lässt Ollama den Rohtext eines Lebenslaufs in ein strukturiertes
-    `ParsedCvProfile` überführen. Die extrahierten Textwerte werden immer auf
-    Englisch ausgegeben (die App ist fest englischsprachig)."""
+    `ParsedCvProfile` überführen. Die extrahierten Textwerte werden in der
+    Zielsprache des adressierten Profils ausgegeben (`de`/`en`); bei
+    abweichender Quellsprache übersetzt die KI."""
     messages = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "system", "content": _system_prompt(language)},
         {"role": "user", "content": raw_text[:_MAX_INPUT_CHARS]},
     ]
 
@@ -189,8 +201,8 @@ def analyze_cv_text(raw_text: str) -> ParsedCvProfile:
     return result
 
 
-def parse_cv_pdf(file_bytes: bytes) -> ParsedCvProfile:
+def parse_cv_pdf(file_bytes: bytes, language: ProfileLanguage) -> ParsedCvProfile:
     """End-to-End: PDF-Bytes -> Rohtext (pypdf) -> strukturiertes Profil
-    (Ollama)."""
+    (Ollama) in der Zielsprache `language`."""
     raw_text = extract_text_from_pdf(file_bytes)
-    return analyze_cv_text(raw_text)
+    return analyze_cv_text(raw_text, language)

@@ -53,6 +53,9 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt exakt in folgender Form \
 Regeln:
 - Erfinde KEINE Fakten (Firmen, Zeiträume, Abschlüsse, Institutionen), die \
 nicht im Bewerberprofil stehen.
+- Das Profil kann auf Deutsch oder Englisch hinterlegt sein. Formuliere das \
+Anschreiben immer auf Deutsch und übersetze englische Profilangaben \
+sinngemäß (Fakten bleiben unverändert).
 - Ist keine Ansprechperson aus der Stellenbeschreibung erkennbar, nutze \
 "Sehr geehrte Damen und Herren" als Anrede.
 - Der Name in der Grußformel ist der vollständige Name aus dem Bewerberprofil.

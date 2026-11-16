@@ -652,9 +652,9 @@ def orm_session():
 
 
 def test_two_profiles_with_same_email_but_different_profile_type_both_save(orm_session) -> None:
-    orm_session.add(MasterProfile(full_name="IT Profil", email="same@example.com", profile_type="it"))
+    orm_session.add(MasterProfile(full_name="IT Profil", email="same@example.com", profile_type="it", language="de"))
     orm_session.add(
-        MasterProfile(full_name="Non-IT Profil", email="same@example.com", profile_type="full_life")
+        MasterProfile(full_name="Non-IT Profil", email="same@example.com", profile_type="full_life", language="de")
     )
 
     orm_session.commit()  # must not raise
@@ -663,20 +663,38 @@ def test_two_profiles_with_same_email_but_different_profile_type_both_save(orm_s
 
 
 def test_second_profile_with_same_profile_type_is_rejected(orm_session) -> None:
-    orm_session.add(MasterProfile(full_name="Erstes IT Profil", email="first@example.com", profile_type="it"))
+    orm_session.add(MasterProfile(full_name="Erstes IT Profil", email="first@example.com", profile_type="it", language="de"))
     orm_session.commit()
 
-    orm_session.add(MasterProfile(full_name="Zweites IT Profil", email="second@example.com", profile_type="it"))
+    orm_session.add(MasterProfile(full_name="Zweites IT Profil", email="second@example.com", profile_type="it", language="de"))
     with pytest.raises(IntegrityError):
         orm_session.commit()
 
 
 def test_second_profile_with_null_profile_type_still_saves(orm_session) -> None:
-    orm_session.add(MasterProfile(full_name="Erstes IT Profil", email="first@example.com", profile_type="it"))
+    orm_session.add(MasterProfile(full_name="Erstes IT Profil", email="first@example.com", profile_type="it", language="de"))
     orm_session.commit()
 
-    orm_session.add(MasterProfile(full_name="Unassigned Profil", email="second@example.com", profile_type=None))
+    orm_session.add(MasterProfile(full_name="Unassigned Profil", email="second@example.com", profile_type=None, language="de"))
 
     orm_session.commit()  # must not raise: NULL never collides with NULL
+
+    assert orm_session.query(MasterProfile).count() == 2
+
+
+def test_same_profile_type_can_hold_a_german_and_an_english_profile(orm_session) -> None:
+    """U1/KTD1: die Unique-Constraint ist jetzt `(profile_type, language)`."""
+    orm_session.add(
+        MasterProfile(
+            full_name="IT Deutsch", email="it-de@example.com", profile_type="it", language="de"
+        )
+    )
+    orm_session.add(
+        MasterProfile(
+            full_name="IT English", email="it-en@example.com", profile_type="it", language="en"
+        )
+    )
+
+    orm_session.commit()  # must not raise
 
     assert orm_session.query(MasterProfile).count() == 2
